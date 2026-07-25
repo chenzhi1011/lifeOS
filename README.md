@@ -181,6 +181,12 @@ docs/custom-gpt-actions/openapi.yaml
 docs/custom-gpt-actions/instructions.md
 ```
 
+代码阅读指南见：
+
+```text
+docs/code-reading-guide.md
+```
+
 ## Supabase Setup
 
 1. 创建 Supabase project
