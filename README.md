@@ -45,7 +45,7 @@ Life OS 是一个 AI 驱动的个人成长积累系统。用户不整理任务�
 
 ## Features
 
-- 3D 全息成长树：根据目标和活动累计生成树枝、节点、亮度和丰富程度
+- 真实 3D 成长树：阳光、草坪、树模型、果实和花朵由目标与活动累计驱动
 - 自然语言输入：识别 `goal`、`task`、`activity`、`reminder`、`inbox`
 - 本地 mock 输入：测试阶段模拟微信或 App 的聊天入口
 - Custom GPT Actions：让自己的 GPT 调用 Vercel API 写入数据库

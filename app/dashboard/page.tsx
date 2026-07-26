@@ -1,4 +1,4 @@
-import { HolographicGrowthTree } from "@/src/components/HolographicGrowthTree";
+import { RealisticGrowthTree } from "@/src/components/RealisticGrowthTree";
 import { normalizeDashboardUserId } from "@/src/dashboard/user-id";
 import { readDashboardData } from "@/src/db/lifeos-read";
 
@@ -25,7 +25,7 @@ function DashboardUserGate({ attemptedUserId }: { attemptedUserId?: string }) {
           </label>
           <input
             autoComplete="off"
-            className="w-full rounded-md border border-white/16 bg-black/28 px-3 py-2 text-sm text-white outline-none focus:border-[#8cffdf]"
+            className="w-full rounded-md border border-white/16 bg-black/28 px-3 py-2 text-sm text-black outline-none focus:border-[#8cffdf]"
             defaultValue={attemptedUserId ?? ""}
             id="dashboard-user-id"
             name="userId"
@@ -50,5 +50,5 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const data = await readDashboardData(userId);
-  return <HolographicGrowthTree data={data} />;
+  return <RealisticGrowthTree data={data} />;
 }

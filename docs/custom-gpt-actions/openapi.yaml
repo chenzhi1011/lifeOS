@@ -3,7 +3,7 @@ info:
   title: Life OS Custom GPT Actions
   version: 1.0.0
 servers:
-  - url: https://YOUR-VERCEL-DOMAIN.vercel.app
+  - url: https://life-os-tau-dun.vercel.app
 paths:
   /api/actions/context:
     get:
@@ -151,6 +151,7 @@ paths:
         "429":
           description: Rate limit exceeded
 components:
+  schemas: {}
   securitySchemes:
     bearerAuth:
       type: http

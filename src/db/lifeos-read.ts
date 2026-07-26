@@ -1,4 +1,5 @@
 import { buildDashboardData, buildGoalDetail } from "@/src/domain/aggregation";
+import { isSupabaseAuthUserId } from "@/src/dashboard/user-id";
 import { lifeOSStore } from "@/src/domain/store";
 import type { Activity, Goal, InboxItem, LifeOSState } from "@/src/domain/types";
 import { createServiceSupabaseClient } from "./supabase";
@@ -19,6 +20,10 @@ function emptyState(userId: string): LifeOSState {
 }
 
 async function readSupabaseState(userId: string): Promise<LifeOSState | null> {
+  if (!isSupabaseAuthUserId(userId)) {
+    return null;
+  }
+
   const supabase = createServiceSupabaseClient();
   if (!supabase) {
     return null;

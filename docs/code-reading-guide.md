@@ -63,10 +63,10 @@ Dashboard 首页。
 3D 树组件：
 
 ```text
-src/components/HolographicGrowthTree.tsx
+src/components/RealisticGrowthTree.tsx
 ```
 
-这里负责 Three.js 场景初始化、树节点渲染、拖拽旋转、滚轮缩放、点击节点展示局部数据。
+这里负责 Three.js 场景初始化、真实树模型加载、草坪和阳光渲染、数据果实/花朵渲染、拖拽旋转、滚轮缩放、点击数据点展示局部数据。
 
 ### Local Mock Input
 
@@ -458,7 +458,7 @@ app/dashboard/page.tsx
 9. src/domain/aggregation.ts
 10. src/domain/tree-visualization.ts
 11. app/dashboard/page.tsx
-12. src/components/HolographicGrowthTree.tsx
+12. src/components/RealisticGrowthTree.tsx
 13. app/api/actions/life-event/route.ts
 14. src/actions/request.ts
 15. src/actions/auth.ts
@@ -489,4 +489,3 @@ Custom GPT
   -> Supabase 写入
   -> Dashboard 读取展示
 ```
-
