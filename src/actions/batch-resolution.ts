@@ -27,6 +27,8 @@ export type GoalResolution =
 export interface TaskMatchInput {
   summary: string;
   goalId: string | null;
+  occurredOn: string;
+  timezone: string;
   candidateTaskId?: string;
   matchConfidence?: number;
 }
@@ -105,10 +107,17 @@ export function matchOpenTask(
     return { kind: "unmatched" };
   }
 
+  const localDateFormatter = createLocalDateFormatter(input.timezone);
   const normalizedSummary = normalizeIntentTitle(input.summary);
+  const normalizedCandidateTitle = normalizeIntentTitle(candidate.title);
+  if (!normalizedSummary || !normalizedCandidateTitle) {
+    return { kind: "unmatched" };
+  }
+
   const candidateIsEquivalent =
     candidate.goalId === input.goalId &&
-    normalizeIntentTitle(candidate.title) === normalizedSummary;
+    normalizedCandidateTitle === normalizedSummary &&
+    taskMatchesDateEvidence(candidate, input.occurredOn, localDateFormatter);
   if (!candidateIsEquivalent) {
     return { kind: "unmatched" };
   }
@@ -117,7 +126,8 @@ export function matchOpenTask(
     (task) =>
       task.status === "open" &&
       task.goalId === input.goalId &&
-      normalizeIntentTitle(task.title) === normalizedSummary
+      normalizeIntentTitle(task.title) === normalizedSummary &&
+      taskMatchesDateEvidence(task, input.occurredOn, localDateFormatter)
   );
 
   if (equivalentTasks.length > 1) {
@@ -128,6 +138,41 @@ export function matchOpenTask(
   }
 
   return { kind: "matched", taskId: candidate.id };
+}
+
+function createLocalDateFormatter(timezone: string): Intl.DateTimeFormat {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+  } catch {
+    throw new Error(`invalid timezone: ${timezone}`);
+  }
+}
+
+function taskMatchesDateEvidence(
+  task: ActionTaskContext,
+  occurredOn: string,
+  formatter: Intl.DateTimeFormat
+): boolean {
+  if (task.dueAt === null) {
+    return true;
+  }
+
+  const dueAt = new Date(task.dueAt);
+  if (Number.isNaN(dueAt.getTime())) {
+    return false;
+  }
+
+  const dateParts = formatter.formatToParts(dueAt);
+  const year = dateParts.find((part) => part.type === "year")?.value;
+  const month = dateParts.find((part) => part.type === "month")?.value;
+  const day = dateParts.find((part) => part.type === "day")?.value;
+
+  return Boolean(year && month && day && `${year}-${month}-${day}` === occurredOn);
 }
 
 function unresolvedGoal(eventType: "task" | "activity"): GoalResolution {

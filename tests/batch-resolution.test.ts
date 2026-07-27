@@ -60,6 +60,70 @@ describe("resolveGoalReference", () => {
       reason: "activity requires a goal"
     });
   });
+
+  it("resolves an active candidate at the confidence threshold", () => {
+    expect(
+      resolveGoalReference(
+        {
+          explicit: false,
+          candidateGoalId: "goal-muscle",
+          matchConfidence: 0.85
+        },
+        "task",
+        goals,
+        aliases
+      )
+    ).toEqual({ kind: "resolved", goalId: "goal-muscle" });
+  });
+
+  it("does not resolve a candidate below the confidence threshold", () => {
+    expect(
+      resolveGoalReference(
+        {
+          explicit: false,
+          candidateGoalId: "goal-muscle",
+          matchConfidence: 0.849
+        },
+        "task",
+        goals,
+        aliases
+      )
+    ).toEqual({ kind: "unassigned" });
+  });
+
+  it("does not resolve an inactive candidate", () => {
+    expect(
+      resolveGoalReference(
+        {
+          explicit: false,
+          candidateGoalId: "goal-paused",
+          matchConfidence: 0.99
+        },
+        "task",
+        goals,
+        aliases
+      )
+    ).toEqual({ kind: "unassigned" });
+  });
+
+  it.each([
+    ["exact title", "AWS"],
+    ["alias", "云计算"]
+  ])("prefers an %s match over a conflicting candidate", (_case, title) => {
+    expect(
+      resolveGoalReference(
+        {
+          title,
+          explicit: true,
+          candidateGoalId: "goal-muscle",
+          matchConfidence: 0.99
+        },
+        "task",
+        goals,
+        aliases
+      )
+    ).toEqual({ kind: "resolved", goalId: "goal-aws" });
+  });
 });
 
 describe("matchOpenTask", () => {
@@ -77,6 +141,8 @@ describe("matchOpenTask", () => {
         {
           summary: "今天完成了，练 肩！",
           goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
           candidateTaskId: "task-shoulder",
           matchConfidence: 0.9
         },
@@ -91,6 +157,8 @@ describe("matchOpenTask", () => {
         {
           summary: "练肩",
           goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
           candidateTaskId: "task-shoulder",
           matchConfidence: 0.84
         },
@@ -105,6 +173,8 @@ describe("matchOpenTask", () => {
         {
           summary: "练肩",
           goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
           candidateTaskId: "task-shoulder",
           matchConfidence: 0.9
         },
@@ -119,6 +189,8 @@ describe("matchOpenTask", () => {
         {
           summary: "练肩",
           goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
           candidateTaskId: "task-shoulder",
           matchConfidence: 0.95
         },
@@ -136,6 +208,8 @@ describe("matchOpenTask", () => {
         {
           summary: "练肩",
           goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
           candidateTaskId: "task-running",
           matchConfidence: 0.95
         },
@@ -149,6 +223,111 @@ describe("matchOpenTask", () => {
           },
           openTask,
           { ...openTask, id: "task-shoulder-duplicate" }
+        ]
+      )
+    ).toEqual({ kind: "unmatched" });
+  });
+
+  it("uses the local due date to distinguish otherwise equivalent open tasks", () => {
+    expect(
+      matchOpenTask(
+        {
+          summary: "练肩",
+          goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
+          candidateTaskId: "task-shoulder-today",
+          matchConfidence: 0.95
+        },
+        [
+          {
+            ...openTask,
+            id: "task-shoulder-today",
+            dueAt: "2026-07-26T16:00:00Z"
+          },
+          {
+            ...openTask,
+            id: "task-shoulder-next-week",
+            dueAt: "2026-08-03T09:00:00+09:00"
+          }
+        ]
+      )
+    ).toEqual({ kind: "matched", taskId: "task-shoulder-today" });
+  });
+
+  it("does not match a candidate whose local due date differs from the activity date", () => {
+    expect(
+      matchOpenTask(
+        {
+          summary: "练肩",
+          goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
+          candidateTaskId: "task-shoulder-next-week",
+          matchConfidence: 0.95
+        },
+        [
+          {
+            ...openTask,
+            id: "task-shoulder-next-week",
+            dueAt: "2026-08-03T09:00:00+09:00"
+          }
+        ]
+      )
+    ).toEqual({ kind: "unmatched" });
+  });
+
+  it("fails closed when a candidate has an invalid database due date", () => {
+    expect(
+      matchOpenTask(
+        {
+          summary: "练肩",
+          goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
+          candidateTaskId: "task-invalid-date",
+          matchConfidence: 0.95
+        },
+        [{ ...openTask, id: "task-invalid-date", dueAt: "not-a-date" }]
+      )
+    ).toEqual({ kind: "unmatched" });
+  });
+
+  it("throws a clear error for an invalid timezone", () => {
+    expect(() =>
+      matchOpenTask(
+        {
+          summary: "练肩",
+          goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Mars/Olympus_Mons",
+          candidateTaskId: "task-shoulder",
+          matchConfidence: 0.95
+        },
+        [openTask]
+      )
+    ).toThrow("invalid timezone: Mars/Olympus_Mons");
+  });
+
+  it("does not match when the normalized summary and candidate title are empty", () => {
+    expect(
+      matchOpenTask(
+        {
+          summary: "完成了！",
+          goalId: "goal-muscle",
+          occurredOn: "2026-07-27",
+          timezone: "Asia/Tokyo",
+          candidateTaskId: "task-empty",
+          matchConfidence: 0.95
+        },
+        [
+          {
+            id: "task-empty",
+            title: "了",
+            goalId: "goal-muscle",
+            dueAt: null,
+            status: "open"
+          }
         ]
       )
     ).toEqual({ kind: "unmatched" });
