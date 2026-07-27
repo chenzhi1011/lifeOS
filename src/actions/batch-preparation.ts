@@ -194,21 +194,24 @@ function prepareActivity(
     }
   }
 
-  const taskMatch = matchOpenTask(
-    {
-      summary: event.summary,
-      goalId,
-      occurredOn: event.occurredOn,
-      timezone: context.timezone,
-      ...(event.taskMatch
-        ? {
-            candidateTaskId: event.taskMatch.candidateTaskId,
-            matchConfidence: event.taskMatch.confidence
-          }
-        : {})
-    },
-    context.openTasks
-  );
+  const taskMatch =
+    goalId === null
+      ? ({ kind: "unmatched" } as const)
+      : matchOpenTask(
+          {
+            summary: event.summary,
+            goalId,
+            occurredOn: event.occurredOn,
+            timezone: context.timezone,
+            ...(event.taskMatch
+              ? {
+                  candidateTaskId: event.taskMatch.candidateTaskId,
+                  matchConfidence: event.taskMatch.confidence
+                }
+              : {})
+          },
+          context.openTasks
+        );
 
   if (taskMatch.kind === "inbox") {
     return prepareInbox(event, taskMatch.reason);

@@ -21,6 +21,13 @@ const context: BatchPreparationContext = {
       goalId: "goal-muscle",
       dueAt: "2026-07-26T00:00:00.000Z",
       status: "open"
+    },
+    {
+      id: "task-unassigned-running",
+      title: "跑步",
+      goalId: null,
+      dueAt: "2026-07-26T00:00:00.000Z",
+      status: "open"
     }
   ]
 };
@@ -53,6 +60,21 @@ describe("hashCanonicalJson", () => {
     expect(first).toBe(reorderedObject);
     expect(first).toMatch(/^[a-f0-9]{64}$/);
     expect(first).not.toBe(reorderedArray);
+  });
+
+  it("orders Unicode keys independently of locale collation and insertion order", async () => {
+    const composedFirst = Object.fromEntries([
+      ["é", "composed"],
+      ["e\u0301", "decomposed"]
+    ]);
+    const decomposedFirst = Object.fromEntries([
+      ["e\u0301", "decomposed"],
+      ["é", "composed"]
+    ]);
+
+    expect(await hashCanonicalJson(composedFirst)).toBe(
+      await hashCanonicalJson(decomposedFirst)
+    );
   });
 });
 
@@ -228,6 +250,42 @@ describe("prepareLifeEventBatch", () => {
     expect(result.events[1]).toMatchObject({
       kind: "goal",
       title: "家庭"
+    });
+  });
+
+  it("does not match an existing unassigned task to an activity under a same-batch goal", async () => {
+    const result = await prepareLifeEventBatch(
+      payload([
+        {
+          type: "goal",
+          title: "健康",
+          category: "生活",
+          metricType: "count",
+          aliases: [],
+          confidence: 0.99
+        },
+        {
+          type: "activity",
+          summary: "跑步",
+          occurredOn: "2026-07-26",
+          confidence: 0.95,
+          goal: { title: "健康", explicit: true },
+          taskMatch: {
+            candidateTaskId: "task-unassigned-running",
+            confidence: 0.95
+          }
+        }
+      ]),
+      context,
+      now
+    );
+
+    expect(result.events[1]).toMatchObject({
+      kind: "activity",
+      summary: "跑步",
+      goalId: null,
+      goalTitle: "健康",
+      matchedTaskId: null
     });
   });
 
