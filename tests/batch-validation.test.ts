@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { describe, expect, it } from "vitest";
 import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
 
@@ -52,6 +53,126 @@ describe("validateLifeEventBatchPayload", () => {
     });
 
     expect(payload.events).toHaveLength(20);
+  });
+
+  it("applies goal and task defaults", () => {
+    const payload = validateLifeEventBatchPayload({
+      idempotencyKey: "batch-defaults",
+      rawText: "创建增肌目标，明天练肩",
+      events: [
+        {
+          type: "goal",
+          confidence: 0.97,
+          title: "增肌",
+          category: "健康"
+        },
+        {
+          type: "task",
+          confidence: 0.92,
+          title: "练肩",
+          localDate: "2026-07-28"
+        }
+      ]
+    });
+
+    expect(payload.events[0]).toMatchObject({
+      type: "goal",
+      metricType: "count",
+      aliases: []
+    });
+    expect(payload.events[1]).toMatchObject({
+      type: "task",
+      priority: "normal"
+    });
+  });
+
+  it("accepts a strict activity metric", () => {
+    const payload = validateLifeEventBatchPayload({
+      idempotencyKey: "batch-activity-metric",
+      rawText: "今天练肩 40 分钟",
+      events: [
+        {
+          type: "activity",
+          confidence: 0.91,
+          summary: "练肩",
+          occurredOn: "2026-07-26",
+          metric: { type: "duration", value: 40, unit: "minute" }
+        }
+      ]
+    });
+
+    expect(payload.events[0]).toMatchObject({
+      type: "activity",
+      metric: { type: "duration", value: 40, unit: "minute" }
+    });
+  });
+
+  it("rejects a goal reference without a title or candidate id", () => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "batch-invalid-goal-reference",
+        rawText: "明天学习",
+        events: [
+          {
+            type: "task",
+            confidence: 0.9,
+            title: "学习",
+            localDate: "2026-07-28",
+            goal: { explicit: true }
+          }
+        ]
+      })
+    ).toThrow(/goal reference requires title or candidateGoalId/);
+  });
+
+  it("requires an inbox id when dismissing an inbox item", () => {
+    expect.assertions(2);
+
+    try {
+      validateLifeEventBatchPayload({
+        idempotencyKey: "batch-invalid-dismiss",
+        rawText: "忽略这个收件箱项目",
+        events: [
+          {
+            type: "inbox",
+            confidence: 0.98,
+            reason: "用户要求忽略",
+            suggestedTypes: ["inbox"],
+            resolution: "dismiss"
+          }
+        ]
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(ZodError);
+      if (!(error instanceof ZodError)) {
+        return;
+      }
+      expect(error.issues.map((issue) => issue.path)).toContainEqual([
+        "events",
+        0,
+        "resolvesInboxItemId"
+      ]);
+    }
+  });
+
+  it("accepts dismissing an identified inbox item", () => {
+    const resolvesInboxItemId = "33333333-3333-4333-8333-333333333333";
+    const payload = validateLifeEventBatchPayload({
+      idempotencyKey: "batch-valid-dismiss",
+      rawText: "忽略这个收件箱项目",
+      events: [
+        {
+          type: "inbox",
+          confidence: 0.98,
+          reason: "用户要求忽略",
+          suggestedTypes: ["inbox"],
+          resolution: "dismiss",
+          resolvesInboxItemId
+        }
+      ]
+    });
+
+    expect(payload.events[0]).toMatchObject({ type: "inbox", resolution: "dismiss", resolvesInboxItemId });
   });
 
   it.each([
