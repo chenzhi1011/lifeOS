@@ -40,7 +40,7 @@ export function normalizeIntentTitle(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[,，.。?？!！、\s]/g, "")
+    .replace(/[\p{P}\s]/gu, "")
     .replace(/^(今天|昨天|刚刚)/, "")
     .replace(/^(完成了?|做了?)/, "")
     .replace(/了$/, "");
@@ -106,6 +106,13 @@ export function matchOpenTask(
   }
 
   const normalizedSummary = normalizeIntentTitle(input.summary);
+  const candidateIsEquivalent =
+    candidate.goalId === input.goalId &&
+    normalizeIntentTitle(candidate.title) === normalizedSummary;
+  if (!candidateIsEquivalent) {
+    return { kind: "unmatched" };
+  }
+
   const equivalentTasks = tasks.filter(
     (task) =>
       task.status === "open" &&
@@ -118,13 +125,6 @@ export function matchOpenTask(
       kind: "inbox",
       reason: "multiple open tasks match the activity"
     };
-  }
-
-  const candidateIsEquivalent =
-    candidate.goalId === input.goalId &&
-    normalizeIntentTitle(candidate.title) === normalizedSummary;
-  if (!candidateIsEquivalent) {
-    return { kind: "unmatched" };
   }
 
   return { kind: "matched", taskId: candidate.id };

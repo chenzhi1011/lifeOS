@@ -20,6 +20,10 @@ describe("normalizeIntentTitle", () => {
   it("removes conversational prefixes, punctuation, whitespace, and a trailing 了", () => {
     expect(normalizeIntentTitle(" 今天，做了 AWS 学习了！ ")).toBe("aws学习");
   });
+
+  it("removes Unicode Chinese and English punctuation before conversational affixes", () => {
+    expect(normalizeIntentTitle("今天：做了（AWS）— 学习；了")).toBe("aws学习");
+  });
 });
 
 describe("resolveGoalReference", () => {
@@ -124,5 +128,29 @@ describe("matchOpenTask", () => {
       kind: "inbox",
       reason: "multiple open tasks match the activity"
     });
+  });
+
+  it("does not report ambiguity when the candidate itself is not equivalent", () => {
+    expect(
+      matchOpenTask(
+        {
+          summary: "练肩",
+          goalId: "goal-muscle",
+          candidateTaskId: "task-running",
+          matchConfidence: 0.95
+        },
+        [
+          {
+            id: "task-running",
+            title: "跑步",
+            goalId: "goal-muscle",
+            dueAt: null,
+            status: "open"
+          },
+          openTask,
+          { ...openTask, id: "task-shoulder-duplicate" }
+        ]
+      )
+    ).toEqual({ kind: "unmatched" });
   });
 });
