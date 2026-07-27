@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { authenticateActionToken, extractBearerToken, hashActionToken } from "@/src/actions/auth";
+import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
 import { checkActionRateLimit, resetActionRateLimits } from "@/src/actions/rate-limit";
 import { validateLifeEventPayload } from "@/src/actions/validation";
 
@@ -54,6 +55,24 @@ describe("Custom GPT action security", () => {
         date: "2026-07-25"
       })
     ).toThrow();
+  });
+
+  it("rejects a user-controlled userId in a batch payload", () => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "batch-security-1",
+        rawText: "明天学习 AWS",
+        userId: "attacker",
+        events: [
+          {
+            type: "task",
+            confidence: 0.9,
+            title: "学习 AWS",
+            localDate: "2026-07-28"
+          }
+        ]
+      })
+    ).toThrow(/Unrecognized key/);
   });
 
   it("rate limits repeated calls by credential and ip", () => {
