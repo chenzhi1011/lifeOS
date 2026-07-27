@@ -126,23 +126,40 @@ function localDateTimeToIso(
   }
 
   const utcGuess = calendarCheck.getTime();
-  const guessedOffset = offsetMilliseconds(new Date(utcGuess), dateFormatter);
-  let timestamp = utcGuess - guessedOffset;
-  const correctedOffset = offsetMilliseconds(new Date(timestamp), dateFormatter);
+  const oneDay = 24 * 60 * 60 * 1_000;
+  const offsets = new Set<number>();
+  const collectOffset = (timestamp: number) => {
+    offsets.add(offsetMilliseconds(new Date(timestamp), dateFormatter));
+  };
 
-  if (correctedOffset !== guessedOffset) {
-    timestamp = utcGuess - correctedOffset;
+  collectOffset(utcGuess - oneDay);
+  collectOffset(utcGuess);
+  collectOffset(utcGuess + oneDay);
+
+  for (const offset of [...offsets]) {
+    const provisionalTimestamp = utcGuess - offset;
+    collectOffset(provisionalTimestamp - oneDay);
+    collectOffset(provisionalTimestamp);
+    collectOffset(provisionalTimestamp + oneDay);
   }
 
-  const converted = partsAt(new Date(timestamp), dateFormatter);
-  if (
-    converted.year !== requested.year ||
-    converted.month !== requested.month ||
-    converted.day !== requested.day ||
-    converted.hour !== requested.hour ||
-    converted.minute !== requested.minute ||
-    converted.second !== requested.second
-  ) {
+  const validCandidates = [...offsets]
+    .map((offset) => utcGuess - offset)
+    .filter((timestamp) => {
+      const converted = partsAt(new Date(timestamp), dateFormatter);
+      return (
+        converted.year === requested.year &&
+        converted.month === requested.month &&
+        converted.day === requested.day &&
+        converted.hour === requested.hour &&
+        converted.minute === requested.minute &&
+        converted.second === requested.second
+      );
+    })
+    .sort((left, right) => left - right);
+
+  const timestamp = validCandidates[0];
+  if (timestamp === undefined) {
     throw new Error("invalid local task time");
   }
 

@@ -91,6 +91,23 @@ describe("normalizeTaskTime", () => {
     });
   });
 
+  it("chooses the earlier instant for Berlin's repeated fall-back local time", () => {
+    expect(
+      normalizeTaskTime(
+        { localDate: "2026-10-25" },
+        {
+          timezone: "Europe/Berlin",
+          defaultReminderTime: "02:30"
+        },
+        new Date("2026-01-01T00:00:00.000Z")
+      )
+    ).toEqual({
+      ok: true,
+      dueAt: "2026-10-25T00:30:00.000Z",
+      remindAt: "2026-10-25T00:30:00.000Z"
+    });
+  });
+
   it("moves today's default time to one hour after now when it has passed", () => {
     expect(
       normalizeTaskTime(
