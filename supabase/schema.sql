@@ -3,6 +3,8 @@ create extension if not exists pgcrypto;
 create table profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
+  timezone text not null default 'Asia/Tokyo',
+  default_reminder_time time not null default '09:00',
   created_at timestamptz not null default now()
 );
 
@@ -24,6 +26,18 @@ create table action_credentials (
   status text not null default 'active' check (status in ('active', 'revoked')),
   created_at timestamptz not null default now(),
   last_used_at timestamptz,
+  unique (user_id, id)
+);
+
+create table action_batches (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(user_id) on delete cascade,
+  idempotency_key text not null,
+  request_hash text not null,
+  raw_text text not null,
+  response_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique (user_id, idempotency_key),
   unique (user_id, id)
 );
 
@@ -56,13 +70,16 @@ create table messages (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   source text not null check (source in ('mock', 'wechat', 'app', 'telegram', 'gpt_action')),
+  batch_id uuid,
+  event_index integer,
   raw_text text not null,
   intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'reminder', 'inbox')),
   confidence numeric not null check (confidence >= 0 and confidence <= 1),
   parsed_json jsonb not null,
   status text not null check (status in ('processed', 'inbox', 'failed')),
   created_at timestamptz not null default now(),
-  unique (user_id, id)
+  unique (user_id, id),
+  foreign key (user_id, batch_id) references action_batches(user_id, id)
 );
 
 create table tasks (
@@ -140,8 +157,10 @@ create table achievements (
 );
 
 create index idx_messages_user_created on messages (user_id, created_at desc);
+create unique index idx_messages_batch_event on messages (batch_id, event_index) where batch_id is not null;
 create index idx_action_credentials_hash_status on action_credentials (token_hash, status);
 create index idx_action_credentials_user_status on action_credentials (user_id, status);
+create index idx_action_batches_user_created on action_batches (user_id, created_at desc);
 create index idx_goals_user_parent on goals (user_id, parent_goal_id);
 create index idx_goal_aliases_user_alias on goal_aliases (user_id, alias);
 create index idx_tasks_user_status_due on tasks (user_id, status, due_at);
@@ -178,6 +197,7 @@ from goal_activity_rollup;
 alter table profiles enable row level security;
 alter table external_accounts enable row level security;
 alter table action_credentials enable row level security;
+alter table action_batches enable row level security;
 alter table goals enable row level security;
 alter table goal_aliases enable row level security;
 alter table messages enable row level security;
@@ -190,6 +210,7 @@ alter table achievements enable row level security;
 create policy profiles_own_rows on profiles using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy external_accounts_own_rows on external_accounts using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy action_credentials_own_rows on action_credentials using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy action_batches_own_rows on action_batches using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goals_own_rows on goals using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goal_aliases_own_rows on goal_aliases using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy messages_own_rows on messages using (user_id = auth.uid()) with check (user_id = auth.uid());

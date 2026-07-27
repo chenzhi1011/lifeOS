@@ -207,7 +207,13 @@ async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPa
 function ensureLocalUser(userId: string) {
   const state = lifeOSStore.getState();
   if (!state.profiles.some((profile) => profile.userId === userId)) {
-    state.profiles.push({ userId, displayName: userId, createdAt: new Date().toISOString() });
+    state.profiles.push({
+      userId,
+      displayName: userId,
+      timezone: "Asia/Tokyo",
+      defaultReminderTime: "09:00",
+      createdAt: new Date().toISOString()
+    });
     state.goals.push(
       { id: `${userId}-life`, userId, title: "人生", category: "root", parentGoalId: null, metricType: "milestone", status: "active", createdAt: new Date().toISOString() },
       { id: `${userId}-career`, userId, title: "职业", category: "职业", parentGoalId: `${userId}-life`, metricType: "duration", status: "active", createdAt: new Date().toISOString() },

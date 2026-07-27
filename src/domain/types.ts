@@ -7,6 +7,8 @@ export type GoalStatus = "active" | "paused" | "completed";
 export type Profile = {
   userId: string;
   displayName: string;
+  timezone: string;
+  defaultReminderTime: string;
   createdAt: string;
 };
 
@@ -14,6 +16,8 @@ export type Message = {
   id: string;
   userId: string;
   source: "mock" | "wechat" | "app" | "telegram" | "gpt_action";
+  batchId?: string | null;
+  eventIndex?: number | null;
   rawText: string;
   intentType: IntentType;
   confidence: number;

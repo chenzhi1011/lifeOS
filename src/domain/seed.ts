@@ -3,7 +3,15 @@ import type { Activity, Achievement, Goal, GoalAlias, LifeOSState, Profile } fro
 const now = "2026-07-25T09:00:00+09:00";
 const userId = "demo-user";
 
-const profiles: Profile[] = [{ userId, displayName: "Zhi", createdAt: now }];
+const profiles: Profile[] = [
+  {
+    userId,
+    displayName: "Zhi",
+    timezone: "Asia/Tokyo",
+    defaultReminderTime: "09:00",
+    createdAt: now
+  }
+];
 
 const goals: Goal[] = [
   { id: "life", userId, title: "人生", category: "root", parentGoalId: null, metricType: "milestone", status: "active", createdAt: now },
