@@ -144,7 +144,7 @@ describe("matchOpenTask", () => {
           occurredOn: "2026-07-27",
           timezone: "Asia/Tokyo",
           candidateTaskId: "task-shoulder",
-          matchConfidence: 0.9
+          matchConfidence: 0.85
         },
         [openTask]
       )
