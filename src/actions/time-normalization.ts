@@ -89,20 +89,61 @@ function localDateTimeToIso(
     throw new Error("invalid local task time");
   }
 
-  const utcGuess = Date.UTC(
-    Number(dateMatch[1]),
-    Number(dateMatch[2]) - 1,
-    Number(dateMatch[3]),
-    Number(timeMatch[1]),
-    Number(timeMatch[2]),
-    0
-  );
+  const requested: LocalDateTimeParts = {
+    year: Number(dateMatch[1]),
+    month: Number(dateMatch[2]),
+    day: Number(dateMatch[3]),
+    hour: Number(timeMatch[1]),
+    minute: Number(timeMatch[2]),
+    second: 0
+  };
+
+  if (
+    requested.month < 1 ||
+    requested.month > 12 ||
+    requested.day < 1 ||
+    requested.day > 31 ||
+    requested.hour < 0 ||
+    requested.hour > 23 ||
+    requested.minute < 0 ||
+    requested.minute > 59
+  ) {
+    throw new Error("invalid local task time");
+  }
+
+  const calendarCheck = new Date(0);
+  calendarCheck.setUTCFullYear(requested.year, requested.month - 1, requested.day);
+  calendarCheck.setUTCHours(requested.hour, requested.minute, requested.second, 0);
+
+  if (
+    calendarCheck.getUTCFullYear() !== requested.year ||
+    calendarCheck.getUTCMonth() + 1 !== requested.month ||
+    calendarCheck.getUTCDate() !== requested.day ||
+    calendarCheck.getUTCHours() !== requested.hour ||
+    calendarCheck.getUTCMinutes() !== requested.minute
+  ) {
+    throw new Error("invalid local task time");
+  }
+
+  const utcGuess = calendarCheck.getTime();
   const guessedOffset = offsetMilliseconds(new Date(utcGuess), dateFormatter);
   let timestamp = utcGuess - guessedOffset;
   const correctedOffset = offsetMilliseconds(new Date(timestamp), dateFormatter);
 
   if (correctedOffset !== guessedOffset) {
     timestamp = utcGuess - correctedOffset;
+  }
+
+  const converted = partsAt(new Date(timestamp), dateFormatter);
+  if (
+    converted.year !== requested.year ||
+    converted.month !== requested.month ||
+    converted.day !== requested.day ||
+    converted.hour !== requested.hour ||
+    converted.minute !== requested.minute ||
+    converted.second !== requested.second
+  ) {
+    throw new Error("invalid local task time");
   }
 
   return new Date(timestamp).toISOString();

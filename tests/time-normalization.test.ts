@@ -21,6 +21,76 @@ describe("normalizeTaskTime", () => {
     });
   });
 
+  it.each([
+    ["an impossible calendar date", "2026-02-31", "09:00"],
+    ["an out-of-range local time", "2026-07-28", "24:00"]
+  ])("rejects %s", (_description, localDate, defaultReminderTime) => {
+    expect(() =>
+      normalizeTaskTime(
+        { localDate },
+        { ...settings, defaultReminderTime },
+        new Date("2026-01-01T00:00:00.000Z")
+      )
+    ).toThrow(/invalid local task time/i);
+  });
+
+  it("accepts a valid leap day", () => {
+    expect(
+      normalizeTaskTime(
+        { localDate: "2028-02-29" },
+        settings,
+        new Date("2028-01-01T00:00:00.000Z")
+      )
+    ).toEqual({
+      ok: true,
+      dueAt: "2028-02-29T00:00:00.000Z",
+      remindAt: "2028-02-29T00:00:00.000Z"
+    });
+  });
+
+  it("rejects a local time skipped by New York's DST spring transition", () => {
+    expect(() =>
+      normalizeTaskTime(
+        { localDate: "2026-03-08" },
+        {
+          timezone: "America/New_York",
+          defaultReminderTime: "02:30"
+        },
+        new Date("2026-01-01T00:00:00.000Z")
+      )
+    ).toThrow(/invalid local task time/i);
+  });
+
+  it("rejects a local time skipped by Lord Howe's half-hour DST transition", () => {
+    expect(() =>
+      normalizeTaskTime(
+        { localDate: "2026-10-04" },
+        {
+          timezone: "Australia/Lord_Howe",
+          defaultReminderTime: "02:15"
+        },
+        new Date("2026-01-01T00:00:00.000Z")
+      )
+    ).toThrow(/invalid local task time/i);
+  });
+
+  it("chooses the earlier instant for a repeated fall-back local time", () => {
+    expect(
+      normalizeTaskTime(
+        { localDate: "2026-11-01" },
+        {
+          timezone: "America/New_York",
+          defaultReminderTime: "01:30"
+        },
+        new Date("2026-01-01T00:00:00.000Z")
+      )
+    ).toEqual({
+      ok: true,
+      dueAt: "2026-11-01T05:30:00.000Z",
+      remindAt: "2026-11-01T05:30:00.000Z"
+    });
+  });
+
   it("moves today's default time to one hour after now when it has passed", () => {
     expect(
       normalizeTaskTime(
