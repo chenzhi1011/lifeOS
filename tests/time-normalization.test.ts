@@ -68,6 +68,19 @@ describe("normalizeTaskTime", () => {
     }
   });
 
+  it("throws for an empty explicit task time instead of treating it as absent", () => {
+    expect(() =>
+      normalizeTaskTime(
+        {
+          localDate: "2026-07-28",
+          explicitDueAt: ""
+        },
+        settings,
+        new Date("2026-07-27T00:00:00.000Z")
+      )
+    ).toThrow(/invalid explicit task time/i);
+  });
+
   it("rejects an explicit time whose user-local date differs from localDate", () => {
     expect(
       normalizeTaskTime(

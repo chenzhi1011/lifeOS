@@ -124,7 +124,7 @@ export function normalizeTaskTime(
 ): NormalizedTaskTime {
   const dateFormatter = formatter(settings.timezone);
 
-  if (input.explicitDueAt) {
+  if (input.explicitDueAt !== undefined) {
     const explicitDate = new Date(input.explicitDueAt);
     if (Number.isNaN(explicitDate.getTime())) {
       throw new Error("invalid explicit task time");
