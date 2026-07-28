@@ -1,32 +1,159 @@
 import { lifeOSStore } from "@/src/domain/store";
-import type { GoalAlias } from "@/src/domain/types";
 import { createServiceSupabaseClient } from "@/src/db/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LifeEventActionPayload } from "./validation";
 import { toParseResult } from "./validation";
 
-export async function readActionContext(userId: string) {
-  const supabase = createServiceSupabaseClient();
+type ContextRow = Record<string, unknown>;
+
+export type ContextProfileRow = {
+  timezone?: string;
+  default_reminder_time?: string;
+  defaultReminderTime?: string;
+};
+
+function firstDefined<T>(
+  row: ContextRow,
+  snakeCaseKey: string,
+  camelCaseKey: string
+): T | undefined {
+  return (
+    row[snakeCaseKey] !== undefined
+      ? row[snakeCaseKey]
+      : row[camelCaseKey]
+  ) as T | undefined;
+}
+
+export function formatActionContext(
+  profile: ContextProfileRow,
+  goals: ContextRow[],
+  aliases: ContextRow[],
+  openTasks: ContextRow[],
+  now = new Date()
+) {
+  const timezone = profile.timezone ?? "Asia/Tokyo";
+  const defaultReminderTime = (
+    profile.default_reminder_time ??
+    profile.defaultReminderTime ??
+    "09:00"
+  ).slice(0, 5);
+  const currentTime = `${new Intl.DateTimeFormat("sv-SE", {
+    timeZone: timezone,
+    dateStyle: "short",
+    timeStyle: "medium",
+    hourCycle: "h23"
+  }).format(now)} ${timezone}`;
+
+  return {
+    timezone,
+    defaultReminderTime,
+    currentTime,
+    goals: goals.map((goal) => ({
+      id: String(goal.id),
+      title: String(goal.title),
+      category: String(goal.category ?? ""),
+      parentGoalId:
+        firstDefined<string | null>(goal, "parent_goal_id", "parentGoalId") ??
+        null,
+      metricType: firstDefined<string>(goal, "metric_type", "metricType"),
+      status: String(goal.status ?? "active"),
+      createdAt: firstDefined<string>(goal, "created_at", "createdAt")
+    })),
+    aliases: aliases.map((alias) => ({
+      goalId: String(firstDefined(alias, "goal_id", "goalId")),
+      alias: String(alias.alias)
+    })),
+    openTasks: openTasks
+      .filter((task) => String(task.status) === "open")
+      .map((task) => ({
+        id: String(task.id),
+        title: String(task.title),
+        goalId:
+          firstDefined<string | null>(task, "goal_id", "goalId") ?? null,
+        dueAt:
+          firstDefined<string | null>(task, "due_at", "dueAt") ?? null,
+        status: "open" as const
+      }))
+  };
+}
+
+export async function readActionContext(
+  userId: string,
+  supabase: SupabaseClient | null = createServiceSupabaseClient(),
+  now = new Date()
+) {
   if (supabase) {
-    const [{ data: goals, error: goalsError }, { data: aliases, error: aliasesError }] = await Promise.all([
-      supabase.from("goals").select("id,title,category,parent_goal_id,metric_type,status,created_at").eq("user_id", userId).order("created_at"),
-      supabase.from("goal_aliases").select("goal_id,alias").eq("user_id", userId).order("alias")
+    const [
+      { data: profile, error: profileError },
+      { data: goals, error: goalsError },
+      { data: aliases, error: aliasesError },
+      { data: openTasks, error: tasksError }
+    ] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("timezone,default_reminder_time")
+        .eq("user_id", userId)
+        .single(),
+      supabase
+        .from("goals")
+        .select(
+          "id,title,category,parent_goal_id,metric_type,status,created_at"
+        )
+        .eq("user_id", userId)
+        .order("created_at"),
+      supabase
+        .from("goal_aliases")
+        .select("goal_id,alias")
+        .eq("user_id", userId)
+        .order("alias"),
+      supabase
+        .from("tasks")
+        .select("id,title,goal_id,due_at,status")
+        .eq("user_id", userId)
+        .eq("status", "open")
+        .order("due_at")
     ]);
 
-    if (goalsError || aliasesError) {
-      throw new Error(goalsError?.message ?? aliasesError?.message ?? "failed to read action context");
+    if (
+      profileError ||
+      goalsError ||
+      aliasesError ||
+      tasksError ||
+      !profile
+    ) {
+      throw new Error(
+        profileError?.message ??
+          goalsError?.message ??
+          aliasesError?.message ??
+          tasksError?.message ??
+          "failed to read action context"
+      );
     }
 
-    return {
-      goals: goals ?? [],
-      aliases: aliases ?? []
-    };
+    return formatActionContext(
+      profile,
+      goals ?? [],
+      aliases ?? [],
+      openTasks ?? [],
+      now
+    );
   }
 
   const state = lifeOSStore.getState();
-  return {
-    goals: state.goals.filter((goal) => goal.userId === userId),
-    aliases: state.goalAliases.filter((alias) => alias.userId === userId)
+  const profile = state.profiles.find((item) => item.userId === userId) ?? {
+    timezone: "Asia/Tokyo",
+    defaultReminderTime: "09:00"
   };
+
+  return formatActionContext(
+    profile,
+    state.goals.filter((goal) => goal.userId === userId),
+    state.goalAliases.filter((alias) => alias.userId === userId),
+    state.tasks.filter(
+      (task) => task.userId === userId && task.status === "open"
+    ),
+    now
+  );
 }
 
 async function resolveSupabaseGoal(userId: string, payload: LifeEventActionPayload) {
