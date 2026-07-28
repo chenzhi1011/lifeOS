@@ -79,7 +79,11 @@ create table messages (
   status text not null check (status in ('processed', 'inbox', 'failed')),
   created_at timestamptz not null default now(),
   unique (user_id, id),
-  foreign key (user_id, batch_id) references action_batches(user_id, id)
+  constraint messages_batch_event_pair check (
+    (batch_id is null and event_index is null)
+    or (batch_id is not null and event_index is not null and event_index between 0 and 19)
+  ),
+  constraint messages_batch_fk foreign key (user_id, batch_id) references action_batches(user_id, id)
 );
 
 create table tasks (
@@ -210,7 +214,7 @@ alter table achievements enable row level security;
 create policy profiles_own_rows on profiles using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy external_accounts_own_rows on external_accounts using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy action_credentials_own_rows on action_credentials using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy action_batches_own_rows on action_batches using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy action_batches_own_rows on action_batches for select using (user_id = auth.uid());
 create policy goals_own_rows on goals using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goal_aliases_own_rows on goal_aliases using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy messages_own_rows on messages using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -219,3 +223,5 @@ create policy activities_own_rows on activities using (user_id = auth.uid()) wit
 create policy reminders_own_rows on reminders using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy inbox_items_own_rows on inbox_items using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy achievements_own_rows on achievements using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+revoke insert, update, delete on action_batches from anon, authenticated;

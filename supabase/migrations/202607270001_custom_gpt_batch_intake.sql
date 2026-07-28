@@ -19,6 +19,13 @@ alter table messages
   add column if not exists event_index integer;
 
 alter table messages
+  add constraint messages_batch_event_pair
+  check (
+    (batch_id is null and event_index is null)
+    or (batch_id is not null and event_index is not null and event_index between 0 and 19)
+  );
+
+alter table messages
   add constraint messages_batch_fk
   foreign key (user_id, batch_id) references action_batches(user_id, id);
 
@@ -33,5 +40,7 @@ alter table action_batches enable row level security;
 
 create policy action_batches_own_rows
   on action_batches
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
+  for select
+  using (user_id = auth.uid());
+
+revoke insert, update, delete on action_batches from anon, authenticated;
