@@ -17,17 +17,74 @@ export class BatchIdempotencyConflictError extends Error {
 }
 
 export interface BatchWriteResult {
-  batchId?: string;
+  batchId: string;
   duplicate: boolean;
-  results: Array<Record<string, string | number>>;
+  results: BatchEventWriteResult[];
 }
 
-type BatchRpcResponse =
-  | BatchWriteResult
-  | {
-      error: string;
-      duplicate?: boolean;
-    };
+export interface BatchEventWriteResult {
+  eventIndex: number;
+  kind: "goal" | "task" | "activity" | "inbox";
+  messageId: string;
+  goalId?: string;
+  taskId?: string;
+  activityId?: string;
+  reminderId?: string;
+  inboxItemId?: string;
+}
+
+const batchEventKinds = new Set(["goal", "task", "activity", "inbox"]);
+const optionalEntityIdKeys = [
+  "goalId",
+  "taskId",
+  "activityId",
+  "reminderId",
+  "inboxItemId"
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isBatchEventWriteResult(value: unknown): value is BatchEventWriteResult {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (
+    !Number.isInteger(value.eventIndex) ||
+    (value.eventIndex as number) < 0 ||
+    (value.eventIndex as number) > 19 ||
+    typeof value.kind !== "string" ||
+    !batchEventKinds.has(value.kind) ||
+    !isNonEmptyString(value.messageId)
+  ) {
+    return false;
+  }
+
+  return optionalEntityIdKeys.every(
+    (key) => value[key] === undefined || isNonEmptyString(value[key])
+  );
+}
+
+function isBatchWriteResult(value: unknown): value is BatchWriteResult {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.batchId) &&
+    typeof value.duplicate === "boolean" &&
+    Array.isArray(value.results) &&
+    value.results.length > 0 &&
+    value.results.length <= 20 &&
+    value.results.every(isBatchEventWriteResult)
+  );
+}
 
 export async function writePreparedBatch(
   userId: string,
@@ -54,20 +111,16 @@ export async function writePreparedBatch(
     throw new Error("batch RPC returned an invalid response");
   }
 
-  const response = data as BatchRpcResponse;
-  if ("error" in response) {
-    if (response.error === "idempotency_conflict") {
+  if ("error" in data) {
+    if (data.error === "idempotency_conflict") {
       throw new BatchIdempotencyConflictError();
     }
     throw new Error("batch RPC returned an invalid response");
   }
 
-  if (
-    typeof response.duplicate !== "boolean" ||
-    !Array.isArray(response.results)
-  ) {
+  if (!isBatchWriteResult(data)) {
     throw new Error("batch RPC returned an invalid response");
   }
 
-  return response;
+  return data;
 }

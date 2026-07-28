@@ -29,7 +29,14 @@ describe("writePreparedBatch", () => {
       data: {
         batchId: "batch-1",
         duplicate: false,
-        results: [{ kind: "task", id: "task-1", eventIndex: 0 }]
+        results: [
+          {
+            kind: "task",
+            messageId: "message-1",
+            taskId: "task-1",
+            eventIndex: 0
+          }
+        ]
       },
       error: null
     });
@@ -50,7 +57,14 @@ describe("writePreparedBatch", () => {
     expect(result).toEqual({
       batchId: "batch-1",
       duplicate: false,
-      results: [{ kind: "task", id: "task-1", eventIndex: 0 }]
+      results: [
+        {
+          kind: "task",
+          messageId: "message-1",
+          taskId: "task-1",
+          eventIndex: 0
+        }
+      ]
     });
   });
 
@@ -90,6 +104,83 @@ describe("writePreparedBatch", () => {
     [{ error: "other" }, "an unknown RPC error object"],
     [{ duplicate: false }, "a response without results"]
   ])("rejects %s (%s)", async (data, _description) => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({ data, error: null })
+    };
+
+    await expect(writePreparedBatch("user-123", batch, client)).rejects.toThrow(
+      "batch RPC returned an invalid response"
+    );
+  });
+
+  it.each([
+    [
+      {
+        duplicate: false,
+        results: [{ eventIndex: 0, kind: "task", messageId: "message-1" }]
+      },
+      "a missing batch id"
+    ],
+    [
+      {
+        batchId: 123,
+        duplicate: false,
+        results: [{ eventIndex: 0, kind: "task", messageId: "message-1" }]
+      },
+      "a non-string batch id"
+    ],
+    [
+      { batchId: "batch-1", duplicate: false, results: [null] },
+      "a null result"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [{ eventIndex: 0.5, kind: "task", messageId: "message-1" }]
+      },
+      "a non-integer event index"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [{ eventIndex: 20, kind: "task", messageId: "message-1" }]
+      },
+      "an out-of-range event index"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [{ eventIndex: 0, kind: "reminder", messageId: "message-1" }]
+      },
+      "an unknown event kind"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [{ eventIndex: 0, kind: "task" }]
+      },
+      "a missing message id"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [
+          {
+            eventIndex: 0,
+            kind: "task",
+            messageId: "message-1",
+            taskId: 123
+          }
+        ]
+      },
+      "a non-string optional entity id"
+    ]
+  ])("rejects an invalid success response: %s (%s)", async (data, _description) => {
     const client = {
       rpc: vi.fn().mockResolvedValue({ data, error: null })
     };
