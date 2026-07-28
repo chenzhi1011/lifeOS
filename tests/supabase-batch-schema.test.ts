@@ -68,4 +68,34 @@ describe("Custom GPT batch intake database schema", () => {
       );
     }
   });
+
+  it("defines the service-role-only transactional batch RPC in schema and migration", () => {
+    const schema = readFileSync(path.resolve("supabase/schema.sql"), "utf8");
+    const migration = readFileSync(migrationPath, "utf8");
+
+    for (const sql of [schema, migration]) {
+      expect(sql).toMatch(
+        /create or replace function record_life_event_batch\s*\(\s*p_user_id uuid,\s*p_idempotency_key text,\s*p_request_hash text,\s*p_raw_text text,\s*p_events jsonb\s*\)\s*returns jsonb/i
+      );
+      expect(sql).toMatch(/language plpgsql\s+security definer/i);
+      expect(sql).toMatch(/set search_path\s*=\s*public,\s*pg_temp/i);
+      expect(sql).toContain("jsonb_array_elements(p_events) with ordinality");
+      expect(sql).toContain("'idempotency_conflict'");
+      expect(sql).toMatch(
+        /when v_kind = 'inbox' and v_event->>'resolution' is null then 'inbox'/i
+      );
+      expect(sql).toMatch(
+        /v_resolves_inbox_item_id is not null\s+and not \(v_kind = 'inbox' and v_event->>'resolution' = 'dismiss'\)/i
+      );
+      expect(sql).toMatch(
+        /revoke execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) from public/i
+      );
+      expect(sql).toMatch(
+        /grant execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) to service_role/i
+      );
+      expect(sql).not.toMatch(
+        /grant execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) to (?:anon|authenticated|public)/i
+      );
+    }
+  });
 });

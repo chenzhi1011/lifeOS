@@ -7,6 +7,7 @@
     "build": "next build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "bash scripts/test-batch-rpc.sh",
     "test:watch": "vitest"
   },
   "dependencies": {
