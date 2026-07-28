@@ -1,6 +1,12 @@
 import { lifeOSStore } from "@/src/domain/store";
 import { createServiceSupabaseClient } from "@/src/db/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { BatchPreparationContext } from "./batch-preparation";
+import type {
+  ActionGoalAliasContext,
+  ActionGoalContext,
+  ActionTaskContext
+} from "./batch-resolution";
 import type { LifeEventActionPayload } from "./validation";
 import { toParseResult } from "./validation";
 
@@ -24,54 +30,110 @@ function firstDefined<T>(
   ) as T | undefined;
 }
 
+type ActionMetricType = "duration" | "count" | "milestone";
+
+export interface FormattedActionGoal extends ActionGoalContext {
+  category: string;
+  parentGoalId: string | null;
+  metricType: ActionMetricType;
+  createdAt: string;
+}
+
+export interface FormattedActionContext extends BatchPreparationContext {
+  currentTime: string;
+  goals: FormattedActionGoal[];
+  aliases: ActionGoalAliasContext[];
+  openTasks: ActionTaskContext[];
+}
+
+function invalidActionContext(): never {
+  throw new Error("invalid action context");
+}
+
+function requiredString(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return invalidActionContext();
+  }
+  return value;
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return requiredString(value);
+}
+
+function goalStatus(value: unknown): ActionGoalContext["status"] {
+  if (value === "active" || value === "paused" || value === "completed") {
+    return value;
+  }
+  return invalidActionContext();
+}
+
+function metricType(value: unknown): ActionMetricType {
+  if (value === "duration" || value === "count" || value === "milestone") {
+    return value;
+  }
+  return invalidActionContext();
+}
+
 export function formatActionContext(
   profile: ContextProfileRow,
   goals: ContextRow[],
   aliases: ContextRow[],
   openTasks: ContextRow[],
   now = new Date()
-) {
-  const timezone = profile.timezone ?? "Asia/Tokyo";
-  const defaultReminderTime = (
+): FormattedActionContext {
+  const timezone = requiredString(profile.timezone ?? "Asia/Tokyo");
+  const rawDefaultReminderTime =
     profile.default_reminder_time ??
     profile.defaultReminderTime ??
-    "09:00"
-  ).slice(0, 5);
-  const currentTime = `${new Intl.DateTimeFormat("sv-SE", {
-    timeZone: timezone,
-    dateStyle: "short",
-    timeStyle: "medium",
-    hourCycle: "h23"
-  }).format(now)} ${timezone}`;
+    "09:00";
+  const defaultReminderTime = requiredString(rawDefaultReminderTime).slice(0, 5);
+  let currentTime: string;
+  try {
+    currentTime = `${new Intl.DateTimeFormat("sv-SE", {
+      timeZone: timezone,
+      dateStyle: "short",
+      timeStyle: "medium",
+      hourCycle: "h23"
+    }).format(now)} ${timezone}`;
+  } catch {
+    return invalidActionContext();
+  }
 
   return {
     timezone,
     defaultReminderTime,
     currentTime,
     goals: goals.map((goal) => ({
-      id: String(goal.id),
-      title: String(goal.title),
-      category: String(goal.category ?? ""),
+      id: requiredString(goal.id),
+      title: requiredString(goal.title),
+      category: requiredString(goal.category),
       parentGoalId:
-        firstDefined<string | null>(goal, "parent_goal_id", "parentGoalId") ??
-        null,
-      metricType: firstDefined<string>(goal, "metric_type", "metricType"),
-      status: String(goal.status ?? "active"),
-      createdAt: firstDefined<string>(goal, "created_at", "createdAt")
+        nullableString(
+          firstDefined(goal, "parent_goal_id", "parentGoalId")
+        ),
+      metricType: metricType(
+        firstDefined(goal, "metric_type", "metricType")
+      ),
+      status: goalStatus(goal.status),
+      createdAt: requiredString(
+        firstDefined(goal, "created_at", "createdAt")
+      )
     })),
     aliases: aliases.map((alias) => ({
-      goalId: String(firstDefined(alias, "goal_id", "goalId")),
-      alias: String(alias.alias)
+      goalId: requiredString(firstDefined(alias, "goal_id", "goalId")),
+      alias: requiredString(alias.alias)
     })),
     openTasks: openTasks
-      .filter((task) => String(task.status) === "open")
+      .filter((task) => task.status === "open")
       .map((task) => ({
-        id: String(task.id),
-        title: String(task.title),
-        goalId:
-          firstDefined<string | null>(task, "goal_id", "goalId") ?? null,
-        dueAt:
-          firstDefined<string | null>(task, "due_at", "dueAt") ?? null,
+        id: requiredString(task.id),
+        title: requiredString(task.title),
+        goalId: nullableString(firstDefined(task, "goal_id", "goalId")),
+        dueAt: nullableString(firstDefined(task, "due_at", "dueAt")),
         status: "open" as const
       }))
   };

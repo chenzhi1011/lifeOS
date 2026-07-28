@@ -23,6 +23,84 @@ const batch: PreparedBatch = {
   ]
 };
 
+const allKindBatch: PreparedBatch = {
+  idempotencyKey: "gpt-message-all-kinds",
+  requestHash: "b".repeat(64),
+  rawText: "创建目标、任务、活动和收件箱项目",
+  events: [
+    {
+      kind: "goal",
+      title: "AWS",
+      category: "职业",
+      parentGoalId: null,
+      metricType: "duration",
+      aliases: [],
+      confidence: 0.99
+    },
+    {
+      kind: "task",
+      title: "复习 AWS",
+      goalId: "goal-aws",
+      dueAt: "2026-07-28T00:00:00.000Z",
+      remindAt: "2026-07-28T00:00:00.000Z",
+      priority: "normal",
+      confidence: 0.98
+    },
+    {
+      kind: "activity",
+      summary: "复习 AWS",
+      goalId: "goal-aws",
+      matchedTaskId: null,
+      metricType: "duration",
+      value: 30,
+      unit: "minute",
+      occurredOn: "2026-07-27",
+      confidence: 0.97
+    },
+    {
+      kind: "inbox",
+      suggestedType: "task",
+      reason: "需要确认",
+      suggestedEvent: {
+        type: "inbox",
+        reason: "需要确认",
+        suggestedTypes: ["task"],
+        confidence: 0.5
+      },
+      confidence: 0.5
+    }
+  ]
+};
+
+const validAllKindResults = [
+  {
+    eventIndex: 0,
+    kind: "goal",
+    messageId: "message-goal",
+    goalId: "goal-aws"
+  },
+  {
+    eventIndex: 1,
+    kind: "task",
+    messageId: "message-task",
+    taskId: "task-aws",
+    reminderId: "reminder-aws"
+  },
+  {
+    eventIndex: 2,
+    kind: "activity",
+    messageId: "message-activity",
+    activityId: "activity-aws",
+    goalId: "goal-aws"
+  },
+  {
+    eventIndex: 3,
+    kind: "inbox",
+    messageId: "message-inbox",
+    inboxItemId: "inbox-aws"
+  }
+];
+
 describe("writePreparedBatch", () => {
   it("calls the transactional batch RPC with the authenticated user and prepared data", async () => {
     const rpc = vi.fn().mockResolvedValue({
@@ -34,6 +112,7 @@ describe("writePreparedBatch", () => {
             kind: "task",
             messageId: "message-1",
             taskId: "task-1",
+            reminderId: "reminder-1",
             eventIndex: 0
           }
         ]
@@ -62,6 +141,7 @@ describe("writePreparedBatch", () => {
           kind: "task",
           messageId: "message-1",
           taskId: "task-1",
+          reminderId: "reminder-1",
           eventIndex: 0
         }
       ]
@@ -189,4 +269,81 @@ describe("writePreparedBatch", () => {
       "batch RPC returned an invalid response"
     );
   });
+
+  it.each([
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: []
+      },
+      "fewer results than input events"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [
+          {
+            eventIndex: 1,
+            kind: "task",
+            messageId: "message-1",
+            taskId: "task-1",
+            reminderId: "reminder-1"
+          }
+        ]
+      },
+      "an event index that does not match its position"
+    ],
+    [
+      {
+        batchId: "batch-1",
+        duplicate: false,
+        results: [
+          {
+            eventIndex: 0,
+            kind: "goal",
+            messageId: "message-1",
+            goalId: "goal-1"
+          }
+        ]
+      },
+      "a result kind that does not match its input event"
+    ]
+  ])("rejects a response inconsistent with the input batch: %s (%s)", async (data, _description) => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({ data, error: null })
+    };
+
+    await expect(writePreparedBatch("user-123", batch, client)).rejects.toThrow(
+      "batch RPC returned an invalid response"
+    );
+  });
+
+  it.each([
+    [0, "goalId", "goal"],
+    [1, "taskId", "task"],
+    [1, "reminderId", "task reminder"],
+    [2, "activityId", "activity"],
+    [2, "goalId", "activity goal"],
+    [3, "inboxItemId", "inbox"]
+  ])(
+    "rejects a %s result missing required %s (%s)",
+    async (eventIndex, requiredKey) => {
+      const results: Array<Record<string, unknown>> = validAllKindResults.map(
+        (result) => ({ ...result })
+      );
+      delete results[eventIndex][requiredKey];
+      const client = {
+        rpc: vi.fn().mockResolvedValue({
+          data: { batchId: "batch-all", duplicate: false, results },
+          error: null
+        })
+      };
+
+      await expect(
+        writePreparedBatch("user-123", allKindBatch, client)
+      ).rejects.toThrow("batch RPC returned an invalid response");
+    }
+  );
 });

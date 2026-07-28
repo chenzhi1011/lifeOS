@@ -71,7 +71,29 @@ function isBatchEventWriteResult(value: unknown): value is BatchEventWriteResult
   );
 }
 
-function isBatchWriteResult(value: unknown): value is BatchWriteResult {
+function hasRequiredEntityIds(result: BatchEventWriteResult): boolean {
+  if (result.kind === "goal") {
+    return isNonEmptyString(result.goalId);
+  }
+  if (result.kind === "task") {
+    return (
+      isNonEmptyString(result.taskId) &&
+      isNonEmptyString(result.reminderId)
+    );
+  }
+  if (result.kind === "activity") {
+    return (
+      isNonEmptyString(result.activityId) &&
+      isNonEmptyString(result.goalId)
+    );
+  }
+  return isNonEmptyString(result.inboxItemId);
+}
+
+function isBatchWriteResult(
+  value: unknown,
+  events: PreparedBatch["events"]
+): value is BatchWriteResult {
   if (!isRecord(value)) {
     return false;
   }
@@ -80,9 +102,14 @@ function isBatchWriteResult(value: unknown): value is BatchWriteResult {
     isNonEmptyString(value.batchId) &&
     typeof value.duplicate === "boolean" &&
     Array.isArray(value.results) &&
-    value.results.length > 0 &&
-    value.results.length <= 20 &&
-    value.results.every(isBatchEventWriteResult)
+    value.results.length === events.length &&
+    value.results.every(
+      (result, index) =>
+        isBatchEventWriteResult(result) &&
+        result.eventIndex === index &&
+        result.kind === events[index].kind &&
+        hasRequiredEntityIds(result)
+    )
   );
 }
 
@@ -118,7 +145,7 @@ export async function writePreparedBatch(
     throw new Error("batch RPC returned an invalid response");
   }
 
-  if (!isBatchWriteResult(data)) {
+  if (!isBatchWriteResult(data, batch.events)) {
     throw new Error("batch RPC returned an invalid response");
   }
 
