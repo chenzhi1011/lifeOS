@@ -41,9 +41,19 @@ describe("Custom GPT batch intake database schema", () => {
 
     for (const sql of [schema, migration]) {
       expect(sql).toMatch(
+        /unique\s*\(\s*user_id\s*,\s*idempotency_key\s*\)/i
+      );
+      expect(sql).toMatch(/unique\s*\(\s*user_id\s*,\s*id\s*\)/i);
+      expect(sql).toMatch(
+        /create unique index(?:\s+if not exists)?\s+idx_messages_batch_event\s+on messages\s*\(\s*batch_id\s*,\s*event_index\s*\)\s+where batch_id is not null/i
+      );
+      expect(sql).toMatch(
         /foreign key\s*\(user_id,\s*batch_id\)\s*references action_batches\s*\(user_id,\s*id\)/i
       );
       expect(sql).toMatch(/alter table action_batches enable row level security/i);
+      expect(sql).toMatch(
+        /create policy action_batches_own_rows\s+on action_batches\s+using\s*\(\s*user_id\s*=\s*auth\.uid\(\)\s*\)\s+with check\s*\(\s*user_id\s*=\s*auth\.uid\(\)\s*\)/i
+      );
     }
   });
 });
