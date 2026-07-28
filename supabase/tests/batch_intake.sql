@@ -1,5 +1,31 @@
 \set ON_ERROR_STOP on
 
+do $test$
+begin
+  if has_function_privilege(
+    'anon',
+    'public.record_life_event_batch(uuid,text,text,text,jsonb)',
+    'EXECUTE'
+  ) then
+    raise exception 'anon must not execute record_life_event_batch';
+  end if;
+  if has_function_privilege(
+    'authenticated',
+    'public.record_life_event_batch(uuid,text,text,text,jsonb)',
+    'EXECUTE'
+  ) then
+    raise exception 'authenticated must not execute record_life_event_batch';
+  end if;
+  if not has_function_privilege(
+    'service_role',
+    'public.record_life_event_batch(uuid,text,text,text,jsonb)',
+    'EXECUTE'
+  ) then
+    raise exception 'service_role must execute record_life_event_batch';
+  end if;
+end
+$test$;
+
 insert into auth.users (id)
 values
   ('00000000-0000-4000-8000-000000000001'),
@@ -196,6 +222,104 @@ begin
   );
   if conflict_response <> '{"error":"idempotency_conflict","duplicate":false}'::jsonb then
     raise exception 'changed hash must return idempotency conflict: %', conflict_response;
+  end if;
+end
+$test$;
+
+insert into messages (
+  id,
+  user_id,
+  source,
+  raw_text,
+  intent_type,
+  confidence,
+  parsed_json,
+  status
+)
+values (
+  '20000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000001',
+  'app',
+  '复习增肌计划',
+  'task',
+  1,
+  '{}'::jsonb,
+  'processed'
+);
+
+insert into tasks (
+  id,
+  user_id,
+  goal_id,
+  message_id,
+  title,
+  status,
+  due_at
+)
+values (
+  '30000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000002',
+  '20000000-0000-4000-8000-000000000002',
+  '复习增肌计划',
+  'open',
+  '2026-07-29T09:00:00+09:00'
+);
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  activity_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into activity_count_before from activities;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-cross-goal-task',
+      'hash-cross-goal-task',
+      'attempt cross-goal task match',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'activity',
+          'summary', '完成 AWS 学习',
+          'goalId', '10000000-0000-4000-8000-000000000001',
+          'matchedTaskId', '30000000-0000-4000-8000-000000000002',
+          'metricType', 'count',
+          'value', 1,
+          'unit', 'count',
+          'occurredOn', '2026-07-28',
+          'confidence', 0.95
+        )
+      )
+    );
+  exception
+    when others then
+      failed := true;
+  end;
+
+  if not failed then
+    raise exception 'cross-goal matched task must fail';
+  end if;
+  if (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from activities) <> activity_count_before then
+    raise exception 'failed cross-goal task match must roll back batch, messages, and activity';
+  end if;
+  if not exists (
+    select 1
+    from tasks
+    where id = '30000000-0000-4000-8000-000000000002'
+      and user_id = '00000000-0000-4000-8000-000000000001'
+      and goal_id = '10000000-0000-4000-8000-000000000002'
+      and status = 'open'
+      and completed_at is null
+  ) then
+    raise exception 'cross-goal task must remain open';
   end if;
 end
 $test$;

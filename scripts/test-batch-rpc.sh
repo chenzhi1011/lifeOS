@@ -27,7 +27,7 @@ done
 
 docker exec "$container_name" psql --username postgres --dbname postgres \
   --set ON_ERROR_STOP=on \
-  --command "create schema auth; create table auth.users (id uuid primary key); create role service_role nologin; create role anon nologin; create role authenticated nologin; create function auth.uid() returns uuid language sql stable as 'select null::uuid';"
+  --command "create schema auth; create table auth.users (id uuid primary key); create role service_role nologin; create role anon nologin; create role authenticated nologin; create function auth.uid() returns uuid language sql stable as 'select null::uuid'; alter default privileges for role postgres in schema public grant execute on functions to anon, authenticated;"
 
 docker exec "$container_name" psql --username postgres --dbname postgres \
   --set ON_ERROR_STOP=on \

@@ -476,6 +476,7 @@ begin
             completed_at = now()
           where user_id = p_user_id
             and id = v_task_id
+            and goal_id = v_goal_id
             and status = 'open'
           returning id into v_updated_id;
 
@@ -591,5 +592,5 @@ begin
 end
 $function$;
 
-revoke execute on function record_life_event_batch(uuid, text, text, text, jsonb) from public;
+revoke execute on function public.record_life_event_batch(uuid, text, text, text, jsonb) from public, anon, authenticated;
 grant execute on function record_life_event_batch(uuid, text, text, text, jsonb) to service_role;

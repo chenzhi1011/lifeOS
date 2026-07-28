@@ -88,13 +88,16 @@ describe("Custom GPT batch intake database schema", () => {
         /v_resolves_inbox_item_id is not null\s+and not \(v_kind = 'inbox' and v_event->>'resolution' = 'dismiss'\)/i
       );
       expect(sql).toMatch(
-        /revoke execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) from public/i
+        /revoke execute on function public\.record_life_event_batch\(uuid, text, text, text, jsonb\) from public,\s*anon,\s*authenticated/i
       );
       expect(sql).toMatch(
         /grant execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) to service_role/i
       );
       expect(sql).not.toMatch(
         /grant execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) to (?:anon|authenticated|public)/i
+      );
+      expect(sql).toMatch(
+        /update tasks[\s\S]*?where user_id = p_user_id[\s\S]*?and id = v_task_id[\s\S]*?and goal_id = v_goal_id[\s\S]*?and status = 'open'/i
       );
     }
   });
