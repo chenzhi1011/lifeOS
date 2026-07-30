@@ -7,6 +7,23 @@ export type ActionAuthResult =
   | { ok: false; response: NextResponse };
 
 export async function requireActionCredential(request: Request): Promise<ActionAuthResult> {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const preAuthRate = checkActionRateLimit("pre-auth", ip, 60, 60_000);
+  const preAuthRateHeaders = {
+    "x-ratelimit-remaining": String(preAuthRate.remaining),
+    "x-ratelimit-reset": String(preAuthRate.resetAt)
+  };
+
+  if (!preAuthRate.allowed) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "rate limit exceeded" },
+        { status: 429, headers: preAuthRateHeaders }
+      )
+    };
+  }
+
   const token = extractBearerToken(request);
   if (!token) {
     return { ok: false, response: NextResponse.json({ error: "missing bearer token" }, { status: 401 }) };
@@ -18,7 +35,6 @@ export async function requireActionCredential(request: Request): Promise<ActionA
   }
 
   const tokenHash = await hashActionToken(token);
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   const rate = checkActionRateLimit(tokenHash, ip);
   const rateHeaders = {
     "x-ratelimit-remaining": String(rate.remaining),

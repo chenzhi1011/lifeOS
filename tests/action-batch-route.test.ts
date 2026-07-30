@@ -5,6 +5,7 @@ import {
   writePreparedBatch
 } from "@/src/actions/batch-repository";
 import { resetActionRateLimits } from "@/src/actions/rate-limit";
+import { readActionContext } from "@/src/actions/repository";
 import { POST } from "@/app/api/actions/life-events/route";
 
 vi.mock("@/src/actions/batch-repository", async (importOriginal) => {
@@ -17,9 +18,28 @@ vi.mock("@/src/actions/batch-repository", async (importOriginal) => {
   };
 });
 
+vi.mock("@/src/actions/repository", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/src/actions/repository")>();
+
+  return {
+    ...actual,
+    readActionContext: vi.fn()
+  };
+});
+
 const token = "los_batch_route_test_token_123456";
 const userId = "batch-route-user";
 const writePreparedBatchMock = vi.mocked(writePreparedBatch);
+const readActionContextMock = vi.mocked(readActionContext);
+const actionContext = {
+  timezone: "Asia/Tokyo",
+  defaultReminderTime: "09:00",
+  currentTime: "2026-07-28 09:00:00 Asia/Tokyo",
+  goals: [],
+  aliases: [],
+  openTasks: []
+};
 
 function request(body: unknown, options?: { authorization?: boolean }) {
   return new Request("https://example.com/api/actions/life-events", {
@@ -60,6 +80,7 @@ describe("POST /api/actions/life-events", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetActionRateLimits();
+    readActionContextMock.mockResolvedValue(actionContext);
     vi.stubEnv(
       "ACTION_CREDENTIALS_JSON",
       JSON.stringify([
@@ -98,6 +119,7 @@ describe("POST /api/actions/life-events", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, ...result });
     expect(writePreparedBatchMock).toHaveBeenCalledTimes(1);
+    expect(readActionContextMock).toHaveBeenCalledWith(userId);
     expect(writePreparedBatchMock).toHaveBeenCalledWith(
       userId,
       expect.objectContaining({

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { authenticateActionToken, extractBearerToken, hashActionToken } from "@/src/actions/auth";
 import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
 import { checkActionRateLimit, resetActionRateLimits } from "@/src/actions/rate-limit";
+import { requireActionCredential } from "@/src/actions/request";
 import { validateLifeEventPayload } from "@/src/actions/validation";
 
 describe("Custom GPT action security", () => {
@@ -86,5 +87,48 @@ describe("Custom GPT action security", () => {
 
     const blocked = checkActionRateLimit("hash-a", "127.0.0.1", 20, 60_000);
     expect(blocked.allowed).toBe(false);
+  });
+
+  it("rate limits unauthenticated requests by ip before credential lookup", async () => {
+    resetActionRateLimits();
+
+    for (let index = 0; index < 60; index += 1) {
+      const result = await requireActionCredential(
+        new Request("https://example.com/api/actions/life-events", {
+          headers: { "x-forwarded-for": "203.0.113.10" }
+        })
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.response.status).toBe(401);
+      }
+    }
+
+    const blocked = await requireActionCredential(
+      new Request("https://example.com/api/actions/life-events", {
+        headers: { "x-forwarded-for": "203.0.113.10" }
+      })
+    );
+
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.response.status).toBe(429);
+      expect(blocked.response.headers.get("x-ratelimit-remaining")).toBe("0");
+      expect(blocked.response.headers.get("x-ratelimit-reset")).toMatch(
+        /^\d+$/
+      );
+    }
+
+    const otherIp = await requireActionCredential(
+      new Request("https://example.com/api/actions/life-events", {
+        headers: { "x-forwarded-for": "203.0.113.11" }
+      })
+    );
+
+    expect(otherIp.ok).toBe(false);
+    if (!otherIp.ok) {
+      expect(otherIp.response.status).toBe(401);
+    }
   });
 });
