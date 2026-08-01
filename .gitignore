@@ -30,3 +30,6 @@ pnpm-debug.log*
 
 # Codex/Superpowers local brainstorming artifacts
 .superpowers/
+
+# Isolated implementation worktrees
+.worktrees/
