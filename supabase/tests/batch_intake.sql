@@ -367,6 +367,7 @@ begin
         'title', '家庭',
         'category', 'life',
         'parentGoalId', null,
+        'goalType', 'short_term',
         'metricType', 'count',
         'aliases', jsonb_build_array('家'),
         'confidence', 0.99

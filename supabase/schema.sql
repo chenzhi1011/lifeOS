@@ -58,7 +58,7 @@ create table goals (
   title text not null,
   category text not null,
   parent_goal_id uuid,
-  goal_type text not null default 'short_term' check (goal_type in ('long_term', 'short_term')),
+  goal_type text not null check (goal_type in ('long_term', 'short_term')),
   ability_id uuid,
   due_at timestamptz,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
@@ -203,15 +203,22 @@ language plpgsql
 set search_path = public, pg_temp
 as $function$
 begin
-  if new.short_goal_id is null or not exists (
-    select 1
-    from goals
-    where user_id = new.user_id
-      and id = new.short_goal_id
-      and goal_type = 'short_term'
-  ) then
+  if new.short_goal_id is null then
     raise exception 'achievement requires a short_term goal owned by the user';
   end if;
+
+  perform 1
+  from goals
+  where user_id = new.user_id
+    and id = new.short_goal_id
+    and goal_type = 'short_term'
+    and ability_id is null
+  for share;
+
+  if not found then
+    raise exception 'achievement requires a short_term goal owned by the user';
+  end if;
+
   return new;
 end
 $function$;
@@ -219,6 +226,32 @@ $function$;
 create trigger achievements_short_goal_guard
 before insert or update of user_id, short_goal_id on achievements
 for each row execute function enforce_achievement_short_goal();
+
+create or replace function enforce_goal_achievement_shape()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $function$
+begin
+  if (
+    new.goal_type is distinct from 'short_term'
+    or new.ability_id is not null
+  ) and exists (
+    select 1
+    from achievements
+    where user_id = new.user_id
+      and short_goal_id = new.id
+  ) then
+    raise exception 'a goal referenced by an achievement must remain short_term without an ability';
+  end if;
+
+  return new;
+end
+$function$;
+
+create trigger goals_achievement_shape_guard
+before update of goal_type, ability_id on goals
+for each row execute function enforce_goal_achievement_shape();
 
 create index idx_messages_user_created on messages (user_id, created_at desc);
 create unique index idx_messages_batch_event on messages (batch_id, event_index) where batch_id is not null;
@@ -436,6 +469,8 @@ begin
         title,
         category,
         parent_goal_id,
+        goal_type,
+        ability_id,
         metric_type,
         status
       )
@@ -444,6 +479,8 @@ begin
         v_event->>'title',
         v_event->>'category',
         v_parent_goal_id,
+        v_event->>'goalType',
+        nullif(v_event->>'abilityId', '')::uuid,
         v_event->>'metricType',
         'active'
       )

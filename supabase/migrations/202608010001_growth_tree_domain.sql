@@ -110,6 +110,30 @@ alter table achievements
   add column if not exists note text,
   add column if not exists evidence_url text;
 
+do $migration$
+begin
+  if exists (
+    select 1
+    from achievements
+    where short_goal_id is not null
+    group by user_id, short_goal_id
+    having count(*) > 1
+  ) then
+    raise exception 'duplicate (user_id, short_goal_id) achievement rows found; manually deduplicate or map achievements before retrying migration';
+  end if;
+
+  if exists (
+    select 1
+    from activities
+    where task_id is not null
+    group by user_id, task_id
+    having count(*) > 1
+  ) then
+    raise exception 'duplicate (user_id, task_id) activity rows found; manually deduplicate or map activities before retrying migration';
+  end if;
+end
+$migration$;
+
 create unique index if not exists idx_achievements_user_short_goal
   on achievements(user_id, short_goal_id) where short_goal_id is not null;
 
@@ -122,15 +146,22 @@ language plpgsql
 set search_path = public, pg_temp
 as $function$
 begin
-  if new.short_goal_id is null or not exists (
-    select 1
-    from goals
-    where user_id = new.user_id
-      and id = new.short_goal_id
-      and goal_type = 'short_term'
-  ) then
+  if new.short_goal_id is null then
     raise exception 'achievement requires a short_term goal owned by the user';
   end if;
+
+  perform 1
+  from goals
+  where user_id = new.user_id
+    and id = new.short_goal_id
+    and goal_type = 'short_term'
+    and ability_id is null
+  for share;
+
+  if not found then
+    raise exception 'achievement requires a short_term goal owned by the user';
+  end if;
+
   return new;
 end
 $function$;
@@ -139,6 +170,33 @@ drop trigger if exists achievements_short_goal_guard on achievements;
 create trigger achievements_short_goal_guard
 before insert or update of user_id, short_goal_id on achievements
 for each row execute function enforce_achievement_short_goal();
+
+create or replace function enforce_goal_achievement_shape()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $function$
+begin
+  if (
+    new.goal_type is distinct from 'short_term'
+    or new.ability_id is not null
+  ) and exists (
+    select 1
+    from achievements
+    where user_id = new.user_id
+      and short_goal_id = new.id
+  ) then
+    raise exception 'a goal referenced by an achievement must remain short_term without an ability';
+  end if;
+
+  return new;
+end
+$function$;
+
+drop trigger if exists goals_achievement_shape_guard on goals;
+create trigger goals_achievement_shape_guard
+before update of goal_type, ability_id on goals
+for each row execute function enforce_goal_achievement_shape();
 
 alter table messages drop constraint if exists messages_intent_type_check;
 alter table messages add constraint messages_intent_type_check
