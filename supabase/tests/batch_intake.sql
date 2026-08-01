@@ -410,6 +410,128 @@ $test$;
 
 do $test$
 declare
+  first_response jsonb;
+  replay_response jsonb;
+  ability_id uuid;
+  archived_at_before timestamptz := '2026-07-31T12:34:56+09:00';
+begin
+  first_response := record_life_event_batch(
+    '00000000-0000-4000-8000-000000000001',
+    'batch-archive-ability-first',
+    'hash-archive-ability-first',
+    '培养已归档能力',
+    jsonb_build_array(
+      jsonb_build_object(
+        'kind', 'ability',
+        'title', '已归档能力',
+        'confidence', 0.99
+      )
+    )
+  );
+  ability_id := (first_response#>>'{results,0,abilityId}')::uuid;
+
+  update abilities
+  set status = 'archived', archived_at = archived_at_before
+  where user_id = '00000000-0000-4000-8000-000000000001'
+    and id = ability_id;
+
+  replay_response := record_life_event_batch(
+    '00000000-0000-4000-8000-000000000001',
+    'batch-archive-ability-replay',
+    'hash-archive-ability-replay',
+    '再次培养已归档能力',
+    jsonb_build_array(
+      jsonb_build_object(
+        'kind', 'ability',
+        'title', '已归档能力',
+        'confidence', 0.99
+      )
+    )
+  );
+
+  if replay_response#>>'{results,0,abilityId}' <> ability_id::text then
+    raise exception 'ability replay must return the existing abilityId: %', replay_response;
+  end if;
+  if not exists (
+    select 1 from abilities
+    where user_id = '00000000-0000-4000-8000-000000000001'
+      and id = ability_id
+      and status = 'archived'
+      and archived_at = archived_at_before
+  ) then
+    raise exception 'ability replay must preserve archived status and archived_at';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  ability_id uuid;
+  archived_at_before timestamptz;
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+  failed boolean := false;
+begin
+  select id, archived_at into ability_id, archived_at_before
+  from abilities
+  where user_id = '00000000-0000-4000-8000-000000000001'
+    and title = '已归档能力';
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-archived-ability-goal',
+      'hash-archived-ability-goal',
+      '重放已归档能力并建立长期目标',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'ability',
+          'title', '已归档能力',
+          'confidence', 0.99
+        ),
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', '不能建立的长期目标',
+          'category', 'career',
+          'goalType', 'long_term',
+          'abilityTitle', '已归档能力',
+          'metricType', 'duration',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        )
+      )
+    );
+  exception
+    when others then
+      failed := true;
+  end;
+
+  if not failed then
+    raise exception 'same-batch long_term goal must not use an archived ability';
+  end if;
+  if (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from goals) <> goal_count_before then
+    raise exception 'archived ability goal batch must roll back completely';
+  end if;
+  if not exists (
+    select 1 from abilities
+    where user_id = '00000000-0000-4000-8000-000000000001'
+      and id = ability_id
+      and status = 'archived'
+      and archived_at = archived_at_before
+  ) then
+    raise exception 'failed archived ability goal batch must preserve the ability archive';
+  end if;
+end
+$test$;
+
+do $test$
+declare
   batch_count_before bigint;
   failed boolean := false;
 begin

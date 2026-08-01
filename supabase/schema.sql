@@ -467,9 +467,7 @@ begin
         'active'
       )
       on conflict (user_id, title) do update
-      set
-        status = 'active',
-        archived_at = null
+      set title = excluded.title
       returning id into v_ability_id;
 
     elsif v_kind = 'goal' then
