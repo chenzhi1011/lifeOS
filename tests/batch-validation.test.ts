@@ -11,6 +11,7 @@ function validTask(index: number) {
     title: `任务-${index}`,
     localDate: "2026-07-28",
     priority: "normal",
+    path: "goal",
     goal: {
       title: "AWS",
       explicit: true,
@@ -62,6 +63,7 @@ describe("validateLifeEventBatchPayload", () => {
       events: [
         {
           type: "goal",
+          goalType: "short_term",
           confidence: 0.97,
           title: "增肌",
           category: "健康"
@@ -70,7 +72,8 @@ describe("validateLifeEventBatchPayload", () => {
           type: "task",
           confidence: 0.92,
           title: "练肩",
-          localDate: "2026-07-28"
+          localDate: "2026-07-28",
+          path: "one_off"
         }
       ]
     });
@@ -82,8 +85,136 @@ describe("validateLifeEventBatchPayload", () => {
     });
     expect(payload.events[1]).toMatchObject({
       type: "task",
+      path: "one_off",
       priority: "normal"
     });
+  });
+
+  it.each([
+    [
+      {
+        path: "one_off",
+        goal: { title: "AWS", explicit: true }
+      },
+      "one_off forbids goal"
+    ],
+    [{ path: "goal" }, "goal path requires goal"]
+  ])("rejects an inconsistent task path: %o", (extra, message) => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "task-path",
+        rawText: "测试",
+        events: [
+          {
+            type: "task",
+            confidence: 0.9,
+            title: "学习",
+            localDate: "2026-08-01",
+            priority: "normal",
+            ...extra
+          }
+        ]
+      })
+    ).toThrow(message);
+  });
+
+  it("accepts an ability followed by a typed long-term goal", () => {
+    const parsed = validateLifeEventBatchPayload({
+      idempotencyKey: "ability-goal",
+      rawText: "培养前端能力并学习架构",
+      events: [
+        { type: "ability", title: "前端能力", confidence: 0.99 },
+        {
+          type: "goal",
+          goalType: "long_term",
+          title: "学习架构",
+          category: "职业",
+          ability: { title: "前端能力" },
+          metricType: "duration",
+          aliases: [],
+          confidence: 0.98
+        }
+      ]
+    });
+
+    expect(parsed.events.map((event) => event.type)).toEqual([
+      "ability",
+      "goal"
+    ]);
+  });
+
+  it.each([
+    [
+      {
+        type: "goal",
+        goalType: "long_term",
+        title: "学习架构",
+        category: "职业",
+        confidence: 0.98
+      },
+      "long_term goal requires ability"
+    ],
+    [
+      {
+        type: "goal",
+        goalType: "short_term",
+        title: "通过考试",
+        category: "职业",
+        ability: { title: "前端能力" },
+        confidence: 0.98
+      },
+      "short_term goal forbids ability"
+    ]
+  ])("rejects an inconsistent typed goal: %o", (event, message) => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "typed-goal",
+        rawText: "测试目标",
+        events: [event]
+      })
+    ).toThrow(message);
+  });
+
+  it.each([
+    {},
+    { title: "   " },
+    { id: "not-a-uuid" }
+  ])("rejects an invalid ability reference: %o", (ability) => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "invalid-ability-reference",
+        rawText: "学习架构",
+        events: [
+          {
+            type: "goal",
+            goalType: "long_term",
+            title: "学习架构",
+            category: "职业",
+            ability,
+            confidence: 0.98
+          }
+        ]
+      })
+    ).toThrow();
+  });
+
+  it("requires all three planned metric fields by accepting only a complete metric", () => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "incomplete-task-metric",
+        rawText: "明天学习 40 分钟",
+        events: [
+          {
+            type: "task",
+            path: "one_off",
+            title: "学习",
+            localDate: "2026-08-01",
+            confidence: 0.9,
+            metric: { type: "duration", value: 40 }
+          }
+        ]
+      })
+    ).toThrow();
   });
 
   it("accepts a strict activity metric", () => {
@@ -118,6 +249,7 @@ describe("validateLifeEventBatchPayload", () => {
             confidence: 0.9,
             title: "学习",
             localDate: "2026-07-28",
+            path: "one_off",
             goal: { explicit: true }
           }
         ]

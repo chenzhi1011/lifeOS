@@ -1,8 +1,19 @@
-import type { GoalReferenceInput } from "./batch-validation";
+import type {
+  AbilityReferenceInput,
+  GoalReferenceInput
+} from "./batch-validation";
+
+export interface ActionAbilityContext {
+  id: string;
+  title: string;
+  status: "active" | "archived";
+}
 
 export interface ActionGoalContext {
   id: string;
   title: string;
+  goalType: "long_term" | "short_term" | null;
+  abilityId: string | null;
   status: "active" | "paused" | "completed";
 }
 
@@ -22,6 +33,10 @@ export interface ActionTaskContext {
 export type GoalResolution =
   | { kind: "resolved"; goalId: string }
   | { kind: "unassigned" }
+  | { kind: "inbox"; reason: string };
+
+export type AbilityResolution =
+  | { kind: "resolved"; abilityId: string }
   | { kind: "inbox"; reason: string };
 
 export interface TaskMatchInput {
@@ -62,18 +77,37 @@ export function resolveGoalReference(
   const requestedTitle = reference.title?.trim().toLowerCase();
 
   if (requestedTitle) {
-    const exactGoal = activeGoals.find((goal) => goal.title.trim().toLowerCase() === requestedTitle);
-    if (exactGoal) {
-      return { kind: "resolved", goalId: exactGoal.id };
+    const exactGoals = activeGoals.filter(
+      (goal) => goal.title.trim().toLowerCase() === requestedTitle
+    );
+    if (exactGoals.length > 1) {
+      return {
+        kind: "inbox",
+        reason: `multiple active goals match: ${reference.title}`
+      };
+    }
+    if (exactGoals[0]) {
+      return { kind: "resolved", goalId: exactGoals[0].id };
     }
 
-    const matchingAlias = aliases.find(
-      (alias) =>
-        alias.alias.trim().toLowerCase() === requestedTitle &&
-        activeGoals.some((goal) => goal.id === alias.goalId)
+    const matchingGoalIds = new Set(
+      aliases
+        .filter(
+          (alias) =>
+            alias.alias.trim().toLowerCase() === requestedTitle &&
+            activeGoals.some((goal) => goal.id === alias.goalId)
+        )
+        .map((alias) => alias.goalId)
     );
-    if (matchingAlias) {
-      return { kind: "resolved", goalId: matchingAlias.goalId };
+    if (matchingGoalIds.size > 1) {
+      return {
+        kind: "inbox",
+        reason: `multiple active goals match: ${reference.title}`
+      };
+    }
+    const [matchingGoalId] = matchingGoalIds;
+    if (matchingGoalId) {
+      return { kind: "resolved", goalId: matchingGoalId };
     }
   }
 
@@ -92,6 +126,43 @@ export function resolveGoalReference(
   }
 
   return unresolvedGoal(eventType);
+}
+
+export function resolveAbilityReference(
+  reference: AbilityReferenceInput,
+  abilities: ActionAbilityContext[]
+): AbilityResolution {
+  const activeAbilities = abilities.filter(
+    (ability) => ability.status === "active"
+  );
+
+  if (reference.id) {
+    const byId = activeAbilities.find((ability) => ability.id === reference.id);
+    if (byId) {
+      return { kind: "resolved", abilityId: byId.id };
+    }
+  }
+
+  if (reference.title) {
+    const normalizedTitle = normalizeIntentTitle(reference.title);
+    const matches = activeAbilities.filter(
+      (ability) => normalizeIntentTitle(ability.title) === normalizedTitle
+    );
+    if (matches.length > 1) {
+      return {
+        kind: "inbox",
+        reason: `multiple active abilities match: ${reference.title.trim()}`
+      };
+    }
+    if (matches[0]) {
+      return { kind: "resolved", abilityId: matches[0].id };
+    }
+  }
+
+  return {
+    kind: "inbox",
+    reason: `ability does not exist: ${reference.title ?? reference.id}`
+  };
 }
 
 export function matchOpenTask(

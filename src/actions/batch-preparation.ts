@@ -4,7 +4,10 @@ import type {
 } from "./batch-validation";
 import {
   matchOpenTask,
+  normalizeIntentTitle,
+  resolveAbilityReference,
   resolveGoalReference,
+  type ActionAbilityContext,
   type ActionGoalAliasContext,
   type ActionGoalContext,
   type ActionTaskContext
@@ -26,6 +29,9 @@ export type PreparedEvent =
       dueAt: string;
       remindAt: string;
       priority: "low" | "normal" | "high";
+      plannedMetricType: "duration" | "count" | "milestone" | null;
+      plannedValue: number | null;
+      plannedUnit: "minute" | "hour" | "count" | null;
     })
   | (PreparedBase & {
       kind: "activity";
@@ -39,16 +45,22 @@ export type PreparedEvent =
       occurredOn: string;
     })
   | (PreparedBase & {
+      kind: "ability";
+      title: string;
+    })
+  | (PreparedBase & {
       kind: "goal";
       title: string;
       category: string;
-      parentGoalId: string | null;
+      goalType: "long_term" | "short_term";
+      abilityId: string | null;
+      abilityTitle?: string;
       metricType: "duration" | "count" | "milestone";
       aliases: string[];
     })
   | (PreparedBase & {
       kind: "inbox";
-      suggestedType: "task" | "activity" | "goal" | "inbox";
+      suggestedType: "task" | "activity" | "goal" | "ability" | "inbox";
       reason: string;
       suggestedEvent: LifeEventBatchInput;
       resolution?: "dismiss";
@@ -57,6 +69,7 @@ export type PreparedEvent =
 export interface BatchPreparationContext {
   timezone: string;
   defaultReminderTime: string;
+  abilities: ActionAbilityContext[];
   goals: ActionGoalContext[];
   aliases: ActionGoalAliasContext[];
   openTasks: ActionTaskContext[];
@@ -69,10 +82,14 @@ export interface PreparedBatch {
   events: PreparedEvent[];
 }
 
-type PriorGoalTitles = Map<string, string>;
+type PriorTitles = Map<string, string[]>;
 
 function normalizedGoalTitle(title: string): string {
   return title.trim().toLowerCase();
+}
+
+function normalizedAbilityTitle(title: string): string {
+  return normalizeIntentTitle(title);
 }
 
 function preparedBase(event: LifeEventBatchInput): PreparedBase {
@@ -100,24 +117,42 @@ function prepareInbox(
   };
 }
 
+function recordPriorTitle(titles: PriorTitles, title: string): void {
+  const normalized = normalizedGoalTitle(title);
+  titles.set(normalized, [...(titles.get(normalized) ?? []), title.trim()]);
+}
+
+function recordPriorAbilityTitle(titles: PriorTitles, title: string): void {
+  const normalized = normalizedAbilityTitle(title);
+  titles.set(normalized, [...(titles.get(normalized) ?? []), title.trim()]);
+}
+
 function priorGoalTitleFor(
   event: Extract<LifeEventBatchInput, { type: "task" | "activity" }>,
-  priorGoalTitles: PriorGoalTitles
-): string | undefined {
+  priorGoalTitles: PriorTitles
+): { title?: string; reason?: string } {
   const title = event.goal?.title;
   if (!title) {
-    return undefined;
+    return {};
   }
 
-  return priorGoalTitles.get(normalizedGoalTitle(title));
+  const matches = priorGoalTitles.get(normalizedGoalTitle(title)) ?? [];
+  if (matches.length > 1) {
+    return { reason: `multiple active goals match: ${title.trim()}` };
+  }
+  return { title: matches[0] };
 }
 
 function prepareTask(
   event: Extract<LifeEventBatchInput, { type: "task" }>,
   context: BatchPreparationContext,
-  priorGoalTitles: PriorGoalTitles,
+  priorGoalTitles: PriorTitles,
   now: Date
 ): PreparedEvent {
+  if (event.path === "one_off") {
+    return prepareTaskWithGoal(event, null, undefined, context, now);
+  }
+
   const goalResolution = resolveGoalReference(
     event.goal,
     "task",
@@ -129,13 +164,39 @@ function prepareTask(
   let goalTitle: string | undefined;
   if (goalResolution.kind === "resolved") {
     goalId = goalResolution.goalId;
-  } else if (goalResolution.kind === "inbox") {
-    goalTitle = priorGoalTitleFor(event, priorGoalTitles);
-    if (!goalTitle) {
+  } else {
+    if (
+      goalResolution.kind === "inbox" &&
+      goalResolution.reason.startsWith("multiple active goals match:")
+    ) {
       return prepareInbox(event, goalResolution.reason);
+    }
+
+    const priorGoal = priorGoalTitleFor(event, priorGoalTitles);
+    if (priorGoal.reason) {
+      return prepareInbox(event, priorGoal.reason);
+    }
+    goalTitle = priorGoal.title;
+    if (!goalTitle) {
+      return prepareInbox(
+        event,
+        goalResolution.kind === "inbox"
+          ? goalResolution.reason
+          : "goal path requires one uniquely resolved goal"
+      );
     }
   }
 
+  return prepareTaskWithGoal(event, goalId, goalTitle, context, now);
+}
+
+function prepareTaskWithGoal(
+  event: Extract<LifeEventBatchInput, { type: "task" }>,
+  goalId: string | null,
+  goalTitle: string | undefined,
+  context: BatchPreparationContext,
+  now: Date
+): PreparedEvent {
   const taskTime = normalizeTaskTime(
     {
       localDate: event.localDate,
@@ -162,6 +223,9 @@ function prepareTask(
     dueAt: taskTime.dueAt,
     remindAt: taskTime.remindAt,
     priority: event.priority,
+    plannedMetricType: event.metric?.type ?? null,
+    plannedValue: event.metric?.value ?? null,
+    plannedUnit: event.metric?.unit ?? null,
     ...preparedBase(event)
   };
 }
@@ -169,7 +233,7 @@ function prepareTask(
 function prepareActivity(
   event: Extract<LifeEventBatchInput, { type: "activity" }>,
   context: BatchPreparationContext,
-  priorGoalTitles: PriorGoalTitles
+  priorGoalTitles: PriorTitles
 ): PreparedEvent {
   const goalResolution = resolveGoalReference(
     event.goal,
@@ -183,7 +247,17 @@ function prepareActivity(
   if (goalResolution.kind === "resolved") {
     goalId = goalResolution.goalId;
   } else {
-    goalTitle = priorGoalTitleFor(event, priorGoalTitles);
+    if (
+      goalResolution.kind === "inbox" &&
+      goalResolution.reason.startsWith("multiple active goals match:")
+    ) {
+      return prepareInbox(event, goalResolution.reason);
+    }
+    const priorGoal = priorGoalTitleFor(event, priorGoalTitles);
+    if (priorGoal.reason) {
+      return prepareInbox(event, priorGoal.reason);
+    }
+    goalTitle = priorGoal.title;
     if (!goalTitle) {
       return prepareInbox(
         event,
@@ -238,15 +312,56 @@ function prepareActivity(
 }
 
 function prepareGoal(
-  event: Extract<LifeEventBatchInput, { type: "goal" }>
-): Extract<PreparedEvent, { kind: "goal" }> {
+  event: Extract<LifeEventBatchInput, { type: "goal" }>,
+  context: BatchPreparationContext,
+  priorAbilityTitles: PriorTitles
+): PreparedEvent {
+  let abilityId: string | null = null;
+  let abilityTitle: string | undefined;
+  if (event.goalType === "long_term" && event.ability) {
+    const abilityResolution = resolveAbilityReference(
+      event.ability,
+      context.abilities
+    );
+    if (abilityResolution.kind === "resolved") {
+      abilityId = abilityResolution.abilityId;
+    } else if (event.ability.title) {
+      const sameBatchMatches =
+        priorAbilityTitles.get(normalizedAbilityTitle(event.ability.title)) ?? [];
+      if (sameBatchMatches.length > 1) {
+        return prepareInbox(
+          event,
+          `multiple active abilities match: ${event.ability.title.trim()}`
+        );
+      }
+      abilityTitle = sameBatchMatches[0];
+      if (!abilityTitle) {
+        return prepareInbox(event, abilityResolution.reason);
+      }
+    } else {
+      return prepareInbox(event, abilityResolution.reason);
+    }
+  }
+
   return {
     kind: "goal",
     title: event.title.trim(),
     category: event.category.trim(),
-    parentGoalId: event.parentGoalId ?? null,
+    goalType: event.goalType,
+    abilityId,
+    ...(abilityTitle ? { abilityTitle } : {}),
     metricType: event.metricType,
     aliases: event.aliases.map((alias) => alias.trim()),
+    ...preparedBase(event)
+  };
+}
+
+function prepareAbility(
+  event: Extract<LifeEventBatchInput, { type: "ability" }>
+): Extract<PreparedEvent, { kind: "ability" }> {
+  return {
+    kind: "ability",
+    title: event.title.trim(),
     ...preparedBase(event)
   };
 }
@@ -267,7 +382,8 @@ export async function prepareLifeEventBatch(
   context: BatchPreparationContext,
   now = new Date()
 ): Promise<PreparedBatch> {
-  const priorGoalTitles: PriorGoalTitles = new Map();
+  const priorGoalTitles: PriorTitles = new Map();
+  const priorAbilityTitles: PriorTitles = new Map();
   const events: PreparedEvent[] = [];
 
   for (const event of payload.events) {
@@ -279,12 +395,21 @@ export async function prepareLifeEventBatch(
         events.push(prepareActivity(event, context, priorGoalTitles));
         break;
       case "goal": {
-        const preparedGoal = prepareGoal(event);
-        events.push(preparedGoal);
-        priorGoalTitles.set(
-          normalizedGoalTitle(event.title),
-          preparedGoal.title
+        const preparedGoal = prepareGoal(
+          event,
+          context,
+          priorAbilityTitles
         );
+        events.push(preparedGoal);
+        if (preparedGoal.kind === "goal") {
+          recordPriorTitle(priorGoalTitles, preparedGoal.title);
+        }
+        break;
+      }
+      case "ability": {
+        const preparedAbility = prepareAbility(event);
+        events.push(preparedAbility);
+        recordPriorAbilityTitle(priorAbilityTitles, preparedAbility.title);
         break;
       }
       case "inbox":

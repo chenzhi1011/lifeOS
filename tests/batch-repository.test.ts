@@ -18,6 +18,9 @@ const batch: PreparedBatch = {
       dueAt: "2026-07-28T00:00:00.000Z",
       remindAt: "2026-07-28T00:00:00.000Z",
       priority: "normal",
+      plannedMetricType: null,
+      plannedValue: null,
+      plannedUnit: null,
       confidence: 0.98
     }
   ]
@@ -32,7 +35,8 @@ const allKindBatch: PreparedBatch = {
       kind: "goal",
       title: "AWS",
       category: "职业",
-      parentGoalId: null,
+      goalType: "long_term",
+      abilityId: "ability-frontend",
       metricType: "duration",
       aliases: [],
       confidence: 0.99
@@ -44,6 +48,9 @@ const allKindBatch: PreparedBatch = {
       dueAt: "2026-07-28T00:00:00.000Z",
       remindAt: "2026-07-28T00:00:00.000Z",
       priority: "normal",
+      plannedMetricType: null,
+      plannedValue: null,
+      plannedUnit: null,
       confidence: 0.98
     },
     {

@@ -36,6 +36,7 @@ const actionContext = {
   timezone: "Asia/Tokyo",
   defaultReminderTime: "09:00",
   currentTime: "2026-07-28 09:00:00 Asia/Tokyo",
+  abilities: [],
   goals: [],
   aliases: [],
   openTasks: []
@@ -61,6 +62,7 @@ function validPayload() {
     events: [
       {
         type: "task",
+        path: "one_off",
         confidence: 0.98,
         title: "复习 AWS",
         localDate: "2099-07-29",

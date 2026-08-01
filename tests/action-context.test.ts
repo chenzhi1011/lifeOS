@@ -15,10 +15,19 @@ describe("formatActionContext", () => {
       },
       [
         {
+          id: "ability-frontend",
+          title: "前端能力",
+          status: "active"
+        }
+      ],
+      [
+        {
           id: "goal-aws",
           title: "AWS",
           category: "职业",
           parent_goal_id: "goal-career",
+          goal_type: "long_term",
+          ability_id: "ability-frontend",
           metric_type: "duration",
           status: "active",
           created_at: "2026-07-01T00:00:00.000Z"
@@ -49,12 +58,21 @@ describe("formatActionContext", () => {
       timezone: "Asia/Tokyo",
       defaultReminderTime: "09:00",
       currentTime: "2026-07-27 09:15:00 Asia/Tokyo",
+      abilities: [
+        {
+          id: "ability-frontend",
+          title: "前端能力",
+          status: "active"
+        }
+      ],
       goals: [
         {
           id: "goal-aws",
           title: "AWS",
           category: "职业",
           parentGoalId: "goal-career",
+          goalType: "long_term",
+          abilityId: "ability-frontend",
           metricType: "duration",
           status: "active",
           createdAt: "2026-07-01T00:00:00.000Z"
@@ -82,10 +100,19 @@ describe("formatActionContext", () => {
       },
       [
         {
+          id: "ability-health",
+          title: "健康能力",
+          status: "active"
+        }
+      ],
+      [
+        {
           id: "goal-health",
           title: "健康",
           category: "健康",
           parentGoalId: null,
+          goalType: "long_term",
+          abilityId: "ability-health",
           metricType: "count",
           status: "active",
           createdAt: "2026-07-02T00:00:00.000Z"
@@ -106,7 +133,15 @@ describe("formatActionContext", () => {
 
     expect(context).toMatchObject({
       defaultReminderTime: "08:30",
-      goals: [{ parentGoalId: null, metricType: "count" }],
+      abilities: [{ id: "ability-health", title: "健康能力" }],
+      goals: [
+        {
+          parentGoalId: null,
+          goalType: "long_term",
+          abilityId: "ability-health",
+          metricType: "count"
+        }
+      ],
       aliases: [{ goalId: "goal-health", alias: "运动" }],
       openTasks: [{ goalId: "goal-health", dueAt: null, status: "open" }]
     });
@@ -118,12 +153,15 @@ describe("formatActionContext", () => {
         timezone: "Asia/Tokyo",
         defaultReminderTime: "09:00"
       },
+      [],
       [
         {
           id: "goal-42",
           title: "目标",
           category: "职业",
           parent_goal_id: null,
+          goal_type: "short_term",
+          ability_id: null,
           metric_type: "count",
           status: "active",
           created_at: "2026-07-02T00:00:00.000Z"
@@ -169,10 +207,13 @@ describe("formatActionContext", () => {
     expect(() =>
       formatActionContext(
         { timezone: "Asia/Tokyo", defaultReminderTime: "09:00" },
+        [],
         [
           {
             category: "职业",
             parentGoalId: null,
+            goalType: "short_term",
+            abilityId: null,
             metricType: "count",
             createdAt: "2026-07-02T00:00:00.000Z",
             ...goal
@@ -202,15 +243,22 @@ function createQueryBuilder(
 }
 
 describe("readActionContext", () => {
-  it("scopes all four Supabase context queries to the authenticated user", async () => {
+  it("scopes all five Supabase context queries to the authenticated user", async () => {
     const profile = createQueryBuilder({
       data: { timezone: "Asia/Tokyo", default_reminder_time: "09:00:00" },
       error: null
     });
+    const abilities = createQueryBuilder({ data: [], error: null });
     const goals = createQueryBuilder({ data: [], error: null });
     const aliases = createQueryBuilder({ data: [], error: null });
     const tasks = createQueryBuilder({ data: [], error: null });
-    const builders = { profiles: profile, goals, goal_aliases: aliases, tasks };
+    const builders = {
+      profiles: profile,
+      abilities,
+      goals,
+      goal_aliases: aliases,
+      tasks
+    };
     const from = vi.fn((table: keyof typeof builders) => builders[table]);
 
     await readActionContext(
@@ -220,6 +268,7 @@ describe("readActionContext", () => {
     );
 
     expect(profile.eq).toHaveBeenCalledWith("user_id", "user-123");
+    expect(abilities.eq).toHaveBeenCalledWith("user_id", "user-123");
     expect(goals.eq).toHaveBeenCalledWith("user_id", "user-123");
     expect(aliases.eq).toHaveBeenCalledWith("user_id", "user-123");
     expect(tasks.eq).toHaveBeenCalledWith("user_id", "user-123");
@@ -231,13 +280,20 @@ describe("readActionContext", () => {
       data: { timezone: "Asia/Tokyo", default_reminder_time: "09:00:00" },
       error: null
     });
+    const abilities = createQueryBuilder({ data: [], error: null });
     const goals = createQueryBuilder({ data: [], error: null });
     const aliases = createQueryBuilder({
       data: null,
       error: { message: "aliases unavailable" }
     });
     const tasks = createQueryBuilder({ data: [], error: null });
-    const builders = { profiles: profile, goals, goal_aliases: aliases, tasks };
+    const builders = {
+      profiles: profile,
+      abilities,
+      goals,
+      goal_aliases: aliases,
+      tasks
+    };
     const from = vi.fn((table: keyof typeof builders) => builders[table]);
 
     await expect(

@@ -3,6 +3,7 @@ import { createServiceSupabaseClient } from "@/src/db/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BatchPreparationContext } from "./batch-preparation";
 import type {
+  ActionAbilityContext,
   ActionGoalAliasContext,
   ActionGoalContext,
   ActionTaskContext
@@ -41,6 +42,7 @@ export interface FormattedActionGoal extends ActionGoalContext {
 
 export interface FormattedActionContext extends BatchPreparationContext {
   currentTime: string;
+  abilities: ActionAbilityContext[];
   goals: FormattedActionGoal[];
   aliases: ActionGoalAliasContext[];
   openTasks: ActionTaskContext[];
@@ -71,6 +73,23 @@ function goalStatus(value: unknown): ActionGoalContext["status"] {
   return invalidActionContext();
 }
 
+function abilityStatus(value: unknown): ActionAbilityContext["status"] {
+  if (value === "active" || value === "archived") {
+    return value;
+  }
+  return invalidActionContext();
+}
+
+function goalType(value: unknown): ActionGoalContext["goalType"] {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value === "long_term" || value === "short_term") {
+    return value;
+  }
+  return invalidActionContext();
+}
+
 function metricType(value: unknown): ActionMetricType {
   if (value === "duration" || value === "count" || value === "milestone") {
     return value;
@@ -80,6 +99,7 @@ function metricType(value: unknown): ActionMetricType {
 
 export function formatActionContext(
   profile: ContextProfileRow,
+  abilities: ContextRow[],
   goals: ContextRow[],
   aliases: ContextRow[],
   openTasks: ContextRow[],
@@ -107,6 +127,11 @@ export function formatActionContext(
     timezone,
     defaultReminderTime,
     currentTime,
+    abilities: abilities.map((ability) => ({
+      id: requiredString(ability.id),
+      title: requiredString(ability.title),
+      status: abilityStatus(ability.status)
+    })),
     goals: goals.map((goal) => ({
       id: requiredString(goal.id),
       title: requiredString(goal.title),
@@ -115,6 +140,10 @@ export function formatActionContext(
         nullableString(
           firstDefined(goal, "parent_goal_id", "parentGoalId")
         ),
+      goalType: goalType(firstDefined(goal, "goal_type", "goalType")),
+      abilityId: nullableString(
+        firstDefined(goal, "ability_id", "abilityId")
+      ),
       metricType: metricType(
         firstDefined(goal, "metric_type", "metricType")
       ),
@@ -147,6 +176,7 @@ export async function readActionContext(
   if (supabase) {
     const [
       { data: profile, error: profileError },
+      { data: abilities, error: abilitiesError },
       { data: goals, error: goalsError },
       { data: aliases, error: aliasesError },
       { data: openTasks, error: tasksError }
@@ -157,9 +187,14 @@ export async function readActionContext(
         .eq("user_id", userId)
         .single(),
       supabase
+        .from("abilities")
+        .select("id,title,status")
+        .eq("user_id", userId)
+        .order("created_at"),
+      supabase
         .from("goals")
         .select(
-          "id,title,category,parent_goal_id,metric_type,status,created_at"
+          "id,title,category,parent_goal_id,goal_type,ability_id,metric_type,status,created_at"
         )
         .eq("user_id", userId)
         .order("created_at"),
@@ -178,13 +213,15 @@ export async function readActionContext(
 
     if (
       profileError ||
+      abilitiesError ||
       goalsError ||
       aliasesError ||
       tasksError ||
       !profile
     ) {
       throw new Error(
-        profileError?.message ??
+          profileError?.message ??
+          abilitiesError?.message ??
           goalsError?.message ??
           aliasesError?.message ??
           tasksError?.message ??
@@ -194,6 +231,7 @@ export async function readActionContext(
 
     return formatActionContext(
       profile,
+      abilities ?? [],
       goals ?? [],
       aliases ?? [],
       openTasks ?? [],
@@ -209,6 +247,7 @@ export async function readActionContext(
 
   return formatActionContext(
     profile,
+    state.abilities.filter((ability) => ability.userId === userId),
     state.goals.filter((goal) => goal.userId === userId),
     state.goalAliases.filter((alias) => alias.userId === userId),
     state.tasks.filter(

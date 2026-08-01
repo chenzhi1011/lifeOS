@@ -22,6 +22,21 @@ const goalReferenceSchema = z
     }
   });
 
+export const abilityReferenceSchema = z
+  .object({
+    id: uuidField.optional(),
+    title: textField.optional()
+  })
+  .strict()
+  .superRefine((ability, ctx) => {
+    if (!ability.id && !ability.title) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "ability reference requires id or title"
+      });
+    }
+  });
+
 const metricSchema = z
   .object({
     type: z.enum(["duration", "count", "milestone"]),
@@ -46,13 +61,31 @@ const taskBatchInputSchema = z
   .object({
     ...commonEventFields,
     type: z.literal("task"),
+    path: z.enum(["one_off", "goal"]),
     title: textField,
     localDate: dateField,
     explicitDueAt: z.string().datetime({ offset: true }).optional(),
     priority: z.enum(["low", "normal", "high"]).default("normal"),
+    metric: metricSchema.optional(),
     goal: goalReferenceSchema.optional()
   })
-  .strict();
+  .strict()
+  .superRefine((task, ctx) => {
+    if (task.path === "one_off" && task.goal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "one_off forbids goal",
+        path: ["goal"]
+      });
+    }
+    if (task.path === "goal" && !task.goal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "goal path requires goal",
+        path: ["goal"]
+      });
+    }
+  });
 
 const activityBatchInputSchema = z
   .object({
@@ -70,11 +103,36 @@ const goalBatchInputSchema = z
   .object({
     ...commonEventFields,
     type: z.literal("goal"),
+    goalType: z.enum(["long_term", "short_term"]),
     title: textField,
     category: textField,
-    parentGoalId: uuidField.optional(),
+    ability: abilityReferenceSchema.optional(),
     metricType: z.enum(["duration", "count", "milestone"]).default("count"),
     aliases: z.array(textField).max(12).default([])
+  })
+  .strict()
+  .superRefine((goal, ctx) => {
+    if (goal.goalType === "long_term" && !goal.ability) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "long_term goal requires ability",
+        path: ["ability"]
+      });
+    }
+    if (goal.goalType === "short_term" && goal.ability) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "short_term goal forbids ability",
+        path: ["ability"]
+      });
+    }
+  });
+
+const abilityBatchInputSchema = z
+  .object({
+    ...commonEventFields,
+    type: z.literal("ability"),
+    title: textField
   })
   .strict();
 
@@ -83,15 +141,19 @@ const inboxBatchInputSchema = z
     ...commonEventFields,
     type: z.literal("inbox"),
     reason: textField,
-    suggestedTypes: z.array(z.enum(["task", "activity", "goal", "inbox"])).min(1).max(4),
+    suggestedTypes: z
+      .array(z.enum(["task", "activity", "goal", "ability", "inbox"]))
+      .min(1)
+      .max(5),
     resolution: z.literal("dismiss").optional()
   })
   .strict();
 
-const lifeEventBatchInputSchema = z.discriminatedUnion("type", [
+const lifeEventBatchInputSchema = z.union([
   taskBatchInputSchema,
   activityBatchInputSchema,
   goalBatchInputSchema,
+  abilityBatchInputSchema,
   inboxBatchInputSchema
 ]);
 
@@ -115,6 +177,7 @@ export const lifeEventBatchPayloadSchema = z
   });
 
 export type GoalReferenceInput = z.infer<typeof goalReferenceSchema>;
+export type AbilityReferenceInput = z.infer<typeof abilityReferenceSchema>;
 export type LifeEventBatchPayload = z.infer<typeof lifeEventBatchPayloadSchema>;
 export type LifeEventBatchInput = z.infer<typeof lifeEventBatchInputSchema>;
 export type TaskBatchInput = z.infer<typeof taskBatchInputSchema>;

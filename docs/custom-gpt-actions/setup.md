@@ -6,12 +6,18 @@
 Custom GPT
   -> Bearer action token
   -> Vercel /api/actions/context
-  -> Vercel /api/actions/life-event
+  -> Vercel /api/actions/life-events
   -> Supabase
   -> /dashboard?userId=... reads Supabase and renders the 3D tree
 ```
 
 The GPT never sends `userId`. Vercel derives `user_id` from the Bearer token.
+
+The write endpoint accepts an ordered batch. Each Task must declare `path: one_off`
+or `path: goal`; each Goal must declare `goalType: long_term` or
+`goalType: short_term`. A one-off Task never gets a Goal. A long-term Goal requires
+an Ability, while a short-term Goal forbids one. When creating dependencies in one
+batch, put the Ability before the long-term Goal and the Goal before its Tasks.
 
 ## Vercel Environment Variables
 
@@ -83,6 +89,8 @@ The Vercel API:
 - Rejects request bodies with `userId`.
 - Rejects unknown fields.
 - Rejects invalid confidence, metric values, invalid dates, and missing required fields.
+- Rejects inconsistent `path`/Goal and `goalType`/Ability combinations.
+- Routes missing or ambiguous Goal and Ability references to Inbox during preparation.
 
 To revoke access:
 

@@ -9,9 +9,25 @@ import { hashCanonicalJson } from "@/src/actions/idempotency";
 const context: BatchPreparationContext = {
   timezone: "Asia/Tokyo",
   defaultReminderTime: "09:00",
+  abilities: [
+    { id: "ability-frontend", title: "前端能力", status: "active" },
+    { id: "ability-health", title: "健康能力", status: "active" }
+  ],
   goals: [
-    { id: "goal-aws", title: "AWS", status: "active" },
-    { id: "goal-muscle", title: "增肌", status: "active" }
+    {
+      id: "goal-aws",
+      title: "AWS",
+      goalType: "long_term",
+      abilityId: "ability-frontend",
+      status: "active"
+    },
+    {
+      id: "goal-muscle",
+      title: "增肌",
+      goalType: "long_term",
+      abilityId: "ability-health",
+      status: "active"
+    }
   ],
   aliases: [],
   openTasks: [
@@ -85,6 +101,7 @@ describe("prepareLifeEventBatch", () => {
         {
           type: "task",
           title: "学习 AWS",
+          path: "goal",
           localDate: "2026-07-28",
           priority: "normal",
           confidence: 0.98,
@@ -119,6 +136,9 @@ describe("prepareLifeEventBatch", () => {
         dueAt: "2026-07-28T00:00:00.000Z",
         remindAt: "2026-07-28T00:00:00.000Z",
         priority: "normal",
+        plannedMetricType: null,
+        plannedValue: null,
+        plannedUnit: null,
         confidence: 0.98
       },
       {
@@ -138,6 +158,7 @@ describe("prepareLifeEventBatch", () => {
   it("routes a missing explicit goal to inbox without blocking clear sibling events", async () => {
     const originalTask: LifeEventBatchPayload["events"][number] = {
       type: "task",
+      path: "goal",
       title: "买牛奶",
       localDate: "2026-07-28",
       priority: "high",
@@ -151,6 +172,7 @@ describe("prepareLifeEventBatch", () => {
         originalTask,
         {
           type: "task",
+          path: "goal",
           title: "复习 AWS",
           localDate: "2026-07-28",
           priority: "low",
@@ -182,6 +204,7 @@ describe("prepareLifeEventBatch", () => {
       payload([
         {
           type: "goal",
+          goalType: "short_term",
           title: " 家庭 ",
           category: "生活",
           metricType: "count",
@@ -190,6 +213,7 @@ describe("prepareLifeEventBatch", () => {
         },
         {
           type: "task",
+          path: "goal",
           title: "买菜",
           localDate: "2026-07-28",
           priority: "normal",
@@ -205,7 +229,8 @@ describe("prepareLifeEventBatch", () => {
       kind: "goal",
       title: "家庭",
       category: "生活",
-      parentGoalId: null,
+      goalType: "short_term",
+      abilityId: null,
       metricType: "count",
       aliases: [],
       confidence: 0.99
@@ -218,11 +243,115 @@ describe("prepareLifeEventBatch", () => {
     });
   });
 
+  it("prepares a one-off task without resolving a goal and preserves its planned metric", async () => {
+    const result = await prepareLifeEventBatch(
+      payload([
+        {
+          type: "task",
+          path: "one_off",
+          title: "买水",
+          localDate: "2026-07-28",
+          priority: "normal",
+          metric: { type: "count", value: 2, unit: "count" },
+          confidence: 0.96
+        }
+      ]),
+      context,
+      now
+    );
+
+    expect(result.events[0]).toMatchObject({
+      kind: "task",
+      title: "买水",
+      goalId: null,
+      plannedMetricType: "count",
+      plannedValue: 2,
+      plannedUnit: "count"
+    });
+  });
+
+  it("resolves an ability created earlier in the same batch for a long-term goal", async () => {
+    const result = await prepareLifeEventBatch(
+      payload([
+        {
+          type: "ability",
+          title: "音乐能力",
+          confidence: 0.99
+        },
+        {
+          type: "goal",
+          goalType: "long_term",
+          title: "练琴",
+          category: "兴趣",
+          ability: { title: "音乐能力" },
+          metricType: "duration",
+          aliases: [],
+          confidence: 0.98
+        }
+      ]),
+      context,
+      now
+    );
+
+    expect(result.events).toEqual([
+      {
+        kind: "ability",
+        title: "音乐能力",
+        confidence: 0.99
+      },
+      {
+        kind: "goal",
+        goalType: "long_term",
+        title: "练琴",
+        category: "兴趣",
+        abilityId: null,
+        abilityTitle: "音乐能力",
+        metricType: "duration",
+        aliases: [],
+        confidence: 0.98
+      }
+    ]);
+  });
+
+  it("routes a forward ability reference to inbox", async () => {
+    const goal = {
+      type: "goal" as const,
+      goalType: "long_term" as const,
+      title: "练琴",
+      category: "兴趣",
+      ability: { title: "音乐能力" },
+      metricType: "duration" as const,
+      aliases: [],
+      confidence: 0.98
+    };
+    const result = await prepareLifeEventBatch(
+      payload([
+        goal,
+        { type: "ability", title: "音乐能力", confidence: 0.99 }
+      ]),
+      context,
+      now
+    );
+
+    expect(result.events[0]).toEqual({
+      kind: "inbox",
+      suggestedType: "goal",
+      reason: "ability does not exist: 音乐能力",
+      suggestedEvent: goal,
+      confidence: 0.98
+    });
+    expect(result.events[1]).toMatchObject({
+      kind: "ability",
+      title: "音乐能力"
+    });
+  });
+
   it("keeps forward goal references in inbox when the goal appears later", async () => {
     const result = await prepareLifeEventBatch(
       payload([
         {
           type: "task",
+          path: "goal",
           title: "买菜",
           localDate: "2026-07-28",
           priority: "normal",
@@ -231,6 +360,7 @@ describe("prepareLifeEventBatch", () => {
         },
         {
           type: "goal",
+          goalType: "short_term",
           title: "家庭",
           category: "生活",
           metricType: "count",
@@ -258,6 +388,7 @@ describe("prepareLifeEventBatch", () => {
       payload([
         {
           type: "goal",
+          goalType: "short_term",
           title: "健康",
           category: "生活",
           metricType: "count",
