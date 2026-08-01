@@ -408,6 +408,345 @@ begin
 end
 $test$;
 
+insert into goals (
+  id,
+  user_id,
+  title,
+  category,
+  goal_type,
+  ability_id,
+  metric_type
+)
+values
+  (
+    '11000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000001',
+    'Ambiguous Goal',
+    'career',
+    'long_term',
+    '08000000-0000-4000-8000-000000000001',
+    'duration'
+  ),
+  (
+    '11000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000001',
+    ' ambiguous goal ',
+    'career',
+    'long_term',
+    '08000000-0000-4000-8000-000000000001',
+    'duration'
+  );
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  task_count_before bigint;
+  activity_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into task_count_before from tasks;
+  select count(*) into activity_count_before from activities;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-ambiguous-goal-title',
+      'hash-ambiguous-goal-title',
+      '添加歧义目标任务',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'task',
+          'title', '不能归属的任务',
+          'goalTitle', 'AMBIGUOUS GOAL',
+          'dueAt', '2026-07-31T09:00:00+09:00',
+          'remindAt', '2026-07-31T09:00:00+09:00',
+          'priority', 'normal',
+          'plannedMetricType', null,
+          'plannedValue', null,
+          'plannedUnit', null,
+          'confidence', 0.99
+        )
+      )
+    );
+  exception
+    when others then
+      if sqlerrm not like 'goalTitle is ambiguous at event index %' then
+        raise;
+      end if;
+      failed := true;
+  end;
+
+  if not failed then
+    raise exception 'normalized ambiguous goalTitle must fail';
+  end if;
+  if (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from tasks) <> task_count_before
+     or (select count(*) from activities) <> activity_count_before then
+    raise exception 'ambiguous goalTitle batch must roll back completely';
+  end if;
+end
+$test$;
+
+insert into goals (
+  id,
+  user_id,
+  title,
+  category,
+  goal_type,
+  ability_id,
+  metric_type
+)
+values (
+  '12000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000001',
+  '冲突身份目标',
+  'career',
+  'short_term',
+  null,
+  'count'
+);
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-conflicting-goal-type',
+      'hash-conflicting-goal-type',
+      '把同名短期目标改成长期目标',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', '冲突身份目标',
+          'category', 'career',
+          'goalType', 'long_term',
+          'abilityId', '08000000-0000-4000-8000-000000000001',
+          'metricType', 'count',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        )
+      )
+    );
+  exception
+    when others then
+      if sqlerrm not like 'goal identity conflicts with existing goal at event index %' then
+        raise;
+      end if;
+      failed := true;
+  end;
+
+  if not failed then
+    raise exception 'same-title goalType and ability conflict must fail';
+  end if;
+  if (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from goals) <> goal_count_before then
+    raise exception 'conflicting typed goal batch must roll back completely';
+  end if;
+  if not exists (
+    select 1 from goals
+    where user_id = '00000000-0000-4000-8000-000000000001'
+      and id = '12000000-0000-4000-8000-000000000001'
+      and goal_type = 'short_term'
+      and ability_id is null
+      and category = 'career'
+      and metric_type = 'count'
+      and parent_goal_id is null
+  ) then
+    raise exception 'conflicting typed goal must not mutate the existing goal';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  response jsonb;
+begin
+  response := record_life_event_batch(
+    '00000000-0000-4000-8000-000000000001',
+    'batch-identical-short-goal',
+    'hash-identical-short-goal',
+    '重复完全相同的短期目标',
+    jsonb_build_array(
+      jsonb_build_object(
+        'kind', 'goal',
+        'title', '冲突身份目标',
+        'category', 'career',
+        'goalType', 'short_term',
+        'metricType', 'count',
+        'aliases', '[]'::jsonb,
+        'confidence', 0.99
+      )
+    )
+  );
+
+  if response#>>'{results,0,goalId}' <> '12000000-0000-4000-8000-000000000001' then
+    raise exception 'identical short goal replay must return the existing goalId: %', response;
+  end if;
+end
+$test$;
+
+insert into abilities (id, user_id, title)
+values (
+  '08000000-0000-4000-8000-000000000003',
+  '00000000-0000-4000-8000-000000000001',
+  '备用能力'
+);
+
+insert into goals (
+  id,
+  user_id,
+  title,
+  category,
+  goal_type,
+  ability_id,
+  metric_type
+)
+values (
+  '13000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000001',
+  '身份字段目标',
+  'career',
+  'long_term',
+  '08000000-0000-4000-8000-000000000001',
+  'duration'
+);
+
+do $test$
+declare
+  conflicting_event jsonb;
+  failed boolean;
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+
+  for conflicting_event in
+    select value
+    from jsonb_array_elements(
+      jsonb_build_array(
+        jsonb_build_object(
+          'caseKey', 'ability',
+          'kind', 'goal',
+          'title', '身份字段目标',
+          'category', 'career',
+          'goalType', 'long_term',
+          'abilityId', '08000000-0000-4000-8000-000000000003',
+          'metricType', 'duration',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        ),
+        jsonb_build_object(
+          'caseKey', 'category',
+          'kind', 'goal',
+          'title', '身份字段目标',
+          'category', 'health',
+          'goalType', 'long_term',
+          'abilityId', '08000000-0000-4000-8000-000000000001',
+          'metricType', 'duration',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        ),
+        jsonb_build_object(
+          'caseKey', 'metric',
+          'kind', 'goal',
+          'title', '身份字段目标',
+          'category', 'career',
+          'goalType', 'long_term',
+          'abilityId', '08000000-0000-4000-8000-000000000001',
+          'metricType', 'count',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        ),
+        jsonb_build_object(
+          'caseKey', 'parent',
+          'kind', 'goal',
+          'title', '身份字段目标',
+          'category', 'career',
+          'goalType', 'long_term',
+          'abilityId', '08000000-0000-4000-8000-000000000001',
+          'parentGoalId', '10000000-0000-4000-8000-000000000001',
+          'metricType', 'duration',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        )
+      )
+    )
+  loop
+    failed := false;
+    begin
+      perform record_life_event_batch(
+        '00000000-0000-4000-8000-000000000001',
+        'batch-conflicting-goal-' || (conflicting_event->>'caseKey'),
+        'hash-conflicting-goal-' || (conflicting_event->>'caseKey'),
+        '冲突目标身份字段',
+        jsonb_build_array(conflicting_event - 'caseKey')
+      );
+    exception
+      when others then
+        if sqlerrm not like 'goal identity conflicts with existing goal at event index %' then
+          raise;
+        end if;
+        failed := true;
+    end;
+
+    if not failed then
+      raise exception 'goal % identity conflict must fail', conflicting_event->>'caseKey';
+    end if;
+    if (select count(*) from action_batches) <> batch_count_before
+       or (select count(*) from messages) <> message_count_before
+       or (select count(*) from goals) <> goal_count_before then
+      raise exception 'goal % identity conflict must roll back completely', conflicting_event->>'caseKey';
+    end if;
+  end loop;
+end
+$test$;
+
+do $test$
+declare
+  response jsonb;
+begin
+  response := record_life_event_batch(
+    '00000000-0000-4000-8000-000000000001',
+    'batch-identical-long-goal',
+    'hash-identical-long-goal',
+    '重复完全相同的长期目标',
+    jsonb_build_array(
+      jsonb_build_object(
+        'kind', 'goal',
+        'title', '身份字段目标',
+        'category', 'career',
+        'goalType', 'long_term',
+        'abilityId', '08000000-0000-4000-8000-000000000001',
+        'metricType', 'duration',
+        'aliases', '[]'::jsonb,
+        'confidence', 0.99
+      )
+    )
+  );
+
+  if response#>>'{results,0,goalId}' <> '13000000-0000-4000-8000-000000000001' then
+    raise exception 'identical long goal replay must return the existing goalId: %', response;
+  end if;
+end
+$test$;
+
 do $test$
 declare
   first_response jsonb;

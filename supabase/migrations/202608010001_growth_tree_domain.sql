@@ -240,6 +240,8 @@ declare
   v_ability_id uuid;
   v_ability_match_count integer;
   v_goal_id uuid;
+  v_goal_match_count integer;
+  v_existing_goal goals%rowtype;
   v_parent_goal_id uuid;
   v_message_id uuid;
   v_task_id uuid;
@@ -306,6 +308,7 @@ begin
     v_ability_id := null;
     v_ability_match_count := 0;
     v_goal_id := null;
+    v_goal_match_count := 0;
     v_parent_goal_id := null;
     v_message_id := null;
     v_task_id := null;
@@ -455,10 +458,20 @@ begin
       returning id into v_goal_id;
 
       if v_goal_id is null then
-        select id into v_goal_id
+        select * into v_existing_goal
         from goals
         where user_id = p_user_id
           and title = v_event->>'title';
+
+        if v_existing_goal.goal_type is distinct from v_event->>'goalType'
+           or v_existing_goal.ability_id is distinct from v_ability_id
+           or v_existing_goal.category is distinct from v_event->>'category'
+           or v_existing_goal.metric_type is distinct from v_event->>'metricType'
+           or v_existing_goal.parent_goal_id is distinct from v_parent_goal_id then
+          raise exception 'goal identity conflicts with existing goal at event index %', v_event_index;
+        end if;
+
+        v_goal_id := v_existing_goal.id;
       end if;
 
       for v_alias in
@@ -483,14 +496,19 @@ begin
           raise exception 'goal does not belong to user at event index %', v_event_index;
         end if;
       elsif nullif(btrim(v_event->>'goalTitle'), '') is not null then
-        select id into v_goal_id
+        select
+          count(*),
+          (array_agg(id order by created_at, id))[1]
+        into v_goal_match_count, v_goal_id
         from goals
         where user_id = p_user_id
           and status = 'active'
           and lower(btrim(title)) = lower(btrim(v_event->>'goalTitle'));
 
-        if v_goal_id is null then
+        if v_goal_match_count = 0 then
           raise exception 'active goalTitle was not created before event index %', v_event_index;
+        elsif v_goal_match_count > 1 then
+          raise exception 'goalTitle is ambiguous at event index %', v_event_index;
         end if;
       end if;
 
