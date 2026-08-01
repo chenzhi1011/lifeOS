@@ -41,18 +41,42 @@ create table action_batches (
   unique (user_id, id)
 );
 
+create table abilities (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(user_id) on delete cascade,
+  title text not null,
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_at timestamptz not null default now(),
+  archived_at timestamptz,
+  unique (user_id, id),
+  unique (user_id, title)
+);
+
 create table goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   title text not null,
   category text not null,
   parent_goal_id uuid,
+  goal_type text not null default 'short_term' check (goal_type in ('long_term', 'short_term')),
+  ability_id uuid,
+  due_at timestamptz,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   status text not null default 'active' check (status in ('active', 'paused', 'completed')),
   created_at timestamptz not null default now(),
+  completed_at timestamptz,
   unique (user_id, id),
   unique (user_id, title),
-  foreign key (user_id, parent_goal_id) references goals(user_id, id)
+  constraint goals_ability_shape_check check (
+    (goal_type = 'long_term' and ability_id is not null)
+    or (goal_type = 'short_term' and ability_id is null)
+  ),
+  constraint goals_completed_at_check check (
+    status <> 'completed' or completed_at is not null
+  ),
+  foreign key (user_id, parent_goal_id) references goals(user_id, id),
+  constraint goals_ability_fk foreign key (user_id, ability_id)
+    references abilities(user_id, id)
 );
 
 create table goal_aliases (
@@ -73,7 +97,7 @@ create table messages (
   batch_id uuid,
   event_index integer,
   raw_text text not null,
-  intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'reminder', 'inbox')),
+  intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'ability', 'reminder', 'inbox')),
   confidence numeric not null check (confidence >= 0 and confidence <= 1),
   parsed_json jsonb not null,
   status text not null check (status in ('processed', 'inbox', 'failed')),
@@ -95,9 +119,20 @@ create table tasks (
   status text not null default 'open' check (status in ('open', 'completed', 'cancelled')),
   due_at timestamptz,
   priority text not null default 'normal' check (priority in ('low', 'normal', 'high')),
+  planned_metric_type text,
+  planned_value numeric,
+  planned_unit text,
   created_at timestamptz not null default now(),
   completed_at timestamptz,
   unique (user_id, id),
+  constraint tasks_planned_metric_shape_check check (
+    (planned_metric_type is null and planned_value is null and planned_unit is null)
+    or (
+      planned_metric_type in ('duration', 'count', 'milestone')
+      and planned_value > 0
+      and planned_unit in ('minute', 'hour', 'count')
+    )
+  ),
   foreign key (user_id, goal_id) references goals(user_id, id),
   foreign key (user_id, message_id) references messages(user_id, id)
 );
@@ -138,7 +173,7 @@ create table inbox_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   message_id uuid not null,
-  suggested_type text not null check (suggested_type in ('task', 'activity', 'goal', 'reminder', 'inbox')),
+  suggested_type text not null check (suggested_type in ('task', 'activity', 'goal', 'ability', 'reminder', 'inbox')),
   suggested_json jsonb not null,
   reason text not null,
   status text not null default 'pending' check (status in ('pending', 'resolved', 'dismissed')),
@@ -150,28 +185,56 @@ create table inbox_items (
 create table achievements (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
-  goal_id uuid,
+  short_goal_id uuid not null,
   title text not null,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   threshold_value numeric,
+  note text,
+  evidence_url text,
   achieved_at timestamptz not null,
   created_at timestamptz not null default now(),
   unique (user_id, id),
-  foreign key (user_id, goal_id) references goals(user_id, id)
+  foreign key (user_id, short_goal_id) references goals(user_id, id)
 );
+
+create or replace function enforce_achievement_short_goal()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $function$
+begin
+  if new.short_goal_id is null or not exists (
+    select 1
+    from goals
+    where user_id = new.user_id
+      and id = new.short_goal_id
+      and goal_type = 'short_term'
+  ) then
+    raise exception 'achievement requires a short_term goal owned by the user';
+  end if;
+  return new;
+end
+$function$;
+
+create trigger achievements_short_goal_guard
+before insert or update of user_id, short_goal_id on achievements
+for each row execute function enforce_achievement_short_goal();
 
 create index idx_messages_user_created on messages (user_id, created_at desc);
 create unique index idx_messages_batch_event on messages (batch_id, event_index) where batch_id is not null;
 create index idx_action_credentials_hash_status on action_credentials (token_hash, status);
 create index idx_action_credentials_user_status on action_credentials (user_id, status);
 create index idx_action_batches_user_created on action_batches (user_id, created_at desc);
+create index idx_abilities_user_status on abilities (user_id, status);
 create index idx_goals_user_parent on goals (user_id, parent_goal_id);
 create index idx_goal_aliases_user_alias on goal_aliases (user_id, alias);
 create index idx_tasks_user_status_due on tasks (user_id, status, due_at);
 create index idx_activities_user_date on activities (user_id, occurred_on desc);
 create index idx_activities_user_goal_date on activities (user_id, goal_id, occurred_on desc);
+create unique index idx_activities_user_task_unique on activities (user_id, task_id) where task_id is not null;
 create index idx_reminders_user_status_time on reminders (user_id, status, remind_at);
 create index idx_inbox_items_user_status on inbox_items (user_id, status, created_at desc);
+create unique index idx_achievements_user_short_goal on achievements (user_id, short_goal_id) where short_goal_id is not null;
 
 create view goal_activity_rollup as
 select
@@ -202,6 +265,7 @@ alter table profiles enable row level security;
 alter table external_accounts enable row level security;
 alter table action_credentials enable row level security;
 alter table action_batches enable row level security;
+alter table abilities enable row level security;
 alter table goals enable row level security;
 alter table goal_aliases enable row level security;
 alter table messages enable row level security;
@@ -215,6 +279,7 @@ create policy profiles_own_rows on profiles using (user_id = auth.uid()) with ch
 create policy external_accounts_own_rows on external_accounts using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy action_credentials_own_rows on action_credentials using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy action_batches_own_rows on action_batches for select using (user_id = auth.uid());
+create policy abilities_own_rows on abilities using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goals_own_rows on goals using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goal_aliases_own_rows on goal_aliases using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy messages_own_rows on messages using (user_id = auth.uid()) with check (user_id = auth.uid());
