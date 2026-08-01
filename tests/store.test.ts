@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { createInitialState } from "@/src/domain/seed";
 import { createLifeOSStore } from "@/src/domain/store";
+import type { LifeEventParseResult } from "@/src/domain/types";
+
+// @ts-expect-error task events require a path discriminator
+const taskWithoutPath: LifeEventParseResult = { type: "task", confidence: 0.9, task: { title: "学习" } };
+// @ts-expect-error ability events require an ability payload
+const abilityWithoutPayload: LifeEventParseResult = { type: "ability", confidence: 0.9 };
+// @ts-expect-error ability event payloads require a title
+const abilityWithoutTitle: LifeEventParseResult = { type: "ability", confidence: 0.9, ability: {} };
+// @ts-expect-error goal events require an explicit goal type
+const goalWithoutType: LifeEventParseResult = { type: "goal", confidence: 0.9, goal: { title: "学习", category: "职业" } };
+
+void [taskWithoutPath, abilityWithoutPayload, abilityWithoutTitle, goalWithoutType];
 
 describe("Life OS store", () => {
   it("creates demo data owned by the demo user", () => {
@@ -13,7 +25,10 @@ describe("Life OS store", () => {
 
   it("separates abilities from typed goals", () => {
     const state = createInitialState();
-    expect(state.abilities.map((ability) => ability.title)).toContain("前端能力");
+    const abilityByTitle = new Map(state.abilities.map((ability) => [ability.title, ability]));
+    expect([...abilityByTitle.keys()]).toEqual(
+      expect.arrayContaining(["前端能力", "健康能力", "投资能力"])
+    );
     expect(state.goals.every((goal) => goal.goalType !== null)).toBe(true);
     expect(
       state.goals
@@ -25,6 +40,36 @@ describe("Life OS store", () => {
         .filter((goal) => goal.goalType === "short_term")
         .every((goal) => goal.abilityId === null)
     ).toBe(true);
+
+    const frontendAbility = abilityByTitle.get("前端能力");
+    const healthAbility = abilityByTitle.get("健康能力");
+    const frontendGoals = state.goals.filter(
+      (goal) => goal.title === "AWS" || goal.title === "AI"
+    );
+    expect(frontendGoals.map((goal) => goal.title).sort()).toEqual(["AI", "AWS"]);
+    expect(
+      frontendGoals.every(
+        (goal) => goal.goalType === "long_term" && goal.abilityId === frontendAbility?.id
+      )
+    ).toBe(true);
+    expect(state.goals.find((goal) => goal.title === "增肌")).toMatchObject({
+      goalType: "long_term",
+      abilityId: healthAbility?.id
+    });
+    expect(state.goals.find((goal) => goal.title === "转职")).toMatchObject({
+      goalType: "short_term",
+      status: "active",
+      abilityId: null
+    });
+
+    const completedShortGoals = state.goals.filter(
+      (goal) => goal.goalType === "short_term" && goal.status === "completed"
+    );
+    expect(completedShortGoals).toHaveLength(1);
+    expect(state.achievements).toHaveLength(1);
+    expect(state.achievements[0]?.shortGoalId).toBe(completedShortGoals[0]?.id);
+    const pseudoGoalTitles = new Set(["人生", "职业", "健康", "财富", "兴趣"]);
+    expect(state.goals.filter((goal) => pseudoGoalTitles.has(goal.title))).toHaveLength(0);
   });
 
   it("writes activity input into messages and activities", () => {

@@ -130,40 +130,80 @@ export type AbilityReference = {
   title?: string;
 };
 
-export type LifeEventParseResult = {
-  type: IntentType;
+type LifeEventCommonFields = {
   confidence: number;
-  path?: "one_off" | "goal";
-  ability?: { title: string };
-  goal?: {
-    title: string;
-    category: string;
-    parentTitle?: string;
-    goalType?: GoalType;
-    ability?: AbilityReference;
-    metricType?: MetricType;
-    aliases?: string[];
-  };
-  summary?: string;
-  metric?: {
-    type: MetricType;
-    value: number;
-    unit: "minute" | "hour" | "count";
-  };
-  date?: string;
-  task?: {
-    title: string;
-    dueAt?: string | null;
-    priority?: "low" | "normal" | "high";
-  } | null;
-  reminder?: {
-    remindAt: string;
-    repeatRule: "none" | "daily" | "weekly";
-  } | null;
   rawText?: string;
   suggestedTypes?: IntentType[];
   reason?: string;
 };
+
+export type LifeEventGoalReference = {
+  title: string;
+  category: string;
+  parentTitle?: string;
+  goalType?: GoalType;
+  ability?: AbilityReference;
+  metricType?: MetricType;
+  aliases?: string[];
+};
+
+type LifeEventGoalInput = Omit<LifeEventGoalReference, "goalType"> & {
+  goalType: GoalType;
+};
+
+type LifeEventMetric = {
+  type: MetricType;
+  value: number;
+  unit: "minute" | "hour" | "count";
+};
+
+type LifeEventTask = {
+  title: string;
+  dueAt?: string | null;
+  priority?: "low" | "normal" | "high";
+};
+
+type LifeEventReminder = {
+  remindAt: string;
+  repeatRule: "none" | "daily" | "weekly";
+};
+
+export type LifeEventParseResult =
+  | (LifeEventCommonFields & {
+      type: "task";
+      path: "one_off" | "goal";
+      goal?: LifeEventGoalReference;
+      task: LifeEventTask;
+      metric?: LifeEventMetric;
+      date?: string;
+    })
+  | (LifeEventCommonFields & {
+      type: "ability";
+      ability: { title: string };
+    })
+  | (LifeEventCommonFields & {
+      type: "goal";
+      goal: LifeEventGoalInput;
+    })
+  | (LifeEventCommonFields & {
+      type: "activity";
+      goal?: LifeEventGoalReference;
+      summary?: string;
+      metric?: LifeEventMetric;
+      date?: string;
+      task?: LifeEventTask | null;
+      reminder?: LifeEventReminder | null;
+    })
+  | (LifeEventCommonFields & {
+      type: "reminder";
+      goal?: LifeEventGoalReference;
+      task?: LifeEventTask | null;
+      reminder: LifeEventReminder;
+      metric?: LifeEventMetric;
+    })
+  | (LifeEventCommonFields & {
+      type: "inbox";
+    });
 
 export type LifeOSState = {
   currentUserId: string;

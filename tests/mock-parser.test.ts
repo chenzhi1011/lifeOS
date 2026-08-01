@@ -5,16 +5,20 @@ describe("parseWithMockRules", () => {
   it("parses duration activities", () => {
     const result = parseWithMockRules("今天学习 AWS 40 分钟", "2026-07-25T09:00:00+09:00");
     expect(result.type).toBe("activity");
-    expect(result.goal?.title).toBe("AWS");
-    expect(result.metric?.value).toBe(40);
-    expect(result.metric?.unit).toBe("minute");
+    if (result.type === "activity") {
+      expect(result.goal?.title).toBe("AWS");
+      expect(result.metric?.value).toBe(40);
+      expect(result.metric?.unit).toBe("minute");
+    }
   });
 
   it("parses future tasks", () => {
     const result = parseWithMockRules("明天下午练肩", "2026-07-25T09:00:00+09:00");
     expect(result.type).toBe("task");
-    expect(result.goal?.title).toBe("增肌");
-    expect(result.task?.title).toBe("练肩");
+    if (result.type === "task") {
+      expect(result.goal?.title).toBe("增肌");
+      expect(result.task.title).toBe("练肩");
+    }
   });
 
   it("routes ambiguous messages to inbox", () => {

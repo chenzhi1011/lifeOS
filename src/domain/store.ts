@@ -38,10 +38,15 @@ function defaultMetric(type: IntentType): "duration" | "count" | "milestone" {
   return type === "goal" ? "duration" : type === "activity" ? "duration" : "count";
 }
 
+type GoalBearingParseResult = Extract<
+  LifeEventParseResult,
+  { type: "task" | "activity" | "goal" | "reminder" }
+>;
+
 export function createLifeOSStore(initialState: LifeOSState) {
   const state = initialState;
 
-  function resolveGoal(userId: string, parsed: LifeEventParseResult): Goal | undefined {
+  function resolveGoal(userId: string, parsed: GoalBearingParseResult): Goal | undefined {
     if (!parsed.goal) {
       return undefined;
     }
@@ -128,7 +133,7 @@ export function createLifeOSStore(initialState: LifeOSState) {
       return { message, inboxItem };
     }
 
-    if (parsed.type === "ability" && parsed.ability) {
+    if (parsed.type === "ability") {
       const existing = state.abilities.find(
         (ability) =>
           ability.userId === userId &&
@@ -158,7 +163,7 @@ export function createLifeOSStore(initialState: LifeOSState) {
       return { message, goal };
     }
 
-    if (parsed.type === "task" && parsed.task) {
+    if (parsed.type === "task") {
       const task: Task = {
         id: id("task"),
         userId,
@@ -196,7 +201,7 @@ export function createLifeOSStore(initialState: LifeOSState) {
       return { message, goal, activity };
     }
 
-    if (parsed.type === "reminder" && parsed.reminder) {
+    if (parsed.type === "reminder") {
       let task: Task | undefined;
       if (parsed.task) {
         task = {

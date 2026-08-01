@@ -14,6 +14,14 @@ export const lifeEventPayloadSchema = z
         title: textField,
         category: textField,
         parentTitle: optionalTextField,
+        goalType: z.enum(["long_term", "short_term"]).optional(),
+        ability: z
+          .object({
+            id: z.string().uuid().optional(),
+            title: optionalTextField
+          })
+          .strict()
+          .optional(),
         metricType: z.enum(["duration", "count", "milestone"]).optional(),
         aliases: z.array(textField).max(12).optional()
       })
@@ -75,17 +83,64 @@ export function validateLifeEventPayload(payload: unknown): LifeEventActionPaylo
 }
 
 export function toParseResult(payload: LifeEventActionPayload): LifeEventParseResult {
-  return {
-    type: payload.type,
+  const common = {
     confidence: payload.confidence,
-    goal: payload.goal,
-    summary: payload.summary,
-    metric: payload.metric,
-    date: payload.date,
-    task: payload.task,
-    reminder: payload.reminder,
     rawText: payload.rawText,
     suggestedTypes: payload.suggestedTypes,
     reason: payload.reason
+  };
+
+  if (payload.type === "task" && payload.task) {
+    return {
+      ...common,
+      type: "task",
+      path: "goal",
+      goal: payload.goal,
+      task: payload.task,
+      metric: payload.metric,
+      date: payload.date
+    };
+  }
+
+  if (payload.type === "goal" && payload.goal?.goalType) {
+    return {
+      ...common,
+      type: "goal",
+      goal: {
+        ...payload.goal,
+        goalType: payload.goal.goalType
+      }
+    };
+  }
+
+  if (payload.type === "activity") {
+    return {
+      ...common,
+      type: "activity",
+      goal: payload.goal,
+      summary: payload.summary,
+      metric: payload.metric,
+      date: payload.date,
+      task: payload.task,
+      reminder: payload.reminder
+    };
+  }
+
+  if (payload.type === "reminder" && payload.reminder) {
+    return {
+      ...common,
+      type: "reminder",
+      goal: payload.goal,
+      task: payload.task,
+      reminder: payload.reminder,
+      metric: payload.metric
+    };
+  }
+
+  return {
+    ...common,
+    type: "inbox",
+    suggestedTypes: payload.suggestedTypes ?? [payload.type],
+    reason: payload.reason ?? "事件缺少明确的类型字段。"
   };
 }

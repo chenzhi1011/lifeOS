@@ -34,6 +34,8 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
         title,
         category: "职业",
         parentTitle: "职业",
+        goalType: "long_term",
+        ability: { title: "前端能力" },
         metricType: "duration",
         aliases: title === "AWS DevOps" ? ["AWS", "DevOps", "Terraform"] : [title]
       }
@@ -57,6 +59,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
     const isTraining = /练肩|训练|健身/.test(normalized);
     return {
       type: "task",
+      path: "goal",
       confidence: 0.9,
       goal: isTraining ? { title: "增肌", category: "健康" } : { title: "转职", category: "职业" },
       task: {
