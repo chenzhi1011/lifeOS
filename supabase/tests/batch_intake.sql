@@ -454,4 +454,200 @@ begin
 end
 $test$;
 
+do $test$
+declare
+  response jsonb;
+  music_ability_id uuid;
+  piano_goal_id uuid;
+begin
+  response := record_life_event_batch(
+    '00000000-0000-4000-8000-000000000001',
+    'batch-growth-paths',
+    'hash-growth-paths',
+    '培养音乐能力，开始练琴；同时买水',
+    jsonb_build_array(
+      jsonb_build_object(
+        'kind', 'ability',
+        'title', '音乐能力',
+        'confidence', 0.99
+      ),
+      jsonb_build_object(
+        'kind', 'goal',
+        'title', '练琴',
+        'category', 'interest',
+        'goalType', 'long_term',
+        'abilityId', null,
+        'abilityTitle', '音乐能力',
+        'metricType', 'duration',
+        'aliases', jsonb_build_array('钢琴'),
+        'confidence', 0.98
+      ),
+      jsonb_build_object(
+        'kind', 'task',
+        'title', '练琴 40 分钟',
+        'goalId', null,
+        'goalTitle', '练琴',
+        'dueAt', '2026-07-30T09:00:00+09:00',
+        'remindAt', '2026-07-30T09:00:00+09:00',
+        'priority', 'normal',
+        'plannedMetricType', 'duration',
+        'plannedValue', 40,
+        'plannedUnit', 'minute',
+        'confidence', 0.97
+      ),
+      jsonb_build_object(
+        'kind', 'task',
+        'title', '买水',
+        'goalId', null,
+        'dueAt', '2026-07-30T09:00:00+09:00',
+        'remindAt', '2026-07-30T09:00:00+09:00',
+        'priority', 'normal',
+        'plannedMetricType', null,
+        'plannedValue', null,
+        'plannedUnit', null,
+        'confidence', 0.96
+      )
+    )
+  );
+
+  select id into music_ability_id
+  from abilities
+  where user_id = '00000000-0000-4000-8000-000000000001'
+    and title = '音乐能力'
+    and status = 'active';
+
+  select id into piano_goal_id
+  from goals
+  where user_id = '00000000-0000-4000-8000-000000000001'
+    and title = '练琴'
+    and goal_type = 'long_term'
+    and ability_id = music_ability_id;
+
+  if music_ability_id is null or piano_goal_id is null then
+    raise exception 'same-batch ability and typed goal were not persisted';
+  end if;
+  if response#>>'{results,0,kind}' <> 'ability'
+     or response#>>'{results,0,abilityId}' <> music_ability_id::text then
+    raise exception 'ability result must include abilityId: %', response;
+  end if;
+  if response#>>'{results,1,goalId}' <> piano_goal_id::text then
+    raise exception 'typed goal result must include goalId: %', response;
+  end if;
+  if not exists (
+    select 1 from tasks
+    where user_id = '00000000-0000-4000-8000-000000000001'
+      and title = '练琴 40 分钟'
+      and goal_id = piano_goal_id
+      and planned_metric_type = 'duration'
+      and planned_value = 40
+      and planned_unit = 'minute'
+  ) then
+    raise exception 'goal-path task did not persist its planned metric';
+  end if;
+  if not exists (
+    select 1 from tasks
+    where user_id = '00000000-0000-4000-8000-000000000001'
+      and title = '买水'
+      and goal_id is null
+      and planned_metric_type is null
+      and planned_value is null
+      and planned_unit is null
+  ) then
+    raise exception 'one-off task must remain outside goals';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-short-goal-ability',
+      'hash-short-goal-ability',
+      'invalid short goal ability',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', '错误短期目标',
+          'category', 'career',
+          'goalType', 'short_term',
+          'abilityId', '08000000-0000-4000-8000-000000000001',
+          'metricType', 'count',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        )
+      )
+    );
+  exception
+    when others then
+      failed := true;
+  end;
+
+  if not failed then
+    raise exception 'short_term goal with ability must fail';
+  end if;
+  if (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from goals) <> goal_count_before then
+    raise exception 'invalid short_term goal batch must roll back completely';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-cross-user-ability',
+      'hash-cross-user-ability',
+      'invalid cross-user ability',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', '越权长期目标',
+          'category', 'career',
+          'goalType', 'long_term',
+          'abilityId', '08000000-0000-4000-8000-000000000002',
+          'metricType', 'duration',
+          'aliases', '[]'::jsonb,
+          'confidence', 0.99
+        )
+      )
+    );
+  exception
+    when others then
+      failed := true;
+  end;
+
+  if not failed then
+    raise exception 'cross-user ability reference must fail';
+  end if;
+  if (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from goals) <> goal_count_before then
+    raise exception 'cross-user ability batch must roll back completely';
+  end if;
+end
+$test$;
+
 select 'batch intake SQL behavior tests passed' as result;

@@ -24,8 +24,9 @@ export interface BatchWriteResult {
 
 export interface BatchEventWriteResult {
   eventIndex: number;
-  kind: "goal" | "task" | "activity" | "inbox";
+  kind: "ability" | "goal" | "task" | "activity" | "inbox";
   messageId: string;
+  abilityId?: string;
   goalId?: string;
   taskId?: string;
   activityId?: string;
@@ -33,8 +34,15 @@ export interface BatchEventWriteResult {
   inboxItemId?: string;
 }
 
-const batchEventKinds = new Set(["goal", "task", "activity", "inbox"]);
+const batchEventKinds = new Set([
+  "ability",
+  "goal",
+  "task",
+  "activity",
+  "inbox"
+]);
 const optionalEntityIdKeys = [
+  "abilityId",
   "goalId",
   "taskId",
   "activityId",
@@ -72,6 +80,9 @@ function isBatchEventWriteResult(value: unknown): value is BatchEventWriteResult
 }
 
 function hasRequiredEntityIds(result: BatchEventWriteResult): boolean {
+  if (result.kind === "ability") {
+    return isNonEmptyString(result.abilityId);
+  }
   if (result.kind === "goal") {
     return isNonEmptyString(result.goalId);
   }

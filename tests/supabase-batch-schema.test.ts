@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 const migrationPath = path.resolve(
   "supabase/migrations/202607270001_custom_gpt_batch_intake.sql"
 );
+const growthMigrationPath = path.resolve(
+  "supabase/migrations/202608010001_growth_tree_domain.sql"
+);
 
 const requiredFragments = [
   "timezone",
@@ -99,6 +102,27 @@ describe("Custom GPT batch intake database schema", () => {
       expect(sql).toMatch(
         /update tasks[\s\S]*?where user_id = p_user_id[\s\S]*?and id = v_task_id[\s\S]*?and goal_id = v_goal_id[\s\S]*?and status = 'open'/i
       );
+    }
+  });
+
+  it("keeps the typed growth batch RPC identical in clean schema and migration", () => {
+    const schema = readFileSync(path.resolve("supabase/schema.sql"), "utf8");
+    const migration = readFileSync(growthMigrationPath, "utf8");
+    const rpcPattern =
+      /create or replace function record_life_event_batch[\s\S]*?grant execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) to service_role;/i;
+    const schemaRpc = schema.match(rpcPattern)?.[0];
+    const migrationRpc = migration.match(rpcPattern)?.[0];
+
+    expect(schemaRpc).toBeTruthy();
+    expect(migrationRpc).toBe(schemaRpc);
+
+    for (const sql of [schemaRpc ?? "", migrationRpc ?? ""]) {
+      expect(sql).toMatch(/v_kind not in \('ability', 'goal', 'task', 'activity', 'inbox'\)/i);
+      expect(sql).toMatch(/insert into abilities\s*\([\s\S]*?user_id[\s\S]*?title[\s\S]*?status/i);
+      expect(sql).toMatch(/abilityTitle/i);
+      expect(sql).toMatch(/goal_type[\s\S]*?ability_id/i);
+      expect(sql).toMatch(/planned_metric_type[\s\S]*?planned_value[\s\S]*?planned_unit/i);
+      expect(sql).toMatch(/'abilityId',\s*v_ability_id/i);
     }
   });
 });

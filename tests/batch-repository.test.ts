@@ -26,6 +26,19 @@ const batch: PreparedBatch = {
   ]
 };
 
+const abilityBatch: PreparedBatch = {
+  idempotencyKey: "gpt-message-ability",
+  requestHash: "c".repeat(64),
+  rawText: "培养前端能力",
+  events: [
+    {
+      kind: "ability",
+      title: "前端能力",
+      confidence: 0.99
+    }
+  ]
+};
+
 const allKindBatch: PreparedBatch = {
   idempotencyKey: "gpt-message-all-kinds",
   requestHash: "b".repeat(64),
@@ -153,6 +166,53 @@ describe("writePreparedBatch", () => {
         }
       ]
     });
+  });
+
+  it("accepts an ability result with its required entity id", async () => {
+    const data = {
+      batchId: "batch-ability",
+      duplicate: false,
+      results: [
+        {
+          eventIndex: 0,
+          kind: "ability",
+          messageId: "message-ability",
+          abilityId: "ability-frontend"
+        }
+      ]
+    };
+    const client = { rpc: vi.fn().mockResolvedValue({ data, error: null }) };
+
+    await expect(
+      writePreparedBatch("user-123", abilityBatch, client)
+    ).resolves.toEqual(data);
+  });
+
+  it.each([
+    [{}, "a missing ability id"],
+    [{ abilityId: 123 }, "a non-string ability id"]
+  ])("rejects an ability response with %s (%s)", async (extra, _description) => {
+    const client = {
+      rpc: vi.fn().mockResolvedValue({
+        data: {
+          batchId: "batch-ability",
+          duplicate: false,
+          results: [
+            {
+              eventIndex: 0,
+              kind: "ability",
+              messageId: "message-ability",
+              ...extra
+            }
+          ]
+        },
+        error: null
+      })
+    };
+
+    await expect(
+      writePreparedBatch("user-123", abilityBatch, client)
+    ).rejects.toThrow("batch RPC returned an invalid response");
   });
 
   it("throws a typed conflict when the RPC reports reused idempotency with new content", async () => {

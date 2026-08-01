@@ -344,6 +344,8 @@ declare
   v_ordinal bigint;
   v_event_index integer;
   v_kind text;
+  v_ability_id uuid;
+  v_ability_match_count integer;
   v_goal_id uuid;
   v_parent_goal_id uuid;
   v_message_id uuid;
@@ -408,6 +410,8 @@ begin
   loop
     v_event_index := (v_ordinal - 1)::integer;
     v_kind := v_event->>'kind';
+    v_ability_id := null;
+    v_ability_match_count := 0;
     v_goal_id := null;
     v_parent_goal_id := null;
     v_message_id := null;
@@ -420,7 +424,7 @@ begin
 
     if jsonb_typeof(v_event) is distinct from 'object'
        or v_kind is null
-       or v_kind not in ('goal', 'task', 'activity', 'inbox') then
+       or v_kind not in ('ability', 'goal', 'task', 'activity', 'inbox') then
       raise exception 'unsupported event kind at index %', v_event_index;
     end if;
 
@@ -451,7 +455,24 @@ begin
     )
     returning id into v_message_id;
 
-    if v_kind = 'goal' then
+    if v_kind = 'ability' then
+      insert into abilities (
+        user_id,
+        title,
+        status
+      )
+      values (
+        p_user_id,
+        v_event->>'title',
+        'active'
+      )
+      on conflict (user_id, title) do update
+      set
+        status = 'active',
+        archived_at = null
+      returning id into v_ability_id;
+
+    elsif v_kind = 'goal' then
       v_parent_goal_id := nullif(v_event->>'parentGoalId', '')::uuid;
 
       if v_parent_goal_id is not null
@@ -462,6 +483,57 @@ begin
              and id = v_parent_goal_id
          ) then
         raise exception 'parent goal does not belong to user at event index %', v_event_index;
+      end if;
+
+      if nullif(v_event->>'abilityId', '') is not null
+         and nullif(btrim(v_event->>'abilityTitle'), '') is not null then
+        raise exception 'goal ability reference must use abilityId or abilityTitle, not both, at event index %', v_event_index;
+      end if;
+
+      if nullif(v_event->>'abilityId', '') is not null then
+        select id into v_ability_id
+        from abilities
+        where user_id = p_user_id
+          and id = nullif(v_event->>'abilityId', '')::uuid
+          and status = 'active';
+
+        if v_ability_id is null then
+          raise exception 'ability does not belong to user or is not active at event index %', v_event_index;
+        end if;
+      elsif nullif(btrim(v_event->>'abilityTitle'), '') is not null then
+        select
+          count(*),
+          (array_agg(id order by created_at, id))[1]
+        into v_ability_match_count, v_ability_id
+        from abilities
+        where user_id = p_user_id
+          and status = 'active'
+          and regexp_replace(
+            lower(btrim(title)),
+            '[[:space:][:punct:]]+',
+            '',
+            'g'
+          ) = regexp_replace(
+            lower(btrim(v_event->>'abilityTitle')),
+            '[[:space:][:punct:]]+',
+            '',
+            'g'
+          );
+
+        if v_ability_match_count = 0 then
+          raise exception 'active abilityTitle does not exist at event index %', v_event_index;
+        elsif v_ability_match_count > 1 then
+          raise exception 'abilityTitle is ambiguous at event index %', v_event_index;
+        end if;
+      end if;
+
+      if v_event->>'goalType' = 'long_term' and v_ability_id is null then
+        raise exception 'long_term goal requires an ability at event index %', v_event_index;
+      elsif v_event->>'goalType' = 'short_term' and v_ability_id is not null then
+        raise exception 'short_term goal forbids an ability at event index %', v_event_index;
+      elsif v_event->>'goalType' is null
+         or v_event->>'goalType' not in ('long_term', 'short_term') then
+        raise exception 'unsupported goalType at event index %', v_event_index;
       end if;
 
       insert into goals (
@@ -480,7 +552,11 @@ begin
         v_event->>'category',
         v_parent_goal_id,
         v_event->>'goalType',
-        nullif(v_event->>'abilityId', '')::uuid,
+        case
+          when nullif(v_event->>'abilityId', '') is not null
+            then nullif(v_event->>'abilityId', '')::uuid
+          else v_ability_id
+        end,
         v_event->>'metricType',
         'active'
       )
@@ -535,7 +611,10 @@ begin
           title,
           status,
           due_at,
-          priority
+          priority,
+          planned_metric_type,
+          planned_value,
+          planned_unit
         )
         values (
           p_user_id,
@@ -544,7 +623,10 @@ begin
           v_event->>'title',
           'open',
           (v_event->>'dueAt')::timestamptz,
-          v_event->>'priority'
+          v_event->>'priority',
+          nullif(v_event->>'plannedMetricType', ''),
+          (v_event->>'plannedValue')::numeric,
+          nullif(v_event->>'plannedUnit', '')
         )
         returning id into v_task_id;
 
@@ -669,6 +751,7 @@ begin
           'eventIndex', v_event_index,
           'kind', v_kind,
           'messageId', v_message_id,
+          'abilityId', v_ability_id,
           'goalId', v_goal_id,
           'taskId', v_task_id,
           'activityId', v_activity_id,
