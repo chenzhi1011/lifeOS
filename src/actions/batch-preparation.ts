@@ -10,6 +10,7 @@ import {
   type ActionAbilityContext,
   type ActionGoalAliasContext,
   type ActionGoalContext,
+  type ActionSameBatchGoalContext,
   type ActionTaskContext
 } from "./batch-resolution";
 import { hashCanonicalJson } from "./idempotency";
@@ -82,11 +83,7 @@ export interface PreparedBatch {
   events: PreparedEvent[];
 }
 
-type PriorTitles = Map<string, string[]>;
-
-function normalizedGoalTitle(title: string): string {
-  return title.trim().toLowerCase();
-}
+type PriorAbilityTitles = Map<string, string[]>;
 
 function normalizedAbilityTitle(title: string): string {
   return normalizeIntentTitle(title);
@@ -117,36 +114,18 @@ function prepareInbox(
   };
 }
 
-function recordPriorTitle(titles: PriorTitles, title: string): void {
-  const normalized = normalizedGoalTitle(title);
-  titles.set(normalized, [...(titles.get(normalized) ?? []), title.trim()]);
-}
-
-function recordPriorAbilityTitle(titles: PriorTitles, title: string): void {
+function recordPriorAbilityTitle(
+  titles: PriorAbilityTitles,
+  title: string
+): void {
   const normalized = normalizedAbilityTitle(title);
   titles.set(normalized, [...(titles.get(normalized) ?? []), title.trim()]);
-}
-
-function priorGoalTitleFor(
-  event: Extract<LifeEventBatchInput, { type: "task" | "activity" }>,
-  priorGoalTitles: PriorTitles
-): { title?: string; reason?: string } {
-  const title = event.goal?.title;
-  if (!title) {
-    return {};
-  }
-
-  const matches = priorGoalTitles.get(normalizedGoalTitle(title)) ?? [];
-  if (matches.length > 1) {
-    return { reason: `multiple active goals match: ${title.trim()}` };
-  }
-  return { title: matches[0] };
 }
 
 function prepareTask(
   event: Extract<LifeEventBatchInput, { type: "task" }>,
   context: BatchPreparationContext,
-  priorGoalTitles: PriorTitles,
+  priorGoals: ActionSameBatchGoalContext[],
   now: Date
 ): PreparedEvent {
   if (event.path === "one_off") {
@@ -157,34 +136,23 @@ function prepareTask(
     event.goal,
     "task",
     context.goals,
-    context.aliases
+    context.aliases,
+    priorGoals
   );
 
   let goalId: string | null = null;
   let goalTitle: string | undefined;
   if (goalResolution.kind === "resolved") {
     goalId = goalResolution.goalId;
+  } else if (goalResolution.kind === "same_batch") {
+    goalTitle = goalResolution.goalTitle;
   } else {
-    if (
-      goalResolution.kind === "inbox" &&
-      goalResolution.reason.startsWith("multiple active goals match:")
-    ) {
-      return prepareInbox(event, goalResolution.reason);
-    }
-
-    const priorGoal = priorGoalTitleFor(event, priorGoalTitles);
-    if (priorGoal.reason) {
-      return prepareInbox(event, priorGoal.reason);
-    }
-    goalTitle = priorGoal.title;
-    if (!goalTitle) {
-      return prepareInbox(
-        event,
-        goalResolution.kind === "inbox"
-          ? goalResolution.reason
-          : "goal path requires one uniquely resolved goal"
-      );
-    }
+    return prepareInbox(
+      event,
+      goalResolution.kind === "inbox"
+        ? goalResolution.reason
+        : "goal path requires one uniquely resolved goal"
+    );
   }
 
   return prepareTaskWithGoal(event, goalId, goalTitle, context, now);
@@ -233,39 +201,29 @@ function prepareTaskWithGoal(
 function prepareActivity(
   event: Extract<LifeEventBatchInput, { type: "activity" }>,
   context: BatchPreparationContext,
-  priorGoalTitles: PriorTitles
+  priorGoals: ActionSameBatchGoalContext[]
 ): PreparedEvent {
   const goalResolution = resolveGoalReference(
     event.goal,
     "activity",
     context.goals,
-    context.aliases
+    context.aliases,
+    priorGoals
   );
 
   let goalId: string | null = null;
   let goalTitle: string | undefined;
   if (goalResolution.kind === "resolved") {
     goalId = goalResolution.goalId;
+  } else if (goalResolution.kind === "same_batch") {
+    goalTitle = goalResolution.goalTitle;
   } else {
-    if (
-      goalResolution.kind === "inbox" &&
-      goalResolution.reason.startsWith("multiple active goals match:")
-    ) {
-      return prepareInbox(event, goalResolution.reason);
-    }
-    const priorGoal = priorGoalTitleFor(event, priorGoalTitles);
-    if (priorGoal.reason) {
-      return prepareInbox(event, priorGoal.reason);
-    }
-    goalTitle = priorGoal.title;
-    if (!goalTitle) {
-      return prepareInbox(
-        event,
-        goalResolution.kind === "inbox"
-          ? goalResolution.reason
-          : "activity requires a goal"
-      );
-    }
+    return prepareInbox(
+      event,
+      goalResolution.kind === "inbox"
+        ? goalResolution.reason
+        : "activity requires a goal"
+    );
   }
 
   const taskMatch =
@@ -314,7 +272,7 @@ function prepareActivity(
 function prepareGoal(
   event: Extract<LifeEventBatchInput, { type: "goal" }>,
   context: BatchPreparationContext,
-  priorAbilityTitles: PriorTitles
+  priorAbilityTitles: PriorAbilityTitles
 ): PreparedEvent {
   let abilityId: string | null = null;
   let abilityTitle: string | undefined;
@@ -382,17 +340,17 @@ export async function prepareLifeEventBatch(
   context: BatchPreparationContext,
   now = new Date()
 ): Promise<PreparedBatch> {
-  const priorGoalTitles: PriorTitles = new Map();
-  const priorAbilityTitles: PriorTitles = new Map();
+  const priorGoals: ActionSameBatchGoalContext[] = [];
+  const priorAbilityTitles: PriorAbilityTitles = new Map();
   const events: PreparedEvent[] = [];
 
-  for (const event of payload.events) {
+  for (const [eventIndex, event] of payload.events.entries()) {
     switch (event.type) {
       case "task":
-        events.push(prepareTask(event, context, priorGoalTitles, now));
+        events.push(prepareTask(event, context, priorGoals, now));
         break;
       case "activity":
-        events.push(prepareActivity(event, context, priorGoalTitles));
+        events.push(prepareActivity(event, context, priorGoals));
         break;
       case "goal": {
         const preparedGoal = prepareGoal(
@@ -402,7 +360,11 @@ export async function prepareLifeEventBatch(
         );
         events.push(preparedGoal);
         if (preparedGoal.kind === "goal") {
-          recordPriorTitle(priorGoalTitles, preparedGoal.title);
+          priorGoals.push({
+            key: `batch-goal-${eventIndex}`,
+            title: preparedGoal.title,
+            aliases: preparedGoal.aliases
+          });
         }
         break;
       }

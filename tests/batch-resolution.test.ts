@@ -135,7 +135,7 @@ describe("resolveGoalReference", () => {
   it.each([
     ["exact title", "AWS"],
     ["alias", "云计算"]
-  ])("prefers an %s match over a conflicting candidate", (_case, title) => {
+  ])("rejects a conflicting candidate alongside an %s match", (_case, title) => {
     expect(
       resolveGoalReference(
         {
@@ -148,7 +148,56 @@ describe("resolveGoalReference", () => {
         goals,
         aliases
       )
+    ).toEqual({
+      kind: "inbox",
+      reason: `multiple active goals match: ${title}`
+    });
+  });
+
+  it("deduplicates an exact, alias, and candidate match for the same goal id", () => {
+    expect(
+      resolveGoalReference(
+        {
+          title: "AWS",
+          explicit: true,
+          candidateGoalId: "goal-aws",
+          matchConfidence: 0.99
+        },
+        "task",
+        goals,
+        [...aliases, { goalId: "goal-aws", alias: "AWS" }]
+      )
     ).toEqual({ kind: "resolved", goalId: "goal-aws" });
+  });
+
+  it("treats an exact title on one goal and an alias on another as ambiguous", () => {
+    expect(
+      resolveGoalReference(
+        { title: "家庭", explicit: true },
+        "task",
+        [
+          ...goals,
+          {
+            id: "goal-family",
+            title: "家庭",
+            goalType: "short_term",
+            abilityId: null,
+            status: "active"
+          },
+          {
+            id: "goal-chores",
+            title: "家务系统",
+            goalType: "long_term",
+            abilityId: "ability-health",
+            status: "active"
+          }
+        ],
+        [...aliases, { goalId: "goal-chores", alias: "家庭" }]
+      )
+    ).toEqual({
+      kind: "inbox",
+      reason: "multiple active goals match: 家庭"
+    });
   });
 
   it("routes duplicate exact goal titles to inbox instead of choosing the first", () => {

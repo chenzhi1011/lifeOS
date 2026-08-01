@@ -383,6 +383,69 @@ describe("prepareLifeEventBatch", () => {
     });
   });
 
+  it("routes task and activity to inbox when context and an earlier same-batch goal both match", async () => {
+    const ambiguousContext: BatchPreparationContext = {
+      ...context,
+      goals: [
+        ...context.goals,
+        {
+          id: "goal-household-system",
+          title: "家务系统",
+          goalType: "long_term",
+          abilityId: "ability-health",
+          status: "active"
+        }
+      ],
+      aliases: [
+        ...context.aliases,
+        { goalId: "goal-household-system", alias: "家庭" }
+      ]
+    };
+
+    const result = await prepareLifeEventBatch(
+      payload([
+        {
+          type: "goal",
+          goalType: "short_term",
+          title: "家庭",
+          category: "生活",
+          metricType: "count",
+          aliases: [],
+          confidence: 0.99
+        },
+        {
+          type: "task",
+          path: "goal",
+          title: "买菜",
+          localDate: "2026-07-28",
+          priority: "normal",
+          confidence: 0.94,
+          goal: { title: "家庭", explicit: true }
+        },
+        {
+          type: "activity",
+          summary: "买菜",
+          occurredOn: "2026-07-27",
+          confidence: 0.95,
+          goal: { title: "家庭", explicit: true }
+        }
+      ]),
+      ambiguousContext,
+      now
+    );
+
+    expect(result.events[1]).toMatchObject({
+      kind: "inbox",
+      suggestedType: "task",
+      reason: "multiple active goals match: 家庭"
+    });
+    expect(result.events[2]).toMatchObject({
+      kind: "inbox",
+      suggestedType: "activity",
+      reason: "multiple active goals match: 家庭"
+    });
+  });
+
   it("does not match an existing unassigned task to an activity under a same-batch goal", async () => {
     const result = await prepareLifeEventBatch(
       payload([
