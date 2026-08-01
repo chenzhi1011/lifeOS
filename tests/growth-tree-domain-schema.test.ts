@@ -57,4 +57,13 @@ describe("growth tree domain schema", () => {
       "manually deduplicate or map activities before retrying migration"
     );
   });
+
+  it("replaces the migrated batch RPC with explicit goal classification", () => {
+    expect(migration).toMatch(
+      /create or replace function record_life_event_batch\s*\(/i
+    );
+    expect(migration).toMatch(
+      /create or replace function record_life_event_batch[\s\S]*?insert into goals\s*\([\s\S]*?goal_type[\s\S]*?ability_id[\s\S]*?v_event->>'goalType'[\s\S]*?nullif\(v_event->>'abilityId', ''\)::uuid/i
+    );
+  });
 });
