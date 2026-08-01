@@ -1,8 +1,10 @@
-export type IntentType = "task" | "activity" | "goal" | "reminder" | "inbox";
+export type IntentType = "task" | "activity" | "goal" | "ability" | "reminder" | "inbox";
 export type MetricType = "duration" | "count" | "milestone";
 export type TaskStatus = "open" | "completed" | "cancelled";
 export type RecordStatus = "processed" | "inbox" | "failed";
 export type GoalStatus = "active" | "paused" | "completed";
+export type AbilityStatus = "active" | "archived";
+export type GoalType = "long_term" | "short_term";
 
 export type Profile = {
   userId: string;
@@ -26,14 +28,27 @@ export type Message = {
   createdAt: string;
 };
 
+export type Ability = {
+  id: string;
+  userId: string;
+  title: string;
+  status: AbilityStatus;
+  createdAt: string;
+  archivedAt: string | null;
+};
+
 export type Goal = {
   id: string;
   userId: string;
   title: string;
   category: string;
   parentGoalId: string | null;
+  goalType: GoalType | null;
+  abilityId: string | null;
   metricType: MetricType;
   status: GoalStatus;
+  dueAt: string | null;
+  completedAt: string | null;
   createdAt: string;
 };
 
@@ -54,6 +69,9 @@ export type Task = {
   status: TaskStatus;
   dueAt: string | null;
   priority: "low" | "normal" | "high";
+  plannedMetricType: MetricType | null;
+  plannedValue: number | null;
+  plannedUnit: "minute" | "hour" | "count" | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -97,21 +115,32 @@ export type InboxItem = {
 export type Achievement = {
   id: string;
   userId: string;
-  goalId: string | null;
+  shortGoalId: string | null;
   title: string;
   metricType: MetricType;
   thresholdValue: number | null;
+  note: string | null;
+  evidenceUrl: string | null;
   achievedAt: string;
   createdAt: string;
+};
+
+export type AbilityReference = {
+  id?: string;
+  title?: string;
 };
 
 export type LifeEventParseResult = {
   type: IntentType;
   confidence: number;
+  path?: "one_off" | "goal";
+  ability?: { title: string };
   goal?: {
     title: string;
     category: string;
     parentTitle?: string;
+    goalType?: GoalType;
+    ability?: AbilityReference;
     metricType?: MetricType;
     aliases?: string[];
   };
@@ -140,6 +169,7 @@ export type LifeOSState = {
   currentUserId: string;
   profiles: Profile[];
   messages: Message[];
+  abilities: Ability[];
   goals: Goal[];
   goalAliases: GoalAlias[];
   tasks: Task[];

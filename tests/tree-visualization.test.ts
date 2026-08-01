@@ -4,15 +4,19 @@ import { createInitialState } from "@/src/domain/seed";
 import { buildGrowthTreeScene } from "@/src/domain/tree-visualization";
 import type { Activity, Goal } from "@/src/domain/types";
 
-function goal(id: string, parentGoalId: string | null): Goal {
+function goal(id: string, parentGoalId: string | null, title = id): Goal {
   return {
     id,
     userId: "demo-user",
-    title: id,
+    title,
     category: id === "root" ? "root" : "test",
     parentGoalId,
+    goalType: null,
+    abilityId: null,
     metricType: "count",
     status: "active",
+    dueAt: null,
+    completedAt: null,
     createdAt: `2026-07-01T00:00:00.000Z-${id}`
   };
 }
@@ -35,7 +39,20 @@ function activity(id: string, goalId: string, occurredOn: string): Activity {
 
 describe("buildGrowthTreeScene", () => {
   it("maps goals and stats into a growth tree scene model", () => {
-    const dashboard = buildDashboardData(createInitialState(), "demo-user");
+    const state = createInitialState();
+    state.goals = [
+      goal("life", null, "人生"),
+      goal("career", "life", "职业"),
+      goal("health", "life", "健康"),
+      goal("interest", "life", "兴趣"),
+      goal("wealth", "life", "财富"),
+      goal("aws", "career", "AWS"),
+      goal("ai", "career", "AI"),
+      goal("job-change", "career", "转职"),
+      goal("portfolio-launch", "career", "作品集上线"),
+      goal("muscle", "health", "增肌")
+    ];
+    const dashboard = buildDashboardData(state, "demo-user");
     const scene = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
 
     expect(scene.root?.label).toBe("人生");

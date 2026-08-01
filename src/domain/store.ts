@@ -1,5 +1,6 @@
 import { createInitialState } from "./seed";
 import type {
+  Ability,
   Activity,
   Goal,
   InboxItem,
@@ -14,6 +15,7 @@ import { buildDashboardData, buildGoalDetail } from "./aggregation";
 
 type ApplyResult = {
   message: Message;
+  ability?: Ability;
   goal?: Goal;
   activity?: Activity;
   task?: Task;
@@ -51,6 +53,25 @@ export function createLifeOSStore(initialState: LifeOSState) {
       return existing;
     }
 
+    if (!parsed.goal.goalType) {
+      return undefined;
+    }
+
+    const abilityReference = parsed.goal.ability;
+    const ability = abilityReference
+      ? state.abilities.find(
+          (candidate) =>
+            candidate.userId === userId &&
+            ((abilityReference.id !== undefined && candidate.id === abilityReference.id) ||
+              (abilityReference.title !== undefined &&
+                candidate.title.toLowerCase() === abilityReference.title.toLowerCase()))
+        )
+      : undefined;
+
+    if (parsed.goal.goalType === "long_term" && !ability) {
+      return undefined;
+    }
+
     const parent = parsed.goal.parentTitle
       ? state.goals.find((goal) => goal.userId === userId && goal.title === parsed.goal?.parentTitle)
       : state.goals.find((goal) => goal.userId === userId && goal.title === parsed.goal?.category);
@@ -61,8 +82,12 @@ export function createLifeOSStore(initialState: LifeOSState) {
       title: parsed.goal.title,
       category: parsed.goal.category,
       parentGoalId: parent?.id ?? null,
+      goalType: parsed.goal.goalType,
+      abilityId: parsed.goal.goalType === "long_term" ? ability?.id ?? null : null,
       metricType: parsed.goal.metricType ?? defaultMetric(parsed.type),
       status: "active",
+      dueAt: null,
+      completedAt: null,
       createdAt: nowIso()
     };
     state.goals.push(goal);
@@ -103,7 +128,31 @@ export function createLifeOSStore(initialState: LifeOSState) {
       return { message, inboxItem };
     }
 
-    const goal = resolveGoal(userId, parsed);
+    if (parsed.type === "ability" && parsed.ability) {
+      const existing = state.abilities.find(
+        (ability) =>
+          ability.userId === userId &&
+          ability.title.toLowerCase() === parsed.ability?.title.toLowerCase()
+      );
+      if (existing) {
+        return { message, ability: existing };
+      }
+
+      const ability: Ability = {
+        id: id("ability"),
+        userId,
+        title: parsed.ability.title,
+        status: "active",
+        createdAt: nowIso(),
+        archivedAt: null
+      };
+      state.abilities.unshift(ability);
+      return { message, ability };
+    }
+
+    const goal = parsed.type === "task" && parsed.path === "one_off"
+      ? undefined
+      : resolveGoal(userId, parsed);
 
     if (parsed.type === "goal") {
       return { message, goal };
@@ -119,6 +168,9 @@ export function createLifeOSStore(initialState: LifeOSState) {
         status: "open",
         dueAt: parsed.task.dueAt ?? null,
         priority: parsed.task.priority ?? "normal",
+        plannedMetricType: parsed.metric?.type ?? null,
+        plannedValue: parsed.metric?.value ?? null,
+        plannedUnit: parsed.metric?.unit ?? null,
         createdAt: nowIso(),
         completedAt: null
       };
@@ -156,6 +208,9 @@ export function createLifeOSStore(initialState: LifeOSState) {
           status: "open",
           dueAt: parsed.task.dueAt ?? null,
           priority: parsed.task.priority ?? "normal",
+          plannedMetricType: parsed.metric?.type ?? null,
+          plannedValue: parsed.metric?.value ?? null,
+          plannedUnit: parsed.metric?.unit ?? null,
           createdAt: nowIso(),
           completedAt: null
         };

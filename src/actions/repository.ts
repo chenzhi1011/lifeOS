@@ -404,10 +404,10 @@ function ensureLocalUser(userId: string) {
       createdAt: new Date().toISOString()
     });
     state.goals.push(
-      { id: `${userId}-life`, userId, title: "人生", category: "root", parentGoalId: null, metricType: "milestone", status: "active", createdAt: new Date().toISOString() },
-      { id: `${userId}-career`, userId, title: "职业", category: "职业", parentGoalId: `${userId}-life`, metricType: "duration", status: "active", createdAt: new Date().toISOString() },
-      { id: `${userId}-health`, userId, title: "健康", category: "健康", parentGoalId: `${userId}-life`, metricType: "count", status: "active", createdAt: new Date().toISOString() },
-      { id: `${userId}-interest`, userId, title: "兴趣", category: "兴趣", parentGoalId: `${userId}-life`, metricType: "count", status: "active", createdAt: new Date().toISOString() }
+      { id: `${userId}-life`, userId, title: "人生", category: "root", parentGoalId: null, goalType: null, abilityId: null, metricType: "milestone", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() },
+      { id: `${userId}-career`, userId, title: "职业", category: "职业", parentGoalId: `${userId}-life`, goalType: null, abilityId: null, metricType: "duration", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() },
+      { id: `${userId}-health`, userId, title: "健康", category: "健康", parentGoalId: `${userId}-life`, goalType: null, abilityId: null, metricType: "count", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() },
+      { id: `${userId}-interest`, userId, title: "兴趣", category: "兴趣", parentGoalId: `${userId}-life`, goalType: null, abilityId: null, metricType: "count", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() }
     );
   }
 }

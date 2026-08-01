@@ -9,6 +9,7 @@ function emptyState(userId: string): LifeOSState {
     currentUserId: userId,
     profiles: [],
     messages: [],
+    abilities: [],
     goals: [],
     goalAliases: [],
     tasks: [],
@@ -51,8 +52,12 @@ async function readSupabaseState(userId: string): Promise<LifeOSState | null> {
       title: goal.title,
       category: goal.category,
       parentGoalId: goal.parent_goal_id,
+      goalType: null,
+      abilityId: null,
       metricType: goal.metric_type,
       status: goal.status,
+      dueAt: null,
+      completedAt: null,
       createdAt: goal.created_at
     })
   );
