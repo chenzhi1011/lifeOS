@@ -4,12 +4,12 @@ import type {
 } from "./batch-validation";
 import {
   matchOpenTask,
-  normalizeIntentTitle,
   resolveAbilityReference,
   resolveGoalReference,
   type ActionAbilityContext,
   type ActionGoalAliasContext,
   type ActionGoalContext,
+  type ActionSameBatchAbilityContext,
   type ActionSameBatchGoalContext,
   type ActionTaskContext
 } from "./batch-resolution";
@@ -83,12 +83,6 @@ export interface PreparedBatch {
   events: PreparedEvent[];
 }
 
-type PriorAbilityTitles = Map<string, string[]>;
-
-function normalizedAbilityTitle(title: string): string {
-  return normalizeIntentTitle(title);
-}
-
 function preparedBase(event: LifeEventBatchInput): PreparedBase {
   return {
     confidence: event.confidence,
@@ -112,14 +106,6 @@ function prepareInbox(
     ...preparedBase(event),
     ...(resolution ? { resolution } : {})
   };
-}
-
-function recordPriorAbilityTitle(
-  titles: PriorAbilityTitles,
-  title: string
-): void {
-  const normalized = normalizedAbilityTitle(title);
-  titles.set(normalized, [...(titles.get(normalized) ?? []), title.trim()]);
 }
 
 function prepareTask(
@@ -272,30 +258,20 @@ function prepareActivity(
 function prepareGoal(
   event: Extract<LifeEventBatchInput, { type: "goal" }>,
   context: BatchPreparationContext,
-  priorAbilityTitles: PriorAbilityTitles
+  priorAbilities: ActionSameBatchAbilityContext[]
 ): PreparedEvent {
   let abilityId: string | null = null;
   let abilityTitle: string | undefined;
   if (event.goalType === "long_term" && event.ability) {
     const abilityResolution = resolveAbilityReference(
       event.ability,
-      context.abilities
+      context.abilities,
+      priorAbilities
     );
     if (abilityResolution.kind === "resolved") {
       abilityId = abilityResolution.abilityId;
-    } else if (event.ability.title) {
-      const sameBatchMatches =
-        priorAbilityTitles.get(normalizedAbilityTitle(event.ability.title)) ?? [];
-      if (sameBatchMatches.length > 1) {
-        return prepareInbox(
-          event,
-          `multiple active abilities match: ${event.ability.title.trim()}`
-        );
-      }
-      abilityTitle = sameBatchMatches[0];
-      if (!abilityTitle) {
-        return prepareInbox(event, abilityResolution.reason);
-      }
+    } else if (abilityResolution.kind === "same_batch") {
+      abilityTitle = abilityResolution.abilityTitle;
     } else {
       return prepareInbox(event, abilityResolution.reason);
     }
@@ -341,7 +317,7 @@ export async function prepareLifeEventBatch(
   now = new Date()
 ): Promise<PreparedBatch> {
   const priorGoals: ActionSameBatchGoalContext[] = [];
-  const priorAbilityTitles: PriorAbilityTitles = new Map();
+  const priorAbilities: ActionSameBatchAbilityContext[] = [];
   const events: PreparedEvent[] = [];
 
   for (const [eventIndex, event] of payload.events.entries()) {
@@ -356,7 +332,7 @@ export async function prepareLifeEventBatch(
         const preparedGoal = prepareGoal(
           event,
           context,
-          priorAbilityTitles
+          priorAbilities
         );
         events.push(preparedGoal);
         if (preparedGoal.kind === "goal") {
@@ -371,7 +347,10 @@ export async function prepareLifeEventBatch(
       case "ability": {
         const preparedAbility = prepareAbility(event);
         events.push(preparedAbility);
-        recordPriorAbilityTitle(priorAbilityTitles, preparedAbility.title);
+        priorAbilities.push({
+          key: `batch-ability-${eventIndex}`,
+          title: preparedAbility.title
+        });
         break;
       }
       case "inbox":

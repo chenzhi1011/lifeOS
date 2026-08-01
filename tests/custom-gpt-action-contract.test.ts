@@ -6,6 +6,18 @@ function readDoc(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function componentSchemaBlock(openapi: string, schemaName: string): string {
+  const pattern = new RegExp(
+    `^    ${schemaName}:\\n([\\s\\S]*?)(?=^    [A-Z][A-Za-z]+:\\n|^  securitySchemes:)`,
+    "m"
+  );
+  const match = openapi.match(pattern);
+  if (!match) {
+    throw new Error(`missing OpenAPI schema: ${schemaName}`);
+  }
+  return match[0];
+}
+
 describe("Custom GPT action documentation contract", () => {
   const openapi = readDoc("docs/custom-gpt-actions/openapi.yaml");
   const instructions = readDoc("docs/custom-gpt-actions/instructions.md");
@@ -34,5 +46,22 @@ describe("Custom GPT action documentation contract", () => {
     expect(setup).toContain("/api/actions/life-events");
     expect(setup).toContain("one_off");
     expect(setup).toContain("goalType");
+  });
+
+  it("machine-encodes mutually exclusive task, goal, and ability-reference branches", () => {
+    const abilityReference = componentSchemaBlock(openapi, "AbilityReference");
+    expect(abilityReference).toMatch(/oneOf:/);
+    expect(abilityReference).toMatch(/required:\s*\[id\][\s\S]*not:[\s\S]*required:\s*\[title\]/);
+    expect(abilityReference).toMatch(/required:\s*\[title\][\s\S]*not:[\s\S]*required:\s*\[id\]/);
+
+    const taskEvent = componentSchemaBlock(openapi, "TaskEvent");
+    expect(taskEvent).toMatch(/oneOf:/);
+    expect(taskEvent).toMatch(/const:\s*one_off[\s\S]*not:[\s\S]*required:\s*\[goal\]/);
+    expect(taskEvent).toMatch(/const:\s*goal[\s\S]*required:\s*\[path, goal\]/);
+
+    const goalEvent = componentSchemaBlock(openapi, "GoalEvent");
+    expect(goalEvent).toMatch(/oneOf:/);
+    expect(goalEvent).toMatch(/const:\s*long_term[\s\S]*required:\s*\[goalType, ability\]/);
+    expect(goalEvent).toMatch(/const:\s*short_term[\s\S]*not:[\s\S]*required:\s*\[ability\]/);
   });
 });

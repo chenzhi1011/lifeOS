@@ -198,6 +198,28 @@ describe("validateLifeEventBatchPayload", () => {
     ).toThrow();
   });
 
+  it("rejects an ability reference that supplies both id and title", () => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "conflicting-ability-reference",
+        rawText: "学习架构",
+        events: [
+          {
+            type: "goal",
+            goalType: "long_term",
+            title: "学习架构",
+            category: "职业",
+            ability: {
+              id: "44444444-4444-4444-8444-444444444444",
+              title: "前端能力"
+            },
+            confidence: 0.98
+          }
+        ]
+      })
+    ).toThrow("ability reference requires exactly one of id or title");
+  });
+
   it("requires all three planned metric fields by accepting only a complete metric", () => {
     expect(() =>
       validateLifeEventBatchPayload({

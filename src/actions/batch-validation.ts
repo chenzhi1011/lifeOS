@@ -29,10 +29,10 @@ export const abilityReferenceSchema = z
   })
   .strict()
   .superRefine((ability, ctx) => {
-    if (!ability.id && !ability.title) {
+    if ((!ability.id && !ability.title) || (ability.id && ability.title)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "ability reference requires id or title"
+        message: "ability reference requires exactly one of id or title"
       });
     }
   });

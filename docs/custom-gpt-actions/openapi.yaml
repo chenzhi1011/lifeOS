@@ -119,9 +119,13 @@ components:
     AbilityReference:
       type: object
       additionalProperties: false
-      anyOf:
+      oneOf:
         - required: [id]
+          not:
+            required: [title]
         - required: [title]
+          not:
+            required: [id]
       properties:
         id:
           type: string
@@ -150,6 +154,17 @@ components:
       additionalProperties: false
       description: path one_off forbids goal; path goal requires exactly one resolvable goal reference.
       required: [type, confidence, path, title, localDate]
+      oneOf:
+        - properties:
+            path:
+              const: one_off
+          required: [path]
+          not:
+            required: [goal]
+        - properties:
+            path:
+              const: goal
+          required: [path, goal]
       properties:
         type:
           type: string
@@ -244,6 +259,17 @@ components:
       additionalProperties: false
       description: long_term requires ability; short_term forbids ability.
       required: [type, confidence, goalType, title, category]
+      oneOf:
+        - properties:
+            goalType:
+              const: long_term
+          required: [goalType, ability]
+        - properties:
+            goalType:
+              const: short_term
+          required: [goalType]
+          not:
+            required: [ability]
       properties:
         type:
           type: string

@@ -254,6 +254,27 @@ describe("resolveAbilityReference", () => {
     ).toEqual({ kind: "resolved", abilityId: "ability-frontend" });
   });
 
+  it("deduplicates id and title matches for the same persisted ability", () => {
+    expect(
+      resolveAbilityReference(
+        { id: "ability-frontend", title: "前端能力" },
+        abilities
+      )
+    ).toEqual({ kind: "resolved", abilityId: "ability-frontend" });
+  });
+
+  it("routes conflicting id and title matches to inbox", () => {
+    expect(
+      resolveAbilityReference(
+        { id: "ability-health", title: "前端能力" },
+        abilities
+      )
+    ).toEqual({
+      kind: "inbox",
+      reason: "multiple active abilities match: 前端能力"
+    });
+  });
+
   it("does not use aliases or archived abilities", () => {
     expect(resolveAbilityReference({ title: "旧能力" }, abilities)).toEqual({
       kind: "inbox",

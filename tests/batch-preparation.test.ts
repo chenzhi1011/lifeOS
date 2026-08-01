@@ -346,6 +346,32 @@ describe("prepareLifeEventBatch", () => {
     });
   });
 
+  it("routes a persisted-title and earlier same-batch ability collision to inbox", async () => {
+    const result = await prepareLifeEventBatch(
+      payload([
+        { type: "ability", title: "前端能力", confidence: 0.99 },
+        {
+          type: "goal",
+          goalType: "long_term",
+          title: "学习架构",
+          category: "职业",
+          ability: { title: "前端能力" },
+          metricType: "duration",
+          aliases: [],
+          confidence: 0.98
+        }
+      ]),
+      context,
+      now
+    );
+
+    expect(result.events[1]).toMatchObject({
+      kind: "inbox",
+      suggestedType: "goal",
+      reason: "multiple active abilities match: 前端能力"
+    });
+  });
+
   it("keeps forward goal references in inbox when the goal appears later", async () => {
     const result = await prepareLifeEventBatch(
       payload([
