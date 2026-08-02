@@ -370,9 +370,23 @@ describe("growth tree environment contract", () => {
   it("keeps desktop controls and mobile overflow checks in visual verification", () => {
     expect(visualVerification).toContain("果实面板");
     expect(visualVerification).toContain("近期生命力");
-    expect(visualVerification).toContain("scrollWidth");
     expect(scene).toContain("data-scene-ready");
     expect(visualVerification).toContain("data-scene-ready");
+    expect(visualVerification).toContain("newCDPSession");
+    expect(visualVerification).toContain("Page.getLayoutMetrics");
+    expect(visualVerification).toContain("contentSize.width");
+    expect(visualVerification).toContain("withStageTimeout");
+    expect(visualVerification).toContain("screenshot:start");
+    expect(visualVerification).toContain("screenshot:end");
+    expect(visualVerification).toMatch(
+      /finally\s*{[\s\S]*await page\.close\(\)/
+    );
+    expect(visualVerification.indexOf("page.screenshot")).toBeGreaterThan(-1);
+    expect(visualVerification.indexOf("page.screenshot")).toBeLessThan(
+      visualVerification.indexOf("Page.getLayoutMetrics")
+    );
+    expect(visualVerification).not.toContain("page.evaluate(");
+    expect(visualVerification).not.toContain("fullPage: true");
     expect(visualVerification).not.toContain("waitForTimeout(800)");
     expect(visualVerification).not.toContain("drawImage");
     expect(visualVerification).not.toContain("getImageData");
