@@ -39,7 +39,11 @@ export type ActivityLeaf = {
 };
 
 export type TreeDiagnostic = {
-  code: "untyped_goal" | "missing_ability" | "invalid_ability";
+  code:
+    | "untyped_goal"
+    | "missing_ability"
+    | "invalid_ability"
+    | "invalid_activity_value";
   entityId: string;
   message: string;
 };
@@ -75,7 +79,10 @@ function thicknessFromTotal(base: number, total: number): number {
 }
 
 function activityTotal(activities: Activity[]): number {
-  return activities.reduce((sum, activity) => sum + activity.value, 0);
+  return activities.reduce(
+    (sum, activity) => Math.min(Number.MAX_VALUE, sum + activity.value),
+    0
+  );
 }
 
 function activitiesFor(goalId: string, activities: Activity[]): Activity[] {
@@ -140,7 +147,20 @@ export function buildGrowthTreeViewModel(
   data: DashboardData,
   asOf: Date
 ): GrowthTreeViewModel {
-  const allActivities = [...data.allActivities];
+  if (!Number.isFinite(asOf.getTime())) {
+    throw new Error("growth tree projection requires a valid asOf date");
+  }
+  const invalidActivities = data.allActivities.filter(
+    (activity) => !Number.isFinite(activity.value) || activity.value <= 0
+  );
+  const diagnostics: TreeDiagnostic[] = invalidActivities.map((activity) => ({
+    code: "invalid_activity_value",
+    entityId: activity.id,
+    message: `Activity ${activity.id} has an invalid value.`
+  }));
+  const allActivities = data.allActivities.filter(
+    (activity) => Number.isFinite(activity.value) && activity.value > 0
+  );
   const recentActivities = recentActivityWindow(allActivities, asOf);
   const totalValue = activityTotal(allActivities);
   const root: TreeWood = {
@@ -196,7 +216,6 @@ export function buildGrowthTreeViewModel(
   const abilityWoodById = new Map(
     abilityBranches.map((branch) => [branch.entityId, branch])
   );
-  const diagnostics: TreeDiagnostic[] = [];
   const longGoals: DashboardData["goals"] = [];
   const shortGoals: DashboardData["goals"] = [];
 

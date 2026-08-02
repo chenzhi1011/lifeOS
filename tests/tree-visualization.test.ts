@@ -151,4 +151,46 @@ describe("buildGrowthTreeViewModel", () => {
     expect(second).toEqual(first);
     expect(completed.thickness).toBeGreaterThan(active.thickness);
   });
+
+  it("rejects an invalid asOf date with a clear error", () => {
+    expect(() =>
+      buildGrowthTreeViewModel(fixture(), new Date(Number.NaN))
+    ).toThrow(/valid asOf date/);
+  });
+
+  it("diagnoses invalid activity values without contaminating valid wood geometry", () => {
+    const data = fixture();
+    data.allActivities.push(
+      activity("activity-nan", "long-active", "2026-08-01", Number.NaN),
+      activity("activity-infinity", "long-active", "2026-08-01", Number.POSITIVE_INFINITY),
+      activity("activity-zero", "long-active", "2026-08-01", 0),
+      activity("activity-negative", "long-active", "2026-08-01", -1)
+    );
+
+    const model = buildGrowthTreeViewModel(data, asOf);
+    const wood = [
+      model.root,
+      ...model.abilityBranches,
+      ...model.longGoalTwigs,
+      ...model.shortGoalBranches
+    ];
+
+    expect(model.longGoalTwigs.some((twig) => twig.entityId === "long-active")).toBe(true);
+    expect(model.activityLeaves.map((leaf) => leaf.activityId)).toEqual([
+      "activity-recent"
+    ]);
+    expect(model.diagnostics).toEqual(
+      expect.arrayContaining(
+        ["activity-nan", "activity-infinity", "activity-zero", "activity-negative"].map(
+          (entityId) =>
+            expect.objectContaining({ code: "invalid_activity_value", entityId })
+        )
+      )
+    );
+    for (const segment of wood) {
+      expect(Number.isFinite(segment.thickness)).toBe(true);
+      expect(Object.values(segment.start).every(Number.isFinite)).toBe(true);
+      expect(Object.values(segment.end).every(Number.isFinite)).toBe(true);
+    }
+  });
 });
