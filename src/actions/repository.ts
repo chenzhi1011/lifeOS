@@ -9,9 +9,18 @@ import type {
   ActionTaskContext
 } from "./batch-resolution";
 import type { LifeEventActionPayload } from "./validation";
-import { toParseResult } from "./validation";
+import { toParseResult, validateLifeEventPayload } from "./validation";
 import { normalizeIntentTitle } from "./batch-resolution";
-import type { AbilityReference, LifeEventGoalReference } from "@/src/domain/types";
+import type {
+  AbilityReference,
+  LifeEventGoalReference,
+  LifeEventParseResult
+} from "@/src/domain/types";
+import {
+  DomainResolutionError,
+  isDomainResolutionError,
+  type DomainResolutionCode
+} from "@/src/domain/resolution";
 
 type ContextRow = Record<string, unknown>;
 
@@ -271,9 +280,19 @@ type SupabaseGoalRow = {
   created_at: string;
 };
 
-function requireUnique<T>(candidates: T[], ambiguousMessage: string): T | undefined {
+type SupabaseGoalPlan = {
+  existingGoal: SupabaseGoalRow | null;
+  insertPayload: Record<string, unknown> | null;
+  aliasesToInsert: string[];
+};
+
+function requireUnique<T>(
+  candidates: T[],
+  code: DomainResolutionCode,
+  ambiguousMessage: string
+): T | undefined {
   if (candidates.length > 1) {
-    throw new Error(ambiguousMessage);
+    throw new DomainResolutionError(code, ambiguousMessage);
   }
   return candidates[0];
 }
@@ -300,10 +319,14 @@ async function resolveSupabaseAbility(
   );
   const ability = requireUnique(
     candidates,
+    "ambiguous_ability",
     `multiple active abilities match: ${reference.title ?? reference.id}`
   );
   if (!ability) {
-    throw new Error(`ability does not exist: ${reference.title ?? reference.id}`);
+    throw new DomainResolutionError(
+      "missing_ability",
+      `ability does not exist: ${reference.title ?? reference.id}`
+    );
   }
   return ability;
 }
@@ -327,12 +350,12 @@ async function upsertSupabaseAbility(
   return data;
 }
 
-async function resolveSupabaseGoal(
+async function prepareSupabaseGoal(
   userId: string,
   goalInput: LifeEventGoalReference,
   eventType: LifeEventActionPayload["type"],
   supabase: SupabaseClient
-): Promise<SupabaseGoalRow> {
+): Promise<SupabaseGoalPlan> {
   const [{ data: goals, error: goalsError }, { data: aliases, error: aliasesError }] =
     await Promise.all([
       supabase
@@ -375,6 +398,7 @@ async function resolveSupabaseGoal(
 
   const existing = requireUnique(
     rows.filter((goal) => matchingIds.has(goal.id)),
+    "ambiguous_goal",
     `multiple active goals match: ${goalInput.title}`
   );
   const ability = goalInput.ability
@@ -382,17 +406,21 @@ async function resolveSupabaseGoal(
     : null;
 
   let parentGoalId: string | null = null;
-  if (goalInput.parentTitle) {
+  if (goalInput.goalType && goalInput.parentTitle) {
     const parent = requireUnique(
       rows.filter(
         (goal) =>
           goal.status === "active" &&
           goal.title.trim().toLowerCase() === goalInput.parentTitle?.trim().toLowerCase()
       ),
+      "ambiguous_goal",
       `multiple active parent goals match: ${goalInput.parentTitle}`
     );
     if (!parent) {
-      throw new Error(`parent goal does not exist: ${goalInput.parentTitle}`);
+      throw new DomainResolutionError(
+        "missing_goal",
+        `parent goal does not exist: ${goalInput.parentTitle}`
+      );
     }
     parentGoalId = parent.id;
   }
@@ -403,25 +431,19 @@ async function resolveSupabaseGoal(
       (candidate) => candidate.alias.trim().toLowerCase() === alias.trim().toLowerCase()
     );
     if (existingAlias && existingAlias.goal_id !== existing?.id) {
-      throw new Error(`goal alias conflicts with existing goal: ${alias}`);
-    }
-  }
-
-  async function persistAliases(goalId: string): Promise<void> {
-    for (const alias of requestedAliases) {
-      const existingAlias = (aliases ?? []).find(
-        (candidate) => candidate.alias.trim().toLowerCase() === alias.trim().toLowerCase()
+      throw new DomainResolutionError(
+        "identity_conflict",
+        `goal alias conflicts with existing goal: ${alias}`
       );
-      if (!existingAlias) {
-        const { error: aliasError } = await supabase
-          .from("goal_aliases")
-          .insert({ user_id: userId, goal_id: goalId, alias });
-        if (aliasError) {
-          throw new Error(aliasError.message);
-        }
-      }
     }
   }
+  const aliasesToInsert = requestedAliases.filter(
+    (alias) =>
+      !(aliases ?? []).some(
+        (candidate) =>
+          candidate.alias.trim().toLowerCase() === alias.trim().toLowerCase()
+      )
+  );
 
   if (existing) {
     if (goalInput.goalType) {
@@ -433,20 +455,25 @@ async function resolveSupabaseGoal(
         existing.metric_type !== metricType ||
         existing.parent_goal_id !== parentGoalId
       ) {
-        throw new Error(`goal identity conflicts with existing goal: ${goalInput.title}`);
+        throw new DomainResolutionError(
+          "identity_conflict",
+          `goal identity conflicts with existing goal: ${goalInput.title}`
+        );
       }
     }
-    await persistAliases(existing.id);
-    return existing;
+    return { existingGoal: existing, insertPayload: null, aliasesToInsert };
   }
 
   if (!goalInput.goalType) {
-    throw new Error(`goal does not exist: ${goalInput.title}`);
+    throw new DomainResolutionError(
+      "missing_goal",
+      `goal does not exist: ${goalInput.title}`
+    );
   }
 
-  const { data: goal, error } = await supabase
-    .from("goals")
-    .insert({
+  return {
+    existingGoal: null,
+    insertPayload: {
       user_id: userId,
       title: goalInput.title,
       category: goalInput.category,
@@ -457,18 +484,102 @@ async function resolveSupabaseGoal(
       status: "active",
       due_at: null,
       completed_at: null
+    },
+    aliasesToInsert
+  };
+}
+
+async function insertSupabaseMessage(
+  userId: string,
+  rawText: string,
+  parsed: LifeEventParseResult,
+  supabase: SupabaseClient
+) {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      user_id: userId,
+      source: "gpt_action",
+      raw_text: rawText,
+      intent_type: parsed.type,
+      confidence: parsed.confidence,
+      parsed_json: parsed,
+      status: parsed.type === "inbox" ? "inbox" : "processed"
     })
-    .select(
-      "id,title,category,parent_goal_id,goal_type,ability_id,metric_type,status,created_at"
-    )
+    .select("id")
     .single();
   if (error) {
     throw new Error(error.message);
   }
+  return data;
+}
 
-  await persistAliases(goal.id);
+async function writeSupabaseInbox(
+  userId: string,
+  rawText: string,
+  confidence: number,
+  suggestedType: LifeEventParseResult["type"],
+  reason: string,
+  supabase: SupabaseClient
+) {
+  const parsed: LifeEventParseResult = {
+    type: "inbox",
+    confidence,
+    rawText,
+    suggestedTypes: [suggestedType],
+    reason
+  };
+  const message = await insertSupabaseMessage(userId, rawText, parsed, supabase);
+  const { data: inboxItem, error } = await supabase
+    .from("inbox_items")
+    .insert({
+      user_id: userId,
+      message_id: message.id,
+      suggested_type: suggestedType,
+      suggested_json: parsed,
+      reason,
+      status: "pending"
+    })
+    .select("id")
+    .single();
+  if (error) {
+    throw new Error(error.message);
+  }
+  return { message, inboxItem };
+}
 
-  return goal as SupabaseGoalRow;
+async function materializeSupabaseGoal(
+  userId: string,
+  plan: SupabaseGoalPlan,
+  supabase: SupabaseClient
+): Promise<SupabaseGoalRow> {
+  let goal = plan.existingGoal;
+  if (!goal && plan.insertPayload) {
+    const { data, error } = await supabase
+      .from("goals")
+      .insert(plan.insertPayload)
+      .select(
+        "id,title,category,parent_goal_id,goal_type,ability_id,metric_type,status,created_at"
+      )
+      .single();
+    if (error) {
+      throw new Error(error.message);
+    }
+    goal = data as SupabaseGoalRow;
+  }
+  if (!goal) {
+    throw new Error("prepared goal is missing");
+  }
+
+  for (const alias of plan.aliasesToInsert) {
+    const { error } = await supabase
+      .from("goal_aliases")
+      .insert({ user_id: userId, goal_id: goal.id, alias });
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+  return goal;
 }
 
 async function writeSupabaseLifeEvent(
@@ -481,49 +592,47 @@ async function writeSupabaseLifeEvent(
   }
 
   const parsed = toParseResult(payload);
-  const ability = payload.type === "ability"
-    ? await upsertSupabaseAbility(userId, payload.ability.title, supabase)
-    : null;
-  const goal = payload.type === "task" && payload.path === "one_off"
-    ? null
-    : "goal" in payload && payload.goal
-      ? await resolveSupabaseGoal(userId, payload.goal, payload.type, supabase)
-      : null;
-  const { data: message, error: messageError } = await supabase
-    .from("messages")
-    .insert({
-      user_id: userId,
-      source: "gpt_action",
-      raw_text: payload.rawText,
-      intent_type: payload.type,
-      confidence: payload.confidence,
-      parsed_json: parsed,
-      status: payload.type === "inbox" ? "inbox" : "processed"
-    })
-    .select("id")
-    .single();
-
-  if (messageError) {
-    throw new Error(messageError.message);
+  let goalPlan: SupabaseGoalPlan | null = null;
+  try {
+    goalPlan = payload.type === "task" && payload.path === "one_off"
+      ? null
+      : "goal" in payload && payload.goal
+        ? await prepareSupabaseGoal(userId, payload.goal, payload.type, supabase)
+        : null;
+  } catch (error) {
+    if (!isDomainResolutionError(error)) {
+      throw error;
+    }
+    return writeSupabaseInbox(
+      userId,
+      payload.rawText,
+      payload.confidence,
+      payload.type,
+      error.message,
+      supabase
+    );
   }
 
   if (payload.type === "inbox") {
-    const { data: inboxItem, error } = await supabase
-      .from("inbox_items")
-      .insert({
-        user_id: userId,
-        message_id: message.id,
-        suggested_type: payload.suggestedTypes?.[0] ?? "inbox",
-        suggested_json: parsed,
-        reason: payload.reason ?? "需要确认。",
-        status: "pending"
-      })
-      .select("id")
-      .single();
-    if (error) throw new Error(error.message);
-    return { message, inboxItem };
+    return writeSupabaseInbox(
+      userId,
+      payload.rawText,
+      payload.confidence,
+      payload.suggestedTypes?.[0] ?? "inbox",
+      payload.reason ?? "需要确认。",
+      supabase
+    );
   }
 
+  // Legacy single-event transport: validation and reference resolution are
+  // read-only before this first write, but the following writes are not a DB transaction.
+  const message = await insertSupabaseMessage(userId, payload.rawText, parsed, supabase);
+  const ability = payload.type === "ability"
+    ? await upsertSupabaseAbility(userId, payload.ability.title, supabase)
+    : null;
+  const goal = goalPlan
+    ? await materializeSupabaseGoal(userId, goalPlan, supabase)
+    : null;
 
   if (payload.type === "ability") {
     return { message, ability };
@@ -554,14 +663,14 @@ async function writeSupabaseLifeEvent(
     return { message, goal, task };
   }
 
-  if (payload.type === "activity" && goal) {
+  if (payload.type === "activity" && goal && payload.metric) {
     const { data: activity, error } = await supabase
       .from("activities")
       .insert({
         user_id: userId,
         goal_id: goal.id,
         message_id: message.id,
-        summary: payload.summary,
+        summary: payload.summary ?? payload.rawText,
         metric_type: payload.metric.type,
         value: payload.metric.value,
         unit: payload.metric.unit,
@@ -630,15 +739,16 @@ function ensureLocalUser(userId: string) {
 
 export async function writeLifeEventFromAction(
   userId: string,
-  payload: LifeEventActionPayload,
+  input: unknown,
   supabase: SupabaseClient | null = createServiceSupabaseClient()
 ) {
+  const payload = validateLifeEventPayload(input);
   const supabaseResult = await writeSupabaseLifeEvent(userId, payload, supabase);
   if (supabaseResult) {
     return { mode: "supabase", result: supabaseResult };
   }
 
-  ensureLocalUser(userId);
   const result = lifeOSStore.applyParseResult(userId, "gpt_action", payload.rawText, toParseResult(payload));
+  ensureLocalUser(userId);
   return { mode: "memory", result };
 }

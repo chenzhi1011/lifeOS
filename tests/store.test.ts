@@ -138,16 +138,77 @@ describe("Life OS store", () => {
       })
     ).toThrow(/goal path requires goal/);
 
-    expect(() =>
-      store.applyParseResult("demo-user", "mock", "准备不存在的考试", {
-        type: "task",
-        path: "goal",
-        confidence: 0.96,
-        goal: { title: "不存在的考试", category: "职业" },
-        task: { title: "准备考试" }
-      })
-    ).toThrow(/goal does not exist/);
+    expect(store.getState().messages).toHaveLength(messageCount);
+  });
 
+  it("routes an unresolved goal-path task to inbox", () => {
+    const store = createLifeOSStore(createInitialState());
+    const taskCount = store.getState().tasks.length;
+
+    const result = store.applyParseResult("demo-user", "mock", "准备不存在的考试", {
+      type: "task",
+      path: "goal",
+      confidence: 0.96,
+      goal: { title: "不存在的考试", category: "职业" },
+      task: { title: "准备考试" }
+    });
+
+    expect(result.message.intentType).toBe("inbox");
+    expect(result.inboxItem?.reason).toMatch(/goal does not exist/);
+    expect(store.getState().tasks).toHaveLength(taskCount);
+  });
+
+  it("rejects a missing task payload before mutating state", () => {
+    const store = createLifeOSStore(createInitialState());
+    const messageCount = store.getState().messages.length;
+
+    expect(() =>
+      store.applyParseResult(
+        "demo-user",
+        "mock",
+        "买水",
+        {
+          type: "task",
+          path: "one_off",
+          confidence: 0.96
+        } as unknown as LifeEventParseResult
+      )
+    ).toThrow();
+    expect(store.getState().messages).toHaveLength(messageCount);
+  });
+
+  it("rejects a null reminder before mutating state", () => {
+    const store = createLifeOSStore(createInitialState());
+    const messageCount = store.getState().messages.length;
+
+    expect(() =>
+      store.applyParseResult(
+        "demo-user",
+        "mock",
+        "提醒买水",
+        {
+          type: "reminder",
+          confidence: 0.96,
+          reminder: null
+        } as unknown as LifeEventParseResult
+      )
+    ).toThrow();
+    expect(store.getState().messages).toHaveLength(messageCount);
+  });
+
+  it("rejects oversized metrics before mutating state", () => {
+    const store = createLifeOSStore(createInitialState());
+    const messageCount = store.getState().messages.length;
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "买很多水", {
+        type: "task",
+        path: "one_off",
+        confidence: 0.96,
+        task: { title: "买水" },
+        metric: { type: "count", value: 100_001, unit: "count" }
+      })
+    ).toThrow();
     expect(store.getState().messages).toHaveLength(messageCount);
   });
 
@@ -196,18 +257,27 @@ describe("Life OS store", () => {
     expect(store.getState().messages).toHaveLength(messageCount);
   });
 
-  it("rejects unresolved references and only creates explicitly typed goals", () => {
+  it("routes unresolved goal references to inbox without partial domain rows", () => {
     const store = createLifeOSStore(createInitialState());
+    const goalCount = store.getState().goals.length;
+    const activityCount = store.getState().activities.length;
 
-    expect(() =>
-      store.applyParseResult("demo-user", "mock", "学习写作", {
-        type: "activity",
-        confidence: 0.92,
-        goal: { title: "写作", category: "兴趣" },
-        summary: "学习写作",
-        metric: { type: "duration", value: 30, unit: "minute" }
-      })
-    ).toThrow(/goal does not exist/);
+    const unresolved = store.applyParseResult("demo-user", "mock", "学习写作", {
+      type: "activity",
+      confidence: 0.92,
+      goal: { title: "写作", category: "兴趣" },
+      summary: "学习写作",
+      metric: { type: "duration", value: 30, unit: "minute" }
+    });
+
+    expect(unresolved.message).toMatchObject({
+      intentType: "inbox",
+      status: "inbox"
+    });
+    expect(unresolved.inboxItem?.reason).toMatch(/goal does not exist/);
+    expect(unresolved.activity).toBeUndefined();
+    expect(store.getState().goals).toHaveLength(goalCount);
+    expect(store.getState().activities).toHaveLength(activityCount);
     const explicit = store.applyParseResult("demo-user", "mock", "参加比赛", {
       type: "goal",
       confidence: 0.92,
@@ -268,18 +338,49 @@ describe("Life OS store", () => {
 
     expect(replay.ability?.status).toBe("archived");
     expect(store.getState().abilities).toHaveLength(count);
-    expect(() =>
-      store.applyParseResult("demo-user", "mock", "长期练习写作", {
-        type: "goal",
-        confidence: 0.95,
-        goal: {
-          title: "写作练习",
-          category: "兴趣",
-          goalType: "long_term",
-          ability: { title: "写作能力" }
-        }
-      })
-    ).toThrow(/ability does not exist/);
+    const goalCount = store.getState().goals.length;
+    const unresolved = store.applyParseResult("demo-user", "mock", "长期练习写作", {
+      type: "goal",
+      confidence: 0.95,
+      goal: {
+        title: "写作练习",
+        category: "兴趣",
+        goalType: "long_term",
+        ability: { title: "写作能力" }
+      }
+    });
+    expect(unresolved.message.intentType).toBe("inbox");
+    expect(unresolved.inboxItem?.reason).toMatch(/ability does not exist/);
+    expect(store.getState().goals).toHaveLength(goalCount);
+  });
+
+  it("routes ambiguous active ability matches to inbox", () => {
+    const initial = createInitialState();
+    initial.abilities.push({
+      id: "ability-frontend-duplicate",
+      userId: "demo-user",
+      title: "前端能力",
+      status: "active",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      archivedAt: null
+    });
+    const store = createLifeOSStore(initial);
+    const goalCount = store.getState().goals.length;
+
+    const result = store.applyParseResult("demo-user", "mock", "学习 React", {
+      type: "goal",
+      confidence: 0.95,
+      goal: {
+        title: "React",
+        category: "职业",
+        goalType: "long_term",
+        ability: { title: "前端能力" }
+      }
+    });
+
+    expect(result.message.intentType).toBe("inbox");
+    expect(result.inboxItem?.reason).toMatch(/multiple active abilities match/);
+    expect(store.getState().goals).toHaveLength(goalCount);
   });
 
   it("does not reuse seed ids when writing new records", () => {

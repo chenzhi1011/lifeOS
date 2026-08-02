@@ -37,7 +37,7 @@ export const localProvider: AIProvider = {
           messages: [
             {
               role: "system",
-              content: "Return only valid JSON for Life OS. Classify as task, activity, goal, reminder, or inbox."
+              content: "Return only valid Life OS JSON. Types: task, activity, goal, ability, reminder, inbox. Every task needs path one_off or goal; one_off forbids goal and goal path requires goal. Long-term goals require one ability reference; short-term goals forbid ability."
             },
             { role: "user", content: input.text }
           ],
@@ -51,7 +51,7 @@ export const localProvider: AIProvider = {
 
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content;
-      const parsed = JSON.parse(content) as LifeEventParseResult;
+      const parsed: unknown = JSON.parse(content);
       return normalizeParseResult(parsed, input.text);
     } catch {
       return mockProvider.parseLifeEvent(input);

@@ -3,6 +3,7 @@ import type {
   Ability,
   Activity,
   Goal,
+  GoalAlias,
   InboxItem,
   IntentType,
   LifeEventGoalReference,
@@ -13,6 +14,8 @@ import type {
   Task
 } from "./types";
 import { buildDashboardData, buildGoalDetail } from "./aggregation";
+import { lifeEventParseResultSchema } from "./life-event-schema";
+import { DomainResolutionError, isDomainResolutionError } from "./resolution";
 
 type ApplyResult = {
   message: Message;
@@ -43,67 +46,16 @@ function normalizedTitle(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function validateAbilityReference(goal: LifeEventGoalReference): void {
-  const reference = goal.ability;
-  if (!reference) {
-    return;
-  }
-  if ((!reference.id && !reference.title) || (reference.id && reference.title)) {
-    throw new Error("ability reference requires exactly one of id or title");
-  }
-}
-
-function validateGoalShape(goal: LifeEventGoalReference): void {
-  validateAbilityReference(goal);
-  if (goal.goalType === "long_term" && !goal.ability) {
-    throw new Error("long_term goal requires ability");
-  }
-  if (goal.goalType === "short_term" && goal.ability) {
-    throw new Error("short_term goal forbids ability");
-  }
-  if (!goal.goalType && goal.ability) {
-    throw new Error("ability reference requires a typed goal");
-  }
-}
-
-function validateMetric(metric: { type: string; value: number; unit: string } | undefined): void {
-  if (!metric) {
-    return;
-  }
-  if (
-    !["duration", "count", "milestone"].includes(metric.type) ||
-    !Number.isFinite(metric.value) ||
-    metric.value <= 0 ||
-    !["minute", "hour", "count"].includes(metric.unit)
-  ) {
-    throw new Error("invalid metric");
-  }
-}
-
-function validateParseResult(parsed: LifeEventParseResult): void {
-  if (parsed.type === "task") {
-    if (parsed.path === "one_off" && parsed.goal) {
-      throw new Error("one_off forbids goal");
-    }
-    if (parsed.path === "goal" && !parsed.goal) {
-      throw new Error("goal path requires goal");
-    }
-  }
-  if (parsed.type === "activity" && (!parsed.goal || !parsed.metric)) {
-    throw new Error("activity requires goal and metric");
-  }
-  if ("goal" in parsed && parsed.goal) {
-    validateGoalShape(parsed.goal);
-  }
-  if ("metric" in parsed) {
-    validateMetric(parsed.metric);
-  }
-}
-
 type GoalBearingParseResult = Extract<
   LifeEventParseResult,
   { type: "task" | "activity" | "goal" | "reminder" }
 >;
+
+type GoalResolutionPlan = {
+  goal: Goal;
+  insertGoal: boolean;
+  aliases: GoalAlias[];
+};
 
 export function createLifeOSStore(initialState: LifeOSState) {
   const state = initialState;
@@ -119,15 +71,21 @@ export function createLifeOSStore(initialState: LifeOSState) {
     );
 
     if (candidates.length > 1) {
-      throw new Error(`multiple active abilities match: ${reference.title ?? reference.id}`);
+      throw new DomainResolutionError(
+        "ambiguous_ability",
+        `multiple active abilities match: ${reference.title ?? reference.id}`
+      );
     }
     if (!candidates[0]) {
-      throw new Error(`ability does not exist: ${reference.title ?? reference.id}`);
+      throw new DomainResolutionError(
+        "missing_ability",
+        `ability does not exist: ${reference.title ?? reference.id}`
+      );
     }
     return candidates[0];
   }
 
-  function resolveGoal(userId: string, parsed: GoalBearingParseResult): Goal | undefined {
+  function resolveGoal(userId: string, parsed: GoalBearingParseResult): GoalResolutionPlan | undefined {
     if (!parsed.goal) {
       return undefined;
     }
@@ -163,7 +121,10 @@ export function createLifeOSStore(initialState: LifeOSState) {
     }
     const candidates = state.goals.filter((goal) => matchingIds.has(goal.id));
     if (candidates.length > 1) {
-      throw new Error(`multiple active goals match: ${parsed.goal.title}`);
+      throw new DomainResolutionError(
+        "ambiguous_goal",
+        `multiple active goals match: ${parsed.goal.title}`
+      );
     }
 
     const parentCandidates = parsed.goal.goalType && parsed.goal.parentTitle
@@ -175,14 +136,20 @@ export function createLifeOSStore(initialState: LifeOSState) {
         )
       : [];
     if (parentCandidates.length > 1) {
-      throw new Error(`multiple active parent goals match: ${parsed.goal.parentTitle}`);
+      throw new DomainResolutionError(
+        "ambiguous_goal",
+        `multiple active parent goals match: ${parsed.goal.parentTitle}`
+      );
     }
     if (parsed.goal.goalType && parsed.goal.parentTitle && !parentCandidates[0]) {
-      throw new Error(`parent goal does not exist: ${parsed.goal.parentTitle}`);
+      throw new DomainResolutionError(
+        "missing_goal",
+        `parent goal does not exist: ${parsed.goal.parentTitle}`
+      );
     }
     const parent = parentCandidates[0];
 
-    function persistAliases(goalId: string): void {
+    function prepareAliases(goalId: string): GoalAlias[] {
       const requestedAliases = parsed.goal?.aliases ?? [];
       for (const alias of requestedAliases) {
         const existingAlias = state.goalAliases.find(
@@ -191,25 +158,29 @@ export function createLifeOSStore(initialState: LifeOSState) {
             normalizedTitle(candidate.alias) === normalizedTitle(alias)
         );
         if (existingAlias && existingAlias.goalId !== goalId) {
-          throw new Error(`goal alias conflicts with existing goal: ${alias}`);
+          throw new DomainResolutionError(
+            "identity_conflict",
+            `goal alias conflicts with existing goal: ${alias}`
+          );
         }
       }
-      for (const alias of requestedAliases) {
+      return requestedAliases.flatMap((alias) => {
         const existingAlias = state.goalAliases.find(
           (candidate) =>
             candidate.userId === userId &&
             normalizedTitle(candidate.alias) === normalizedTitle(alias)
         );
         if (!existingAlias) {
-          state.goalAliases.push({
+          return [{
             id: id("alias"),
             userId,
             goalId,
             alias,
             createdAt: nowIso()
-          });
+          }];
         }
-      }
+        return [];
+      });
     }
 
     const existing = candidates[0];
@@ -225,15 +196,24 @@ export function createLifeOSStore(initialState: LifeOSState) {
           existing.metricType !== (parsed.goal.metricType ?? defaultMetric(parsed.type)) ||
           existing.parentGoalId !== (parent?.id ?? null)
         ) {
-          throw new Error(`goal identity conflicts with existing goal: ${parsed.goal.title}`);
+          throw new DomainResolutionError(
+            "identity_conflict",
+            `goal identity conflicts with existing goal: ${parsed.goal.title}`
+          );
         }
       }
-      persistAliases(existing.id);
-      return existing;
+      return {
+        goal: existing,
+        insertGoal: false,
+        aliases: prepareAliases(existing.id)
+      };
     }
 
     if (!parsed.goal.goalType) {
-      throw new Error(`goal does not exist: ${parsed.goal.title}`);
+      throw new DomainResolutionError(
+        "missing_goal",
+        `goal does not exist: ${parsed.goal.title}`
+      );
     }
 
     const goal: Goal = {
@@ -250,14 +230,56 @@ export function createLifeOSStore(initialState: LifeOSState) {
       completedAt: null,
       createdAt: nowIso()
     };
-    persistAliases(goal.id);
-    state.goals.push(goal);
-
-    return goal;
+    return {
+      goal,
+      insertGoal: true,
+      aliases: prepareAliases(goal.id)
+    };
   }
 
-  function applyParseResult(userId: string, source: Message["source"], rawText: string, parsed: LifeEventParseResult): ApplyResult {
-    validateParseResult(parsed);
+  function writeInbox(
+    userId: string,
+    source: Message["source"],
+    rawText: string,
+    confidence: number,
+    suggestedType: IntentType,
+    reason: string
+  ): ApplyResult {
+    const parsed: LifeEventParseResult = {
+      type: "inbox",
+      confidence,
+      rawText,
+      suggestedTypes: [suggestedType],
+      reason
+    };
+    const message: Message = {
+      id: id("msg"),
+      userId,
+      source,
+      rawText,
+      intentType: "inbox",
+      confidence,
+      parsedJson: parsed,
+      status: "inbox",
+      createdAt: nowIso()
+    };
+    const inboxItem: InboxItem = {
+      id: id("inbox"),
+      userId,
+      messageId: message.id,
+      suggestedType,
+      suggestedJson: parsed,
+      reason,
+      status: "pending",
+      createdAt: nowIso()
+    };
+    state.messages.unshift(message);
+    state.inboxItems.unshift(inboxItem);
+    return { message, inboxItem };
+  }
+
+  function applyParseResult(userId: string, source: Message["source"], rawText: string, input: unknown): ApplyResult {
+    const parsed = lifeEventParseResultSchema.parse(input) as LifeEventParseResult;
 
     const existingAbility = parsed.type === "ability"
       ? state.abilities.filter(
@@ -266,14 +288,33 @@ export function createLifeOSStore(initialState: LifeOSState) {
             normalizedTitle(ability.title) === normalizedTitle(parsed.ability.title)
         )
       : [];
-    if (existingAbility.length > 1) {
-      throw new Error(`multiple abilities match: ${parsed.type === "ability" ? parsed.ability.title : ""}`);
+    let goalPlan: GoalResolutionPlan | undefined;
+    try {
+      if (existingAbility.length > 1) {
+        throw new DomainResolutionError(
+          "ambiguous_ability",
+          `multiple abilities match: ${parsed.type === "ability" ? parsed.ability.title : ""}`
+        );
+      }
+      goalPlan = parsed.type === "inbox" || parsed.type === "ability" ||
+        (parsed.type === "task" && parsed.path === "one_off")
+        ? undefined
+        : resolveGoal(userId, parsed);
+    } catch (error) {
+      if (!isDomainResolutionError(error)) {
+        throw error;
+      }
+      return writeInbox(
+        userId,
+        source,
+        rawText,
+        parsed.confidence,
+        parsed.type,
+        error.message
+      );
     }
 
-    const goal = parsed.type === "inbox" || parsed.type === "ability" ||
-      (parsed.type === "task" && parsed.path === "one_off")
-      ? undefined
-      : resolveGoal(userId, parsed);
+    const goal = goalPlan?.goal;
 
     const message: Message = {
       id: id("msg"),
@@ -287,6 +328,13 @@ export function createLifeOSStore(initialState: LifeOSState) {
       createdAt: nowIso()
     };
     state.messages.unshift(message);
+
+    if (goalPlan?.insertGoal) {
+      state.goals.push(goalPlan.goal);
+    }
+    if (goalPlan?.aliases.length) {
+      state.goalAliases.push(...goalPlan.aliases);
+    }
 
     if (parsed.type === "inbox") {
       const inboxItem: InboxItem = {

@@ -200,6 +200,22 @@ describe("Custom GPT action security", () => {
     ).toThrow(/ability reference requires exactly one of id or title/);
   });
 
+  it("rejects duplicate normalized goal aliases before persistence", () => {
+    expect(() =>
+      validateLifeEventPayload({
+        type: "goal",
+        rawText: "准备 AWS 考试",
+        confidence: 0.9,
+        goal: {
+          title: "AWS 考试",
+          category: "职业",
+          goalType: "short_term",
+          aliases: ["AWS", " aws "]
+        }
+      })
+    ).toThrow(/goal aliases must be unique/);
+  });
+
   it("writes one-off tasks without touching goals", async () => {
     const { client, operations } = createRecordingSupabase();
     const payload = validateLifeEventPayload({
