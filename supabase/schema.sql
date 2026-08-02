@@ -261,6 +261,8 @@ create index idx_action_batches_user_created on action_batches (user_id, created
 create index idx_abilities_user_status on abilities (user_id, status);
 create index idx_goals_user_parent on goals (user_id, parent_goal_id);
 create index idx_goal_aliases_user_alias on goal_aliases (user_id, alias);
+create unique index uq_goal_aliases_user_normalized_alias
+  on goal_aliases(user_id, lower(btrim(alias)));
 create index idx_tasks_user_status_due on tasks (user_id, status, due_at);
 create index idx_activities_user_date on activities (user_id, occurred_on desc);
 create index idx_activities_user_goal_date on activities (user_id, goal_id, occurred_on desc);
@@ -586,17 +588,22 @@ begin
         select value
         from jsonb_array_elements_text(coalesce(v_event->'aliases', '[]'::jsonb))
       loop
+        v_alias := lower(btrim(v_alias));
+        if v_alias is null or v_alias = '' then
+          raise exception 'goal alias must not be empty at event index %', v_event_index;
+        end if;
+
         v_alias_owner_goal_id := null;
         insert into goal_aliases (user_id, goal_id, alias)
         values (p_user_id, v_goal_id, v_alias)
-        on conflict (user_id, alias) do nothing
+        on conflict (user_id, lower(btrim(alias))) do nothing
         returning goal_id into v_alias_owner_goal_id;
 
         if v_alias_owner_goal_id is null then
           select goal_id into v_alias_owner_goal_id
           from goal_aliases
           where user_id = p_user_id
-            and alias = v_alias
+            and lower(btrim(alias)) = v_alias
           for update;
         end if;
 
@@ -614,7 +621,8 @@ begin
         where user_id = p_user_id
           and id = v_goal_id
           and status = 'active'
-        for update;
+        -- Keep status-changing updates serialized without blocking FK KEY SHARE locks.
+        for no key update;
 
         if not found then
           raise exception 'goal does not belong to user or is not active at event index %', v_event_index;
@@ -640,7 +648,8 @@ begin
         where user_id = p_user_id
           and id = v_goal_id
           and status = 'active'
-        for update;
+        -- Keep status-changing updates serialized without blocking FK KEY SHARE locks.
+        for no key update;
 
         if not found then
           raise exception 'goal does not belong to user or is not active at event index %', v_event_index;

@@ -209,6 +209,22 @@ alter table inbox_items add constraint inbox_items_suggested_type_check
 create index if not exists idx_abilities_user_status
   on abilities(user_id, status);
 
+do $migration$
+begin
+  if exists (
+    select 1
+    from goal_aliases
+    group by user_id, lower(btrim(alias))
+    having count(*) > 1
+  ) then
+    raise exception 'normalized goal alias duplicates found; manually clean up goal aliases before retrying migration';
+  end if;
+end
+$migration$;
+
+create unique index if not exists uq_goal_aliases_user_normalized_alias
+  on goal_aliases(user_id, lower(btrim(alias)));
+
 alter table abilities enable row level security;
 
 drop policy if exists abilities_own_rows on abilities;
@@ -479,17 +495,22 @@ begin
         select value
         from jsonb_array_elements_text(coalesce(v_event->'aliases', '[]'::jsonb))
       loop
+        v_alias := lower(btrim(v_alias));
+        if v_alias is null or v_alias = '' then
+          raise exception 'goal alias must not be empty at event index %', v_event_index;
+        end if;
+
         v_alias_owner_goal_id := null;
         insert into goal_aliases (user_id, goal_id, alias)
         values (p_user_id, v_goal_id, v_alias)
-        on conflict (user_id, alias) do nothing
+        on conflict (user_id, lower(btrim(alias))) do nothing
         returning goal_id into v_alias_owner_goal_id;
 
         if v_alias_owner_goal_id is null then
           select goal_id into v_alias_owner_goal_id
           from goal_aliases
           where user_id = p_user_id
-            and alias = v_alias
+            and lower(btrim(alias)) = v_alias
           for update;
         end if;
 
@@ -507,7 +528,8 @@ begin
         where user_id = p_user_id
           and id = v_goal_id
           and status = 'active'
-        for update;
+        -- Keep status-changing updates serialized without blocking FK KEY SHARE locks.
+        for no key update;
 
         if not found then
           raise exception 'goal does not belong to user or is not active at event index %', v_event_index;
@@ -533,7 +555,8 @@ begin
         where user_id = p_user_id
           and id = v_goal_id
           and status = 'active'
-        for update;
+        -- Keep status-changing updates serialized without blocking FK KEY SHARE locks.
+        for no key update;
 
         if not found then
           raise exception 'goal does not belong to user or is not active at event index %', v_event_index;

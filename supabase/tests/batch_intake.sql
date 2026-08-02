@@ -1171,7 +1171,7 @@ begin
           'goalType', 'short_term',
           'abilityId', null,
           'metricType', 'count',
-          'aliases', jsonb_build_array('Shared Alias X'),
+          'aliases', jsonb_build_array(' shared alias x '),
           'confidence', 0.99
         )
       )
@@ -1240,7 +1240,7 @@ begin
           'goalType', 'short_term',
           'abilityId', null,
           'metricType', 'count',
-          'aliases', jsonb_build_array('Same Batch Alias Y'),
+          'aliases', jsonb_build_array(' same batch alias y '),
           'confidence', 0.99
         )
       )
@@ -1266,6 +1266,41 @@ begin
        select 1 from goal_aliases where alias = 'Same Batch Alias Y'
      ) then
     raise exception 'same-batch alias conflict must roll back both goals';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  response jsonb;
+begin
+  response := record_life_event_batch(
+    '00000000-0000-4000-8000-000000000001',
+    'batch-normalized-alias-replay',
+    'hash-normalized-alias-replay',
+    'replay existing goal with normalized alias',
+    jsonb_build_array(
+      jsonb_build_object(
+        'kind', 'goal',
+        'title', 'Alias Owner Goal',
+        'category', 'test',
+        'goalType', 'short_term',
+        'abilityId', null,
+        'metricType', 'count',
+        'aliases', jsonb_build_array(' shared alias x '),
+        'confidence', 0.99
+      )
+    )
+  );
+
+  if response#>>'{results,0,goalId}' <> '14000000-0000-4000-8000-000000000001'
+     or (
+       select count(*)
+       from goal_aliases
+       where user_id = '00000000-0000-4000-8000-000000000001'
+         and lower(btrim(alias)) = 'shared alias x'
+     ) <> 1 then
+    raise exception 'same-owner normalized alias replay must not create a duplicate';
   end if;
 end
 $test$;

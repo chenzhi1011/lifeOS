@@ -79,7 +79,7 @@ describe("growth tree domain schema", () => {
     "locks active explicit goals and rejects aliases owned by another goal",
     (sql) => {
       expect(sql).toMatch(
-        /select id into v_goal_id[\s\S]*?status = 'active'[\s\S]*?for update/i
+        /select id into v_goal_id[\s\S]*?status = 'active'[\s\S]*?for no key update/i
       );
       expect(sql).toMatch(
         /returning goal_id into v_alias_owner_goal_id/i
@@ -89,6 +89,30 @@ describe("growth tree domain schema", () => {
       );
     }
   );
+
+  it.each([schema, migration])(
+    "enforces normalized goal aliases in storage and batch intake",
+    (sql) => {
+      expect(sql).toMatch(
+        /create unique index(?: if not exists)? uq_goal_aliases_user_normalized_alias\s+on goal_aliases\s*\(\s*user_id\s*,\s*lower\(btrim\(alias\)\)\s*\)/i
+      );
+      expect(sql).toMatch(/v_alias\s*:=\s*lower\(btrim\(v_alias\)\)/i);
+      expect(sql).toMatch(/goal alias must not be empty/i);
+      expect(sql).toMatch(
+        /on conflict\s*\(\s*user_id\s*,\s*lower\(btrim\(alias\)\)\s*\)\s*do nothing/i
+      );
+      expect(sql).toMatch(
+        /where user_id = p_user_id\s+and lower\(btrim\(alias\)\) = v_alias/i
+      );
+    }
+  );
+
+  it("blocks migration until pre-existing normalized alias duplicates are cleaned up", () => {
+    expect(migration).toMatch(
+      /from goal_aliases[\s\S]*?group by user_id, lower\(btrim\(alias\)\)[\s\S]*?having count\(\*\) > 1/i
+    );
+    expect(migration).toMatch(/manually.*goal alias.*before retrying migration/i);
+  });
 
   it.each([schema, mappingMigration])(
     "guards the manual mapping RPC with complete expected snapshots and service-role-only execution",
