@@ -22,8 +22,8 @@ type SceneAdapterProps = {
   onClearSelection: () => void;
 };
 
-vi.mock("@/src/components/RealisticGrowthTree", () => ({
-  RealisticGrowthTree: ({
+vi.mock("@/src/components/GrowthTreeScene", () => ({
+  GrowthTreeScene: ({
     viewModel,
     selection,
     onSelectWood,

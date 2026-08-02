@@ -14,7 +14,7 @@ import type {
   TreeWood
 } from "@/src/domain/tree-visualization";
 import { AchievementDrawer } from "./AchievementDrawer";
-import { RealisticGrowthTree } from "./RealisticGrowthTree";
+import { GrowthTreeScene } from "./GrowthTreeScene";
 import { TreeDetailPanel } from "./TreeDetailPanel";
 
 type GrowthTreeDashboardProps = {
@@ -61,7 +61,7 @@ export function GrowthTreeDashboard({
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#9edcff] text-[#18321e]">
-      <RealisticGrowthTree
+      <GrowthTreeScene
         onClearSelection={onClearSelection}
         onSelectLeaf={onSelectLeaf}
         onSelectWood={onSelectWood}
