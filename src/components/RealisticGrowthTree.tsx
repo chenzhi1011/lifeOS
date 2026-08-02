@@ -10,7 +10,7 @@ import {
   type GrowthTreeSelection
 } from "@/src/domain/tree-interaction";
 import {
-  buildGrowthTreeScene,
+  buildGrowthTreeViewModel,
   type GrowthTreeLeaf,
   type GrowthTreeWoodSegment
 } from "@/src/domain/tree-visualization";
@@ -44,25 +44,34 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const woodMeshesRef = useRef<WoodMesh[]>([]);
   const leafMeshesRef = useRef<LeafMesh[]>([]);
+  const asOf = useMemo(() => new Date(), []);
   const sceneModel = useMemo(
-    () =>
-      buildGrowthTreeScene(
-        data.goals,
-        data.goalStats,
-        data.recentActivities
-      ),
-    [data]
+    () => buildGrowthTreeViewModel(data, asOf),
+    [asOf, data]
+  );
+  const woodSegments = useMemo(
+    () => [
+      sceneModel.root,
+      ...sceneModel.abilityBranches,
+      ...sceneModel.longGoalTwigs,
+      ...sceneModel.shortGoalBranches
+    ],
+    [sceneModel]
   );
   const [selection, setSelection] = useState<GrowthTreeSelection>(() =>
     clearTreeSelection()
   );
 
   const selectedSegment =
-    [sceneModel.root, ...sceneModel.branches].find(
-      (segment) => segment?.goalId === selection.goalId
+    woodSegments.find(
+      (segment) =>
+        segment.entityType === selection.entityType &&
+        segment.entityId === selection.entityId
     ) ?? null;
   const selectedLeaf =
-    sceneModel.leaves.find((leaf) => leaf.id === selection.leafId) ?? null;
+    sceneModel.activityLeaves.find(
+      (leaf) => leaf.activityId === selection.leafId
+    ) ?? null;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -162,10 +171,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
 
     const selectableWood: WoodMesh[] = [];
     const woodByObject = new Map<string, GrowthTreeWoodSegment>();
-    for (const segment of [sceneModel.root, ...sceneModel.branches]) {
-      if (!segment) {
-        continue;
-      }
+    for (const segment of woodSegments) {
       const mesh = createWoodSegmentMesh(segment);
       selectableWood.push(mesh);
       woodByObject.set(mesh.uuid, segment);
@@ -175,7 +181,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
 
     const selectableLeaves: LeafMesh[] = [];
     const leafByObject = new Map<string, GrowthTreeLeaf>();
-    for (const leaf of sceneModel.leaves) {
+    for (const leaf of sceneModel.activityLeaves) {
       const mesh = createActivityLeafMesh(leaf);
       selectableLeaves.push(mesh);
       leafByObject.set(mesh.uuid, leaf);
@@ -185,7 +191,8 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
 
     const pollenGeometry = new THREE.BufferGeometry();
     const pollenPositions: number[] = [];
-    const pollenCount = 120 + Math.round(sceneModel.vitality * 160);
+    const vitality = Math.min(1, sceneModel.vitalityElements.length / 18);
+    const pollenCount = 120 + Math.round(vitality * 160);
     for (let index = 0; index < pollenCount; index += 1) {
       const radius = 2.2 + (index % 31) * 0.09;
       const angle = index * 2.399963229728653;
@@ -259,7 +266,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
         const segment = woodByObject.get(woodHit.object.uuid);
         if (segment) {
           setSelection((current) =>
-            selectTreeWood(current, segment.goalId)
+            selectTreeWood(current, segment)
           );
           return;
         }
@@ -359,11 +366,13 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, [sceneModel]);
+  }, [sceneModel, woodSegments]);
 
   useEffect(() => {
     woodMeshesRef.current.forEach((mesh) => {
-      const selected = mesh.userData.goalId === selection.goalId;
+      const selected =
+        mesh.userData.entityType === selection.entityType &&
+        mesh.userData.entityId === selection.entityId;
       mesh.material.color.setHex(
         selected ? 0xd1a06c : (mesh.userData.baseColor as number)
       );
@@ -372,7 +381,10 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
     });
 
     leafMeshesRef.current.forEach((mesh) => {
-      const enabled = mesh.userData.goalId === selection.goalId;
+      const enabled =
+        (selection.entityType === "long_goal" ||
+          selection.entityType === "short_goal") &&
+        mesh.userData.goalId === selection.entityId;
       const selected = mesh.userData.leafId === selection.leafId;
       mesh.material.color.setHex(
         selected ? 0xb8ef75 : enabled ? 0x7dcc51 : 0x4d853a
@@ -393,7 +405,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
       <GrowthTreeDetailsPanel
         leaf={selectedLeaf}
         segment={selectedSegment}
-        vitality={sceneModel.vitality}
+        vitality={Math.min(1, sceneModel.vitalityElements.length / 18)}
       />
     </main>
   );

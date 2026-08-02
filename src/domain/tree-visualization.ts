@@ -1,5 +1,7 @@
-import type { GoalGrowthStat } from "./aggregation";
-import type { Activity, Goal } from "./types";
+import type { DashboardData } from "./aggregation";
+import { seedFromId } from "./stable-seed";
+import type { Activity, GoalStatus } from "./types";
+import { buildVitalityElements, type VitalityElement } from "./vitality";
 
 export type SceneVector = {
   x: number;
@@ -7,25 +9,28 @@ export type SceneVector = {
   z: number;
 };
 
-export type GrowthTreeDepth = 0 | 1 | 2 | 3;
+export type TreeEntityType =
+  | "root"
+  | "ability"
+  | "long_goal"
+  | "short_goal";
 
-export type GrowthTreeWoodSegment = {
-  goalId: string;
-  parentGoalId: string | null;
-  depth: GrowthTreeDepth;
+export type TreeWood = {
+  entityType: TreeEntityType;
+  entityId: string;
   label: string;
-  category: string;
-  startPosition: SceneVector;
-  endPosition: SceneVector;
+  start: SceneVector;
+  end: SceneVector;
   thickness: number;
+  status: GoalStatus;
+  category: string;
   totalValue: number;
   activityCount: number;
-  intensity: number;
   recentActivities: Activity[];
 };
 
-export type GrowthTreeLeaf = {
-  id: string;
+export type ActivityLeaf = {
+  activityId: string;
   goalId: string;
   position: SceneVector;
   rotation: SceneVector;
@@ -33,11 +38,20 @@ export type GrowthTreeLeaf = {
   activities: Activity[];
 };
 
-export type GrowthTreeScene = {
-  root: GrowthTreeWoodSegment | null;
-  branches: GrowthTreeWoodSegment[];
-  leaves: GrowthTreeLeaf[];
-  vitality: number;
+export type TreeDiagnostic = {
+  code: "untyped_goal" | "missing_ability" | "invalid_ability";
+  entityId: string;
+  message: string;
+};
+
+export type GrowthTreeViewModel = {
+  root: TreeWood;
+  abilityBranches: TreeWood[];
+  longGoalTwigs: TreeWood[];
+  shortGoalBranches: TreeWood[];
+  activityLeaves: ActivityLeaf[];
+  vitalityElements: VitalityElement[];
+  diagnostics: TreeDiagnostic[];
 };
 
 function round(value: number): number {
@@ -56,170 +70,265 @@ function interpolate(start: SceneVector, end: SceneVector, amount: number): Scen
   );
 }
 
-function compareActivities(left: Activity, right: Activity): number {
-  return (
-    right.occurredOn.localeCompare(left.occurredOn) ||
-    right.createdAt.localeCompare(left.createdAt) ||
-    right.id.localeCompare(left.id)
-  );
+function thicknessFromTotal(base: number, total: number): number {
+  return round(base + Math.log1p(Math.max(0, total)) * 0.025);
 }
 
-function statFor(goalId: string, stats: GoalGrowthStat[]): GoalGrowthStat | undefined {
-  return stats.find((stat) => stat.goalId === goalId);
+function activityTotal(activities: Activity[]): number {
+  return activities.reduce((sum, activity) => sum + activity.value, 0);
 }
 
 function activitiesFor(goalId: string, activities: Activity[]): Activity[] {
-  return activities.filter((activity) => activity.goalId === goalId).sort(compareActivities);
+  return activities
+    .filter((activity) => activity.goalId === goalId)
+    .sort(
+      (left, right) =>
+        right.occurredOn.localeCompare(left.occurredOn) ||
+        right.createdAt.localeCompare(left.createdAt) ||
+        left.id.localeCompare(right.id)
+    );
 }
 
-function createWoodSegment(
-  goal: Goal,
-  depth: GrowthTreeDepth,
-  startPosition: SceneVector,
-  endPosition: SceneVector,
-  stats: GoalGrowthStat[],
-  activities: Activity[]
-): GrowthTreeWoodSegment {
-  const goalActivities = activitiesFor(goal.id, activities);
-  const stat = statFor(goal.id, stats);
-  const activityCount = stat?.activityCount ?? goalActivities.length;
-  const totalValue = stat?.totalValue ?? goalActivities.reduce((sum, activity) => sum + activity.value, 0);
-  const intensity = stat?.intensity ?? (activityCount > 0 ? Math.min(1, activityCount / 5) : 0.08);
+function recentActivityWindow(activities: Activity[], asOf: Date): Activity[] {
+  const end = Date.UTC(
+    asOf.getUTCFullYear(),
+    asOf.getUTCMonth(),
+    asOf.getUTCDate()
+  );
+  const startDate = new Date(end - 29 * 86_400_000).toISOString().slice(0, 10);
+  const endDate = new Date(end).toISOString().slice(0, 10);
+  return activities
+    .filter(
+      (activity) =>
+        activity.occurredOn >= startDate && activity.occurredOn <= endDate
+    )
+    .sort(
+      (left, right) =>
+        right.occurredOn.localeCompare(left.occurredOn) ||
+        left.id.localeCompare(right.id)
+    );
+}
 
+function woodForGoal(
+  entityType: "long_goal" | "short_goal",
+  goal: DashboardData["goals"][number],
+  start: SceneVector,
+  end: SceneVector,
+  allActivities: Activity[],
+  recentActivities: Activity[]
+): TreeWood {
+  const historical = activitiesFor(goal.id, allActivities);
   return {
-    goalId: goal.id,
-    parentGoalId: goal.parentGoalId,
-    depth,
+    entityType,
+    entityId: goal.id,
     label: goal.title,
+    start,
+    end,
+    thickness: thicknessFromTotal(
+      entityType === "long_goal" ? 0.1 : 0.085,
+      activityTotal(historical)
+    ),
+    status: goal.status,
     category: goal.category,
-    startPosition,
-    endPosition,
-    thickness: round(depth === 0 ? 0.34 : Math.max(0.07, 0.22 - depth * 0.045 + intensity * 0.035)),
-    totalValue,
-    activityCount,
-    intensity: round(intensity),
-    recentActivities: goalActivities.slice(0, 5)
+    totalValue: activityTotal(historical),
+    activityCount: historical.length,
+    recentActivities: activitiesFor(goal.id, recentActivities)
   };
 }
 
-function createActivityLeaves(
-  segments: GrowthTreeWoodSegment[],
-  activities: Activity[]
-): GrowthTreeLeaf[] {
-  return segments.flatMap((segment) => {
-    const ordered = activitiesFor(segment.goalId, activities);
-    const leaves: GrowthTreeLeaf[] = [];
-
-    for (let offset = 0; offset < ordered.length; offset += 5) {
-      const groupIndex = offset / 5;
-      const activityGroup = ordered.slice(offset, offset + 5);
-      const anchor = interpolate(segment.startPosition, segment.endPosition, 0.68 + (groupIndex % 3) * 0.1);
-      const side = groupIndex % 2 === 0 ? 1 : -1;
-
-      leaves.push({
-        id: `${segment.goalId}-leaf-${groupIndex}`,
-        goalId: segment.goalId,
-        position: vector(anchor.x + side * 0.13, anchor.y + 0.1 + Math.floor(groupIndex / 3) * 0.08, anchor.z),
-        rotation: vector(0.2 + groupIndex * 0.17, groupIndex * 1.31, side * 0.42),
-        scale: round(0.82 + Math.min(0.35, activityGroup.length * 0.05)),
-        activities: activityGroup
-      });
-    }
-
-    return leaves;
+export function buildGrowthTreeViewModel(
+  data: DashboardData,
+  asOf: Date
+): GrowthTreeViewModel {
+  const allActivities = [...data.allActivities];
+  const recentActivities = recentActivityWindow(allActivities, asOf);
+  const totalValue = activityTotal(allActivities);
+  const root: TreeWood = {
+    entityType: "root",
+    entityId: "root",
+    label: "人生",
+    start: vector(0, 0, 0),
+    end: vector(0, 2.65, 0),
+    thickness: thicknessFromTotal(0.34, totalValue),
+    status: "active",
+    category: "root",
+    totalValue,
+    activityCount: allActivities.length,
+    recentActivities
+  };
+  const activeAbilities = data.abilities
+    .filter((ability) => ability.status === "active")
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const activeAbilityIds = new Set(activeAbilities.map((ability) => ability.id));
+  const abilityBranches = activeAbilities.map((ability): TreeWood => {
+    const abilityGoals = data.goals.filter(
+      (goal) => goal.goalType === "long_term" && goal.abilityId === ability.id
+    );
+    const goalIds = new Set(abilityGoals.map((goal) => goal.id));
+    const historical = allActivities.filter((activity) => goalIds.has(activity.goalId));
+    const angle = seedFromId(ability.id, "ability-angle") * Math.PI * 2;
+    const start = interpolate(
+      root.start,
+      root.end,
+      0.46 + seedFromId(ability.id, "ability-start") * 0.2
+    );
+    const length = 2.1 + seedFromId(ability.id, "ability-length") * 0.65;
+    return {
+      entityType: "ability",
+      entityId: ability.id,
+      label: ability.title,
+      start,
+      end: vector(
+        start.x + Math.cos(angle) * length,
+        start.y + 1.35 + seedFromId(ability.id, "ability-height") * 0.55,
+        start.z + Math.sin(angle) * length * 0.72
+      ),
+      thickness: thicknessFromTotal(0.19, activityTotal(historical)),
+      status: "active",
+      category: "ability",
+      totalValue: activityTotal(historical),
+      activityCount: historical.length,
+      recentActivities: recentActivities.filter((activity) =>
+        goalIds.has(activity.goalId)
+      )
+    };
   });
-}
+  const abilityWoodById = new Map(
+    abilityBranches.map((branch) => [branch.entityId, branch])
+  );
+  const diagnostics: TreeDiagnostic[] = [];
+  const longGoals: DashboardData["goals"] = [];
+  const shortGoals: DashboardData["goals"] = [];
 
-export function buildGrowthTreeScene(
-  goals: Goal[],
-  stats: GoalGrowthStat[],
-  activities: Activity[]
-): GrowthTreeScene {
-  const rootGoal = goals.find((goal) => goal.parentGoalId === null) ?? null;
-  if (!rootGoal) {
-    return { root: null, branches: [], leaves: [], vitality: 0 };
+  for (const goal of [...data.goals].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (goal.goalType === null) {
+      diagnostics.push({
+        code: "untyped_goal",
+        entityId: goal.id,
+        message: `Goal ${goal.id} has no goal type.`
+      });
+      continue;
+    }
+    if (goal.goalType === "long_term") {
+      if (goal.abilityId === null) {
+        diagnostics.push({
+          code: "missing_ability",
+          entityId: goal.id,
+          message: `Long-term goal ${goal.id} has no ability.`
+        });
+        continue;
+      }
+      if (!activeAbilityIds.has(goal.abilityId)) {
+        diagnostics.push({
+          code: "invalid_ability",
+          entityId: goal.id,
+          message: `Long-term goal ${goal.id} references an unavailable ability.`
+        });
+        continue;
+      }
+      longGoals.push(goal);
+      continue;
+    }
+    if (goal.abilityId !== null) {
+      diagnostics.push({
+        code: "invalid_ability",
+        entityId: goal.id,
+        message: `Short-term goal ${goal.id} must not reference an ability.`
+      });
+      continue;
+    }
+    if (goal.status !== "completed") {
+      shortGoals.push(goal);
+    }
   }
 
-  const childrenByParent = new Map<string, Goal[]>();
-  goals.forEach((goal) => {
-    if (!goal.parentGoalId) {
-      return;
-    }
-    const siblings = childrenByParent.get(goal.parentGoalId) ?? [];
-    siblings.push(goal);
-    childrenByParent.set(goal.parentGoalId, siblings);
-  });
-  childrenByParent.forEach((children) => {
-    children.sort(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+  const orderedLongGoals = abilityBranches.flatMap((branch) =>
+    longGoals
+      .filter((goal) => goal.abilityId === branch.entityId)
+      .sort((left, right) => left.id.localeCompare(right.id))
+  );
+  const longGoalTwigs = orderedLongGoals.map((goal) => {
+    const parent = abilityWoodById.get(goal.abilityId!)!;
+    const start = interpolate(
+      parent.start,
+      parent.end,
+      0.5 + seedFromId(goal.id, "long-start") * 0.32
+    );
+    const angle = seedFromId(goal.id, "long-angle") * Math.PI * 2;
+    const length = 1.15 + seedFromId(goal.id, "long-length") * 0.55;
+    return woodForGoal(
+      "long_goal",
+      goal,
+      start,
+      vector(
+        start.x + Math.cos(angle) * length,
+        start.y + 0.68 + seedFromId(goal.id, "long-height") * 0.42,
+        start.z + Math.sin(angle) * length
+      ),
+      allActivities,
+      recentActivities
     );
   });
-
-  const root = createWoodSegment(
-    rootGoal,
-    0,
-    vector(0, 0, 0),
-    vector(0, 2.65, 0),
-    stats,
-    activities
+  const shortGoalBranches = shortGoals.map((goal) => {
+    const start = interpolate(
+      root.start,
+      root.end,
+      0.38 + seedFromId(goal.id, "short-start") * 0.34
+    );
+    const angle = seedFromId(goal.id, "short-angle") * Math.PI * 2;
+    const length = 1.35 + seedFromId(goal.id, "short-length") * 0.55;
+    return woodForGoal(
+      "short_goal",
+      goal,
+      start,
+      vector(
+        start.x + Math.cos(angle) * length,
+        start.y + 0.82 + seedFromId(goal.id, "short-height") * 0.4,
+        start.z + Math.sin(angle) * length
+      ),
+      allActivities,
+      recentActivities
+    );
+  });
+  const goalWood = new Map(
+    [...longGoalTwigs, ...shortGoalBranches].map((wood) => [wood.entityId, wood])
   );
-  const branches: GrowthTreeWoodSegment[] = [];
-
-  function createChildren(parent: GrowthTreeWoodSegment, depth: 1 | 2 | 3): void {
-    const children = childrenByParent.get(parent.goalId) ?? [];
-    children.forEach((goal, index) => {
-      const siblingRatio = (index + 1) / (children.length + 1);
-      const startPosition = interpolate(
-        parent.startPosition,
-        parent.endPosition,
-        0.56 + siblingRatio * 0.22
-      );
-      const angle = depth * 1.17 + index * (Math.PI * 2 / Math.max(1, children.length));
-      const length = 2.15 - depth * 0.38;
-      const endPosition = vector(
-        startPosition.x + Math.cos(angle) * length,
-        startPosition.y + 0.72 + (3 - depth) * 0.18,
-        startPosition.z + Math.sin(angle) * length * 0.72
-      );
-      const segment = createWoodSegment(
-        goal,
-        depth,
-        startPosition,
-        endPosition,
-        stats,
-        activities
-      );
-      branches.push(segment);
-
-      if (depth < 3) {
-        createChildren(segment, (depth + 1) as 2 | 3);
+  const activityLeaves = recentActivities.flatMap((activity): ActivityLeaf[] => {
+    const wood = goalWood.get(activity.goalId);
+    if (!wood) {
+      return [];
+    }
+    const side = seedFromId(activity.id, "leaf-side") >= 0.5 ? 1 : -1;
+    return [
+      {
+        activityId: activity.id,
+        goalId: activity.goalId,
+        position: vector(
+          wood.end.x + side * (0.12 + seedFromId(activity.id, "leaf-x") * 0.16),
+          wood.end.y + seedFromId(activity.id, "leaf-y") * 0.2,
+          wood.end.z + (seedFromId(activity.id, "leaf-z") - 0.5) * 0.28
+        ),
+        rotation: vector(
+          seedFromId(activity.id, "leaf-rotation-x") * 0.5,
+          seedFromId(activity.id, "leaf-rotation-y") * Math.PI * 2,
+          side * 0.42
+        ),
+        scale: round(0.82 + seedFromId(activity.id, "leaf-scale") * 0.3),
+        activities: [activity]
       }
-    });
-  }
-
-  createChildren(root, 1);
-
-  const leaves = createActivityLeaves([root, ...branches], activities);
-  const totalIntensity = [root, ...branches].reduce(
-    (sum, segment) => sum + segment.intensity,
-    0
-  );
-  const vitality = round(
-    Math.min(
-      1,
-      Math.max(
-        0.08,
-        activities.length / 28 +
-          totalIntensity / Math.max(1, branches.length + 1) * 0.42
-      )
-    )
-  );
+    ];
+  });
 
   return {
     root,
-    branches,
-    leaves,
-    vitality
+    abilityBranches,
+    longGoalTwigs,
+    shortGoalBranches,
+    activityLeaves,
+    vitalityElements: buildVitalityElements(data.recentCompletedOneOffTasks, asOf),
+    diagnostics
   };
 }
+
+export type GrowthTreeWoodSegment = TreeWood;
+export type GrowthTreeLeaf = ActivityLeaf;

@@ -12,11 +12,11 @@ function toVector3(vector: SceneVector): THREE.Vector3 {
 export function createWoodSegmentMesh(
   segment: GrowthTreeWoodSegment
 ): THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial> {
-  const start = toVector3(segment.startPosition);
-  const end = toVector3(segment.endPosition);
+  const start = toVector3(segment.start);
+  const end = toVector3(segment.end);
   const direction = end.clone().sub(start);
   const length = direction.length();
-  const color = segment.depth === 0 ? 0xaa805c : 0x9b704c;
+  const color = segment.entityType === "root" ? 0xaa805c : 0x9b704c;
   const material = new THREE.MeshStandardMaterial({
     color,
     roughness: 0.88,
@@ -39,8 +39,13 @@ export function createWoodSegmentMesh(
   );
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  mesh.name = `goal-wood-${segment.goalId}`;
-  mesh.userData.goalId = segment.goalId;
+  mesh.name = `${segment.entityType}-wood-${segment.entityId}`;
+  mesh.userData.entityType = segment.entityType;
+  mesh.userData.entityId = segment.entityId;
+  mesh.userData.goalId =
+    segment.entityType === "long_goal" || segment.entityType === "short_goal"
+      ? segment.entityId
+      : null;
   mesh.userData.baseColor = color;
 
   return mesh;
@@ -67,9 +72,9 @@ export function createActivityLeafMesh(
   mesh.scale.setScalar(leaf.scale);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  mesh.name = `activity-leaf-${leaf.id}`;
+  mesh.name = `activity-leaf-${leaf.activityId}`;
   mesh.userData.goalId = leaf.goalId;
-  mesh.userData.leafId = leaf.id;
+  mesh.userData.leafId = leaf.activityId;
   mesh.userData.baseColor = 0x68b947;
 
   return mesh;

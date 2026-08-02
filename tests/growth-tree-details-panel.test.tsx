@@ -29,17 +29,16 @@ function activity(index: number): Activity {
 }
 
 const segment: GrowthTreeWoodSegment = {
-  goalId: "career",
-  parentGoalId: "root",
-  depth: 1,
+  entityType: "long_goal",
+  entityId: "career",
   label: "职业",
   category: "职业",
-  startPosition: { x: 0, y: 1, z: 0 },
-  endPosition: { x: 1, y: 2, z: 0 },
+  start: { x: 0, y: 1, z: 0 },
+  end: { x: 1, y: 2, z: 0 },
   thickness: 0.2,
+  status: "active",
   totalValue: 12,
   activityCount: 6,
-  intensity: 0.5,
   recentActivities: [activity(5)]
 };
 
@@ -59,7 +58,7 @@ describe("GrowthTreeDetailsPanel", () => {
 
   it("shows at most five activities from a selected leaf", () => {
     const leaf: GrowthTreeLeaf = {
-      id: "career-leaf-0",
+      activityId: "activity-0",
       goalId: "career",
       position: { x: 1, y: 2, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
