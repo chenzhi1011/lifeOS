@@ -206,6 +206,30 @@ node scripts/generate-action-token.mjs zhi-custom-gpt YOUR_SUPABASE_AUTH_USER_ID
 5. 把脚本输出的 `tokenHash` 写入 `action_credentials`
 6. 把脚本输出的原始 `token` 填入 Custom GPT Action 的 Bearer API Key
 
+### Existing data growth-model migration
+
+已有数据不能根据标题自动猜测长期/短期分类。先在仓库外准备固定格式的 mapping JSON；该文件可能包含用户和业务记录 ID，**不要提交到 Git**。
+
+先运行只读 dry-run，并把完整输出保存下来：
+
+```bash
+npm run migrate:growth-model -- --mapping /absolute/path/mapping.json
+```
+
+逐项核对输出里的 user、before/after 数量和每一条 Goal、Task、Activity、Achievement 操作。只有用户再次明确批准这份具体 mapping 后，才可以运行写入：
+
+```bash
+npm run migrate:growth-model -- --mapping /absolute/path/mapping.json --apply
+```
+
+`--apply` 会把 dry-run 快照和 mapping 一次交给仅 `service_role` 可执行的事务 RPC；只要期间 ID 或数量变化，整批就会回滚。写入后保存返回结果并重新核对数据库计数。确认映射正确后，再单独执行：
+
+```text
+supabase/operations/validate_growth_tree_constraints.sql
+```
+
+约束验证不包含在普通 migration 中，也不能在人工 mapping 确认前执行。
+
 ## Vercel Deploy
 
 推荐流程：

@@ -6,6 +6,14 @@ const migration = readFileSync(
   "supabase/migrations/202608010001_growth_tree_domain.sql",
   "utf8"
 );
+const mappingMigration = readFileSync(
+  "supabase/migrations/202608010003_growth_model_mapping.sql",
+  "utf8"
+);
+const validationOperation = readFileSync(
+  "supabase/operations/validate_growth_tree_constraints.sql",
+  "utf8"
+);
 
 describe("growth tree domain schema", () => {
   it.each([schema, migration])("defines explicit growth entities", (sql) => {
@@ -65,5 +73,43 @@ describe("growth tree domain schema", () => {
     expect(migration).toMatch(
       /create or replace function record_life_event_batch[\s\S]*?insert into goals\s*\([\s\S]*?goal_type[\s\S]*?ability_id[\s\S]*?v_event->>'goalType'[\s\S]*?nullif\(v_event->>'abilityId', ''\)::uuid/i
     );
+  });
+
+  it.each([schema, mappingMigration])(
+    "guards the manual mapping RPC with complete expected snapshots and service-role-only execution",
+    (sql) => {
+      expect(sql).toMatch(
+        /create or replace function apply_growth_model_mapping\s*\(\s*p_mapping jsonb,\s*p_expected_snapshot jsonb/i
+      );
+      expect(sql).toContain("expectedGoalIds");
+      expect(sql).toContain("expectedTaskIds");
+      expect(sql).toContain("expectedActivityIds");
+      expect(sql).toContain("expectedAchievementIds");
+      expect(sql).toMatch(/for update/i);
+      expect(sql).toMatch(/raise exception 'snapshot mismatch/i);
+      expect(sql).toMatch(
+        /revoke execute on function public\.apply_growth_model_mapping\(jsonb, jsonb\) from public, anon, authenticated/i
+      );
+      expect(sql).toMatch(
+        /grant execute on function apply_growth_model_mapping\(jsonb, jsonb\) to service_role/i
+      );
+    }
+  );
+
+  it("keeps constraint validation as a separate explicit operation", () => {
+    const statements = validationOperation
+      .split(";")
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+
+    expect(statements).toEqual([
+      "alter table goals validate constraint goals_goal_type_required",
+      "alter table goals validate constraint goals_goal_type_check",
+      "alter table goals validate constraint goals_ability_shape_check",
+      "alter table goals validate constraint goals_completed_at_check",
+      "alter table goals validate constraint goals_ability_fk",
+      "alter table tasks validate constraint tasks_planned_metric_shape_check"
+    ]);
+    expect(mappingMigration).not.toMatch(/validate constraint/i);
   });
 });

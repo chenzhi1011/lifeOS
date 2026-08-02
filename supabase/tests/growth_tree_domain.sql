@@ -4,6 +4,24 @@ do $test$
 begin
   if has_function_privilege(
     'anon',
+    'public.apply_growth_model_mapping(jsonb,jsonb)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'authenticated',
+    'public.apply_growth_model_mapping(jsonb,jsonb)',
+    'EXECUTE'
+  ) then
+    raise exception 'client roles must not execute apply_growth_model_mapping';
+  end if;
+  if not has_function_privilege(
+    'service_role',
+    'public.apply_growth_model_mapping(jsonb,jsonb)',
+    'EXECUTE'
+  ) then
+    raise exception 'service_role must execute apply_growth_model_mapping';
+  end if;
+  if has_function_privilege(
+    'anon',
     'public.complete_growth_task(uuid,uuid,date,text,numeric,text)',
     'EXECUTE'
   ) or has_function_privilege(
@@ -485,6 +503,250 @@ begin
          and completed_at is null
      ) then
     raise exception 'cross-user goal completion must roll back';
+  end if;
+end
+$test$;
+
+insert into auth.users (id)
+values ('00000000-0000-4000-8000-000000000003');
+
+insert into profiles (user_id, display_name)
+values ('00000000-0000-4000-8000-000000000003', 'mapping test user');
+
+insert into abilities (id, user_id, title)
+values (
+  '58000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000003',
+  'Legacy Ability'
+);
+
+insert into goals (
+  id, user_id, title, category, goal_type, ability_id, metric_type
+)
+values
+  (
+    '59000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000003',
+    'Mapping Goal A', 'test', 'long_term',
+    '58000000-0000-4000-8000-000000000001', 'count'
+  ),
+  (
+    '59000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+    'Mapping Goal B', 'test', 'short_term', null, 'milestone'
+  ),
+  (
+    '59000000-0000-4000-8000-000000000003',
+    '00000000-0000-4000-8000-000000000003',
+    'Mapping Goal C', 'test', 'short_term', null, 'milestone'
+  );
+
+insert into messages (
+  id, user_id, source, raw_text, intent_type, confidence, parsed_json, status
+)
+values
+  (
+    '5a000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000003',
+    'app', 'mapping task one', 'task', 1, '{}'::jsonb, 'processed'
+  ),
+  (
+    '5a000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+    'app', 'mapping task two', 'task', 1, '{}'::jsonb, 'processed'
+  ),
+  (
+    '5a000000-0000-4000-8000-000000000003',
+    '00000000-0000-4000-8000-000000000003',
+    'app', 'mapping activity', 'activity', 1, '{}'::jsonb, 'processed'
+  );
+
+insert into tasks (id, user_id, goal_id, message_id, title)
+values
+  (
+    '5b000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000003',
+    '59000000-0000-4000-8000-000000000002',
+    '5a000000-0000-4000-8000-000000000001', 'Mapping one-off'
+  ),
+  (
+    '5b000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+    '59000000-0000-4000-8000-000000000002',
+    '5a000000-0000-4000-8000-000000000002', 'Mapping redirect'
+  );
+
+insert into activities (
+  id, user_id, goal_id, message_id, summary,
+  metric_type, value, unit, occurred_on
+)
+values (
+  '5c000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000003',
+  '59000000-0000-4000-8000-000000000002',
+  '5a000000-0000-4000-8000-000000000003', 'Mapping activity',
+  'count', 1, 'count', '2026-08-02'
+);
+
+insert into achievements (
+  id, user_id, short_goal_id, title, metric_type, achieved_at
+)
+values (
+  '5d000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000003',
+  '59000000-0000-4000-8000-000000000002',
+  'Mapping harvest', 'milestone', now()
+);
+
+do $test$
+declare
+  mapping jsonb := jsonb_build_object(
+    'userId', '00000000-0000-4000-8000-000000000003',
+    'goals', jsonb_build_array(
+      jsonb_build_object(
+        'legacyGoalId', '59000000-0000-4000-8000-000000000001',
+        'goalType', 'long_term', 'abilityTitle', 'Mapped Ability'
+      ),
+      jsonb_build_object(
+        'legacyGoalId', '59000000-0000-4000-8000-000000000002',
+        'goalType', 'long_term', 'abilityTitle', 'Outcome Ability'
+      ),
+      jsonb_build_object(
+        'legacyGoalId', '59000000-0000-4000-8000-000000000003',
+        'goalType', 'short_term'
+      )
+    ),
+    'taskOverrides', jsonb_build_array(
+      jsonb_build_object(
+        'taskId', '5b000000-0000-4000-8000-000000000001',
+        'target', jsonb_build_object('kind', 'one_off')
+      ),
+      jsonb_build_object(
+        'taskId', '5b000000-0000-4000-8000-000000000002',
+        'target', jsonb_build_object(
+          'kind', 'goal',
+          'targetGoalId', '59000000-0000-4000-8000-000000000001'
+        )
+      )
+    ),
+    'activityOverrides', jsonb_build_array(
+      jsonb_build_object(
+        'activityId', '5c000000-0000-4000-8000-000000000001',
+        'targetGoalId', '59000000-0000-4000-8000-000000000001'
+      )
+    ),
+    'achievementOverrides', jsonb_build_array(
+      jsonb_build_object(
+        'achievementId', '5d000000-0000-4000-8000-000000000001',
+        'targetGoalId', '59000000-0000-4000-8000-000000000003'
+      )
+    )
+  );
+  expected_snapshot jsonb := jsonb_build_object(
+    'expectedProfileIds', jsonb_build_array(
+      '00000000-0000-4000-8000-000000000003'
+    ),
+    'expectedGoalIds', jsonb_build_array(
+      '59000000-0000-4000-8000-000000000001',
+      '59000000-0000-4000-8000-000000000002',
+      '59000000-0000-4000-8000-000000000003'
+    ),
+    'expectedTaskIds', jsonb_build_array(
+      '5b000000-0000-4000-8000-000000000001',
+      '5b000000-0000-4000-8000-000000000002'
+    ),
+    'expectedActivityIds', jsonb_build_array(
+      '5c000000-0000-4000-8000-000000000001'
+    ),
+    'expectedAchievementIds', jsonb_build_array(
+      '5d000000-0000-4000-8000-000000000001'
+    ),
+    'counts', jsonb_build_object(
+      'profiles', 1, 'goals', 3, 'tasks', 2,
+      'activities', 1, 'achievements', 1
+    )
+  );
+  failed boolean := false;
+  result jsonb;
+begin
+  begin
+    perform apply_growth_model_mapping(
+      mapping,
+      jsonb_set(expected_snapshot, '{counts,goals}', '4'::jsonb)
+    );
+  exception when others then
+    if position('snapshot mismatch' in sqlerrm) = 0 then
+      raise;
+    end if;
+    failed := true;
+  end;
+
+  if not failed
+     or exists (
+       select 1 from abilities
+       where user_id = '00000000-0000-4000-8000-000000000003'
+         and title in ('Mapped Ability', 'Outcome Ability')
+     )
+     or not exists (
+       select 1 from goals
+       where id = '59000000-0000-4000-8000-000000000002'
+         and goal_type = 'short_term' and ability_id is null
+     )
+     or not exists (
+       select 1 from tasks
+       where id = '5b000000-0000-4000-8000-000000000001'
+         and goal_id = '59000000-0000-4000-8000-000000000002'
+     )
+     or not exists (
+       select 1 from activities
+       where id = '5c000000-0000-4000-8000-000000000001'
+         and goal_id = '59000000-0000-4000-8000-000000000002'
+     )
+     or not exists (
+       select 1 from achievements
+       where id = '5d000000-0000-4000-8000-000000000001'
+         and short_goal_id = '59000000-0000-4000-8000-000000000002'
+     ) then
+    raise exception 'snapshot mismatch must leave all mapping entities unchanged';
+  end if;
+
+  result := apply_growth_model_mapping(mapping, expected_snapshot);
+  if result->>'applied' <> 'true'
+     or not exists (
+       select 1 from goals goal join abilities ability on ability.id = goal.ability_id
+       where goal.id = '59000000-0000-4000-8000-000000000001'
+         and goal.goal_type = 'long_term' and ability.title = 'Mapped Ability'
+     )
+     or not exists (
+       select 1 from goals goal join abilities ability on ability.id = goal.ability_id
+       where goal.id = '59000000-0000-4000-8000-000000000002'
+         and goal.goal_type = 'long_term' and ability.title = 'Outcome Ability'
+     )
+     or not exists (
+       select 1 from goals
+       where id = '59000000-0000-4000-8000-000000000003'
+         and goal_type = 'short_term' and ability_id is null
+     )
+     or not exists (
+       select 1 from tasks
+       where id = '5b000000-0000-4000-8000-000000000001' and goal_id is null
+     )
+     or not exists (
+       select 1 from tasks
+       where id = '5b000000-0000-4000-8000-000000000002'
+         and goal_id = '59000000-0000-4000-8000-000000000001'
+     )
+     or not exists (
+       select 1 from activities
+       where id = '5c000000-0000-4000-8000-000000000001'
+         and goal_id = '59000000-0000-4000-8000-000000000001'
+     )
+     or not exists (
+       select 1 from achievements
+       where id = '5d000000-0000-4000-8000-000000000001'
+         and short_goal_id = '59000000-0000-4000-8000-000000000003'
+     ) then
+    raise exception 'complete mapping must update goals, tasks, activities, and achievements together: %', result;
   end if;
 end
 $test$;
