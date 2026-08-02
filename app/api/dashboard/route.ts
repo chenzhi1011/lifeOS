@@ -9,5 +9,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "A valid userId query parameter is required." }, { status: 400 });
   }
 
-  return NextResponse.json(await readDashboardData(userId));
+  try {
+    const asOf = new Date();
+    return NextResponse.json(await readDashboardData(userId, asOf));
+  } catch {
+    return NextResponse.json(
+      { error: "failed to read dashboard data" },
+      { status: 500 }
+    );
+  }
 }

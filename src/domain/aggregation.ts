@@ -1,4 +1,11 @@
-import type { Activity, Goal, LifeOSState } from "./types";
+import type {
+  Ability,
+  Activity,
+  Achievement,
+  Goal,
+  LifeOSState,
+  Task
+} from "./types";
 
 export type GoalGrowthStat = {
   userId: string;
@@ -18,9 +25,13 @@ export type HeatmapPoint = {
 };
 
 export type DashboardData = {
+  abilities: Ability[];
   goals: Goal[];
   goalStats: GoalGrowthStat[];
+  allActivities: Activity[];
   recentActivities: Activity[];
+  recentCompletedOneOffTasks: Task[];
+  achievements: Achievement[];
   heatmap: HeatmapPoint[];
   inboxCount: number;
 };
@@ -79,21 +90,93 @@ function buildHeatmap(activities: Activity[]): HeatmapPoint[] {
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export function buildDashboardData(state: LifeOSState, userId: string): DashboardData {
+function utcThirtyDayWindow(asOf: Date): {
+  startDate: string;
+  endDate: string;
+  startTime: number;
+  endTime: number;
+} {
+  const endTime = Date.UTC(
+    asOf.getUTCFullYear(),
+    asOf.getUTCMonth(),
+    asOf.getUTCDate()
+  );
+  const startTime = endTime - 29 * 86_400_000;
+  return {
+    startDate: new Date(startTime).toISOString().slice(0, 10),
+    endDate: new Date(endTime).toISOString().slice(0, 10),
+    startTime,
+    endTime: endTime + 86_400_000 - 1
+  };
+}
+
+export function dashboardWindowStart(asOf: Date): string {
+  return new Date(utcThirtyDayWindow(asOf).startTime).toISOString();
+}
+
+export function buildDashboardData(
+  state: LifeOSState,
+  userId: string,
+  asOf: Date = new Date()
+): DashboardData {
+  const window = utcThirtyDayWindow(asOf);
+  const abilities = state.abilities.filter(
+    (ability) => ability.userId === userId && ability.status === "active"
+  );
   const goals = state.goals.filter((goal) => goal.userId === userId);
   const activities = state.activities.filter((activity) => activity.userId === userId);
+  const recentActivities = activities
+    .filter(
+      (activity) =>
+        activity.occurredOn >= window.startDate &&
+        activity.occurredOn <= window.endDate
+    )
+    .sort(
+      (left, right) =>
+        right.occurredOn.localeCompare(left.occurredOn) ||
+        right.createdAt.localeCompare(left.createdAt)
+    );
+  const recentCompletedOneOffTasks = state.tasks
+    .filter((task) => {
+      if (
+        task.userId !== userId ||
+        task.goalId !== null ||
+        task.status !== "completed" ||
+        task.completedAt === null
+      ) {
+        return false;
+      }
+      const completedTime = Date.parse(task.completedAt);
+      return completedTime >= window.startTime && completedTime <= window.endTime;
+    })
+    .sort((left, right) =>
+      (right.completedAt ?? "").localeCompare(left.completedAt ?? "")
+    );
+  const achievements = state.achievements.filter(
+    (achievement) =>
+      achievement.userId === userId && achievement.shortGoalId !== null
+  );
 
   return {
+    abilities,
     goals,
     goalStats: buildStatsForGoals(userId, goals, activities),
-    recentActivities: [...activities].sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)).slice(0, 8),
+    allActivities: activities,
+    recentActivities,
+    recentCompletedOneOffTasks,
+    achievements,
     heatmap: buildHeatmap(activities),
     inboxCount: state.inboxItems.filter((item) => item.userId === userId && item.status === "pending").length
   };
 }
 
-export function buildGoalDetail(state: LifeOSState, userId: string, goalId: string): GoalDetailData {
-  const dashboard = buildDashboardData(state, userId);
+export function buildGoalDetail(
+  state: LifeOSState,
+  userId: string,
+  goalId: string,
+  asOf: Date = new Date()
+): GoalDetailData {
+  const dashboard = buildDashboardData(state, userId, asOf);
   const goal = dashboard.goals.find((item) => item.id === goalId) ?? null;
   const childIds = dashboard.goals.filter((item) => item.parentGoalId === goalId).map((item) => item.id);
   const relatedIds = new Set([goalId, ...childIds]);

@@ -49,6 +49,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     return <DashboardUserGate attemptedUserId={rawUserId} />;
   }
 
-  const data = await readDashboardData(userId);
+  const asOf = new Date();
+  const data = await readDashboardData(userId, asOf);
   return <RealisticGrowthTree data={data} />;
 }

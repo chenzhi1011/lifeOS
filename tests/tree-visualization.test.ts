@@ -52,7 +52,11 @@ describe("buildGrowthTreeScene", () => {
       goal("portfolio-launch", "career", "作品集上线"),
       goal("muscle", "health", "增肌")
     ];
-    const dashboard = buildDashboardData(state, "demo-user");
+    const dashboard = buildDashboardData(
+      state,
+      "demo-user",
+      new Date("2026-07-30T00:00:00.000Z")
+    );
     const scene = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
 
     expect(scene.root?.label).toBe("人生");
@@ -62,7 +66,11 @@ describe("buildGrowthTreeScene", () => {
   });
 
   it("uses stable positions for repeated renders", () => {
-    const dashboard = buildDashboardData(createInitialState(), "demo-user");
+    const dashboard = buildDashboardData(
+      createInitialState(),
+      "demo-user",
+      new Date("2026-07-30T00:00:00.000Z")
+    );
     const first = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
     const second = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
 
