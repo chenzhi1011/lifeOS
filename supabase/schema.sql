@@ -984,13 +984,17 @@ begin
       p_user_id,
       v_goal.id,
       coalesce(nullif(btrim(p_title), ''), v_goal.title),
-      v_goal.metric_type,
+      'milestone',
       null,
       p_note,
       p_evidence_url,
       v_goal.completed_at
     )
-    on conflict do nothing
+    on conflict (user_id, short_goal_id) where short_goal_id is not null
+    do update set
+      title = excluded.title,
+      note = excluded.note,
+      evidence_url = excluded.evidence_url
     returning id into v_achievement_id;
 
     if v_achievement_id is null then

@@ -141,6 +141,22 @@ describe("growth completion repository", () => {
     ).rejects.toThrow(/invalid response/);
   });
 
+  it("rejects a valid task completion response for a different task", async () => {
+    await expect(
+      completeGrowthTask(
+        userId,
+        taskId,
+        { occurredOn: "2026-08-02" },
+        rpcClient({
+          taskId: "30000000-0000-4000-8000-000000000002",
+          status: "completed",
+          activityId: null,
+          duplicate: false
+        })
+      )
+    ).rejects.toThrow(/invalid response/);
+  });
+
   it("passes achievement details to the goal completion RPC", async () => {
     const data = {
       goalId,
@@ -170,6 +186,22 @@ describe("growth completion repository", () => {
       p_note: "完成最终面试",
       p_evidence_url: "https://example.com/offer"
     });
+  });
+
+  it("rejects a valid goal completion response for a different goal", async () => {
+    await expect(
+      completeGrowthGoal(
+        userId,
+        goalId,
+        {},
+        rpcClient({
+          goalId: "10000000-0000-4000-8000-000000000002",
+          status: "completed",
+          achievementId: null,
+          duplicate: false
+        })
+      )
+    ).rejects.toThrow(/invalid response/);
   });
 });
 

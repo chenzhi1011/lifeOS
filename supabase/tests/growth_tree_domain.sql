@@ -71,6 +71,24 @@ values
     'long_term',
     '08000000-0000-4000-8000-000000000002',
     'count'
+  ),
+  (
+    '61000000-0000-4000-8000-000000000004',
+    '00000000-0000-4000-8000-000000000001',
+    '完成测试计时短期目标',
+    'career',
+    'short_term',
+    null,
+    'duration'
+  ),
+  (
+    '61000000-0000-4000-8000-000000000005',
+    '00000000-0000-4000-8000-000000000001',
+    '完成测试计数短期目标',
+    'career',
+    'short_term',
+    null,
+    'count'
   );
 
 insert into messages (
@@ -151,6 +169,64 @@ $test$;
 
 do $test$
 declare
+  first_response jsonb;
+  count_response jsonb;
+  replay_response jsonb;
+  achievement_id uuid;
+begin
+  first_response := complete_growth_goal(
+    '00000000-0000-4000-8000-000000000001',
+    '61000000-0000-4000-8000-000000000004',
+    '首次成果', '首次备注', 'https://example.com/first'
+  );
+  achievement_id := (first_response->>'achievementId')::uuid;
+  if achievement_id is null or not exists (
+    select 1 from achievements
+    where id = achievement_id
+      and metric_type = 'milestone'
+      and threshold_value is null
+  ) then
+    raise exception 'short-term completion must always create a milestone achievement: %', first_response;
+  end if;
+
+  count_response := complete_growth_goal(
+    '00000000-0000-4000-8000-000000000001',
+    '61000000-0000-4000-8000-000000000005',
+    null, null, null
+  );
+  if not exists (
+    select 1 from achievements
+    where id = (count_response->>'achievementId')::uuid
+      and metric_type = 'milestone'
+      and threshold_value is null
+  ) then
+    raise exception 'count short-term completion must create a milestone achievement: %', count_response;
+  end if;
+
+  replay_response := complete_growth_goal(
+    '00000000-0000-4000-8000-000000000001',
+    '61000000-0000-4000-8000-000000000004',
+    '更新成果', '更新备注', 'https://example.com/updated'
+  );
+  if replay_response->>'duplicate' <> 'true'
+     or replay_response->>'achievementId' <> achievement_id::text
+     or (select count(*) from achievements where short_goal_id = '61000000-0000-4000-8000-000000000004') <> 1
+     or not exists (
+       select 1 from achievements
+       where id = achievement_id
+         and title = '更新成果'
+         and metric_type = 'milestone'
+         and threshold_value is null
+         and note = '更新备注'
+         and evidence_url = 'https://example.com/updated'
+     ) then
+    raise exception 'short-term replay must update the original achievement metadata: %', replay_response;
+  end if;
+end
+$test$;
+
+do $test$
+declare
   planned_response jsonb;
   fallback_response jsonb;
 begin
@@ -224,6 +300,9 @@ begin
       'duration', 10, 'minute'
     );
   exception when others then
+    if position('occurredOn is required' in sqlerrm) = 0 then
+      raise;
+    end if;
     failed := true;
   end;
   if not failed or not exists (
@@ -244,6 +323,9 @@ begin
       'duration', null, 'minute'
     );
   exception when others then
+    if position('actual metric requires type, value, and unit together' in sqlerrm) = 0 then
+      raise;
+    end if;
     failed := true;
   end;
   if not failed or not exists (
@@ -273,6 +355,9 @@ begin
       null, null, null
     );
   exception when others then
+    if position('task does not belong to user' in sqlerrm) = 0 then
+      raise;
+    end if;
     failed := true;
   end;
   if not failed
@@ -384,6 +469,9 @@ begin
       null, null, null
     );
   exception when others then
+    if position('goal does not belong to user' in sqlerrm) = 0 then
+      raise;
+    end if;
     failed := true;
   end;
   if not failed

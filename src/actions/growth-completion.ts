@@ -97,7 +97,15 @@ export async function completeGrowthTask(
   if (error) {
     throw new Error(error.message);
   }
-  return parseRpcResult(taskCompletionResultSchema, data, "task completion");
+  const result = parseRpcResult(
+    taskCompletionResultSchema,
+    data,
+    "task completion"
+  );
+  if (result.taskId !== parsedTaskId) {
+    throw new Error("task completion RPC returned an invalid response");
+  }
+  return result;
 }
 
 export async function completeGrowthGoal(
@@ -121,5 +129,13 @@ export async function completeGrowthGoal(
   if (error) {
     throw new Error(error.message);
   }
-  return parseRpcResult(goalCompletionResultSchema, data, "goal completion");
+  const result = parseRpcResult(
+    goalCompletionResultSchema,
+    data,
+    "goal completion"
+  );
+  if (result.goalId !== parsedGoalId) {
+    throw new Error("goal completion RPC returned an invalid response");
+  }
+  return result;
 }
