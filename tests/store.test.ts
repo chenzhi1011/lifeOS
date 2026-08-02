@@ -296,6 +296,124 @@ describe("Life OS store", () => {
     });
   });
 
+  it("rejects an existing goal identity conflict without mutating state", () => {
+    const store = createLifeOSStore(createInitialState());
+    const before = {
+      messages: store.getState().messages.length,
+      inboxItems: store.getState().inboxItems.length,
+      goals: store.getState().goals.length,
+      aliases: store.getState().goalAliases.length
+    };
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "把 AWS 改成短期目标", {
+        type: "goal",
+        confidence: 0.95,
+        goal: {
+          title: "AWS",
+          category: "职业",
+          goalType: "short_term",
+          metricType: "duration"
+        }
+      })
+    ).toThrow(/goal identity conflicts/);
+    expect(store.getState().messages).toHaveLength(before.messages);
+    expect(store.getState().inboxItems).toHaveLength(before.inboxItems);
+    expect(store.getState().goals).toHaveLength(before.goals);
+    expect(store.getState().goalAliases).toHaveLength(before.aliases);
+  });
+
+  it.each([
+    {
+      field: "ability",
+      goal: {
+        title: "AWS",
+        category: "职业",
+        goalType: "long_term" as const,
+        ability: { title: "健康能力" },
+        metricType: "duration" as const
+      }
+    },
+    {
+      field: "category",
+      goal: {
+        title: "AWS",
+        category: "兴趣",
+        goalType: "long_term" as const,
+        ability: { title: "前端能力" },
+        metricType: "duration" as const
+      }
+    },
+    {
+      field: "metric",
+      goal: {
+        title: "AWS",
+        category: "职业",
+        goalType: "long_term" as const,
+        ability: { title: "前端能力" },
+        metricType: "count" as const
+      }
+    },
+    {
+      field: "parent",
+      goal: {
+        title: "AWS",
+        category: "职业",
+        parentTitle: "AI",
+        goalType: "long_term" as const,
+        ability: { title: "前端能力" },
+        metricType: "duration" as const
+      }
+    }
+  ])("rejects an existing goal $field conflict without mutating state", ({ goal }) => {
+    const store = createLifeOSStore(createInitialState());
+    const before = {
+      messages: store.getState().messages.length,
+      inboxItems: store.getState().inboxItems.length,
+      goals: store.getState().goals.length,
+      aliases: store.getState().goalAliases.length
+    };
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "冲突的 AWS 目标", {
+        type: "goal",
+        confidence: 0.95,
+        goal
+      })
+    ).toThrow(/goal identity conflicts/);
+    expect(store.getState().messages).toHaveLength(before.messages);
+    expect(store.getState().inboxItems).toHaveLength(before.inboxItems);
+    expect(store.getState().goals).toHaveLength(before.goals);
+    expect(store.getState().goalAliases).toHaveLength(before.aliases);
+  });
+
+  it("rejects alias ownership conflicts without mutating state", () => {
+    const store = createLifeOSStore(createInitialState());
+    const before = {
+      messages: store.getState().messages.length,
+      inboxItems: store.getState().inboxItems.length,
+      goals: store.getState().goals.length,
+      aliases: store.getState().goalAliases.length
+    };
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "参加写作比赛", {
+        type: "goal",
+        confidence: 0.95,
+        goal: {
+          title: "参加写作比赛",
+          category: "兴趣",
+          goalType: "short_term",
+          aliases: ["Terraform"]
+        }
+      })
+    ).toThrow(/goal alias conflicts/);
+    expect(store.getState().messages).toHaveLength(before.messages);
+    expect(store.getState().inboxItems).toHaveLength(before.inboxItems);
+    expect(store.getState().goals).toHaveLength(before.goals);
+    expect(store.getState().goalAliases).toHaveLength(before.aliases);
+  });
+
   it("links a new long-term goal to an existing ability", () => {
     const store = createLifeOSStore(createInitialState());
     const result = store.applyParseResult("demo-user", "mock", "学习 React", {

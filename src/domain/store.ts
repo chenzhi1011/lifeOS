@@ -15,7 +15,10 @@ import type {
 } from "./types";
 import { buildDashboardData, buildGoalDetail } from "./aggregation";
 import { lifeEventParseResultSchema } from "./life-event-schema";
-import { DomainResolutionError, isDomainResolutionError } from "./resolution";
+import {
+  DomainResolutionError,
+  isRecoverableResolutionError
+} from "./resolution";
 
 type ApplyResult = {
   message: Message;
@@ -301,7 +304,7 @@ export function createLifeOSStore(initialState: LifeOSState) {
         ? undefined
         : resolveGoal(userId, parsed);
     } catch (error) {
-      if (!isDomainResolutionError(error)) {
+      if (!isRecoverableResolutionError(error)) {
         throw error;
       }
       return writeInbox(

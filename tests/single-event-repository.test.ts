@@ -187,6 +187,203 @@ describe("single-event repository", () => {
     expect(calls.some(({ table, method }) => table === "goals" && method === "insert")).toBe(false);
   });
 
+  it("rejects an existing Supabase goal identity conflict before the first write", async () => {
+    const { client, calls } = createRecordingClient((query) => {
+      if (query.table === "goals") {
+        return {
+          data: [
+            {
+              id: "goal-1",
+              title: "AWS",
+              category: "职业",
+              parent_goal_id: null,
+              goal_type: "long_term",
+              ability_id: "ability-1",
+              metric_type: "duration",
+              status: "active",
+              created_at: "2026-07-01T00:00:00Z"
+            }
+          ],
+          error: null
+        };
+      }
+      if (query.table === "goal_aliases") {
+        return { data: [], error: null };
+      }
+      throw new Error(`unexpected write after identity conflict: ${query.table}`);
+    });
+    const payload = validateLifeEventPayload({
+      type: "goal",
+      rawText: "把 AWS 改成短期目标",
+      confidence: 0.95,
+      goal: {
+        title: "AWS",
+        category: "职业",
+        goalType: "short_term",
+        metricType: "duration"
+      }
+    });
+
+    await expect(
+      writeLifeEventFromAction("user-a", payload, client)
+    ).rejects.toThrow(/goal identity conflicts/);
+    expect(calls.some(({ method }) => method === "insert")).toBe(false);
+  });
+
+  it.each([
+    {
+      field: "ability",
+      goal: {
+        title: "AWS",
+        category: "职业",
+        goalType: "long_term",
+        ability: { title: "健康能力" },
+        metricType: "duration"
+      },
+      abilityRows: [
+        { id: "ability-2", title: "健康能力", status: "active" }
+      ],
+      extraGoalRows: []
+    },
+    {
+      field: "category",
+      goal: {
+        title: "AWS",
+        category: "兴趣",
+        goalType: "long_term",
+        ability: { title: "前端能力" },
+        metricType: "duration"
+      },
+      abilityRows: [
+        { id: "ability-1", title: "前端能力", status: "active" }
+      ],
+      extraGoalRows: []
+    },
+    {
+      field: "metric",
+      goal: {
+        title: "AWS",
+        category: "职业",
+        goalType: "long_term",
+        ability: { title: "前端能力" },
+        metricType: "count"
+      },
+      abilityRows: [
+        { id: "ability-1", title: "前端能力", status: "active" }
+      ],
+      extraGoalRows: []
+    },
+    {
+      field: "parent",
+      goal: {
+        title: "AWS",
+        category: "职业",
+        parentTitle: "AI",
+        goalType: "long_term",
+        ability: { title: "前端能力" },
+        metricType: "duration"
+      },
+      abilityRows: [
+        { id: "ability-1", title: "前端能力", status: "active" }
+      ],
+      extraGoalRows: [
+        {
+          id: "goal-parent",
+          title: "AI",
+          category: "职业",
+          parent_goal_id: null,
+          goal_type: "long_term",
+          ability_id: "ability-1",
+          metric_type: "duration",
+          status: "active",
+          created_at: "2026-07-01T00:00:00Z"
+        }
+      ]
+    }
+  ])("rejects an existing Supabase goal $field conflict before the first write", async ({
+    goal,
+    abilityRows,
+    extraGoalRows
+  }) => {
+    const existingGoal = {
+      id: "goal-1",
+      title: "AWS",
+      category: "职业",
+      parent_goal_id: null,
+      goal_type: "long_term",
+      ability_id: "ability-1",
+      metric_type: "duration",
+      status: "active",
+      created_at: "2026-07-01T00:00:00Z"
+    };
+    const { client, calls } = createRecordingClient((query) => {
+      if (query.table === "goals") {
+        return { data: [existingGoal, ...extraGoalRows], error: null };
+      }
+      if (query.table === "goal_aliases") {
+        return { data: [], error: null };
+      }
+      if (query.table === "abilities") {
+        return { data: abilityRows, error: null };
+      }
+      throw new Error(`unexpected write after identity conflict: ${query.table}`);
+    });
+    const payload = validateLifeEventPayload({
+      type: "goal",
+      rawText: "冲突的 AWS 目标",
+      confidence: 0.95,
+      goal
+    });
+
+    await expect(
+      writeLifeEventFromAction("user-a", payload, client)
+    ).rejects.toThrow(/goal identity conflicts/);
+    expect(calls.some(({ method }) => method === "insert")).toBe(false);
+  });
+
+  it("rejects Supabase alias ownership conflicts before the first write", async () => {
+    const { client, calls } = createRecordingClient((query) => {
+      if (query.table === "goals") {
+        return {
+          data: [
+            {
+              id: "goal-1",
+              title: "AWS",
+              category: "职业",
+              parent_goal_id: null,
+              goal_type: "long_term",
+              ability_id: "ability-1",
+              metric_type: "duration",
+              status: "active",
+              created_at: "2026-07-01T00:00:00Z"
+            }
+          ],
+          error: null
+        };
+      }
+      if (query.table === "goal_aliases") {
+        return { data: [{ goal_id: "goal-1", alias: "Terraform" }], error: null };
+      }
+      throw new Error(`unexpected write after alias conflict: ${query.table}`);
+    });
+    const payload = validateLifeEventPayload({
+      type: "goal",
+      rawText: "参加写作比赛",
+      confidence: 0.95,
+      goal: {
+        title: "参加写作比赛",
+        category: "兴趣",
+        goalType: "short_term",
+        aliases: ["Terraform"]
+      }
+    });
+
+    await expect(
+      writeLifeEventFromAction("user-a", payload, client)
+    ).rejects.toThrow(/goal alias conflicts/);
+    expect(calls.some(({ method }) => method === "insert")).toBe(false);
+  });
+
   it("preserves archived ability status during user-scoped upsert", async () => {
     const archivedAbility = {
       id: "ability-1",

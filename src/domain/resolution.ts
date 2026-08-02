@@ -15,6 +15,20 @@ export class DomainResolutionError extends Error {
   }
 }
 
-export function isDomainResolutionError(error: unknown): error is DomainResolutionError {
-  return error instanceof DomainResolutionError;
+export function isRecoverableResolutionError(
+  error: unknown
+): error is DomainResolutionError {
+  if (!(error instanceof DomainResolutionError)) {
+    return false;
+  }
+
+  switch (error.code) {
+    case "missing_goal":
+    case "ambiguous_goal":
+    case "missing_ability":
+    case "ambiguous_ability":
+      return true;
+    case "identity_conflict":
+      return false;
+  }
 }

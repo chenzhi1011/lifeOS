@@ -18,7 +18,7 @@ import type {
 } from "@/src/domain/types";
 import {
   DomainResolutionError,
-  isDomainResolutionError,
+  isRecoverableResolutionError,
   type DomainResolutionCode
 } from "@/src/domain/resolution";
 
@@ -600,7 +600,7 @@ async function writeSupabaseLifeEvent(
         ? await prepareSupabaseGoal(userId, payload.goal, payload.type, supabase)
         : null;
   } catch (error) {
-    if (!isDomainResolutionError(error)) {
+    if (!isRecoverableResolutionError(error)) {
       throw error;
     }
     return writeSupabaseInbox(
