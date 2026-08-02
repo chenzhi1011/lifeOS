@@ -1,6 +1,7 @@
-import { RealisticGrowthTree } from "@/src/components/RealisticGrowthTree";
+import { GrowthTreeDashboard } from "@/src/components/GrowthTreeDashboard";
 import { normalizeDashboardUserId } from "@/src/dashboard/user-id";
 import { readDashboardData } from "@/src/db/lifeos-read";
+import { buildGrowthTreeViewModel } from "@/src/domain/tree-visualization";
 
 type DashboardPageProps = {
   searchParams: Promise<{
@@ -51,5 +52,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   const asOf = new Date();
   const data = await readDashboardData(userId, asOf);
-  return <RealisticGrowthTree data={data} />;
+  const viewModel = buildGrowthTreeViewModel(data, asOf);
+  return (
+    <GrowthTreeDashboard
+      achievements={data.achievements}
+      viewModel={viewModel}
+    />
+  );
 }

@@ -15,6 +15,7 @@ describe("RealisticGrowthTree renderer contract", () => {
     expect(source).not.toContain("createTrunkVolume");
     expect(source).toContain("createWoodSegmentMesh");
     expect(source).toContain("createActivityLeafMesh");
-    expect(source).toContain("<GrowthTreeDetailsPanel");
+    expect(source).not.toContain("GrowthTreeDetailsPanel");
+    expect(source).not.toContain("buildGrowthTreeViewModel");
   });
 });

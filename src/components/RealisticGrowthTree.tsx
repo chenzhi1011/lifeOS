@@ -1,27 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { DashboardData } from "@/src/domain/aggregation";
+import type { GrowthTreeSelection } from "@/src/domain/tree-interaction";
 import {
-  clearTreeSelection,
-  selectTreeLeaf,
-  selectTreeWood,
-  type GrowthTreeSelection
-} from "@/src/domain/tree-interaction";
-import {
-  buildGrowthTreeViewModel,
+  type ActivityLeaf,
+  type GrowthTreeViewModel,
   type GrowthTreeLeaf,
-  type GrowthTreeWoodSegment
+  type GrowthTreeWoodSegment,
+  type TreeWood
 } from "@/src/domain/tree-visualization";
-import { GrowthTreeDetailsPanel } from "./GrowthTreeDetailsPanel";
 import {
   createActivityLeafMesh,
   createWoodSegmentMesh
 } from "./growth-tree-geometry";
 
 type RealisticGrowthTreeProps = {
-  data: DashboardData;
+  viewModel: GrowthTreeViewModel;
+  selection: GrowthTreeSelection;
+  onSelectWood: (wood: Pick<TreeWood, "entityType" | "entityId">) => void;
+  onSelectLeaf: (leaf: Pick<ActivityLeaf, "activityId" | "goalId">) => void;
+  onClearSelection: () => void;
 };
 
 type WoodMesh = THREE.Mesh<
@@ -40,38 +39,25 @@ function setPointerFromEvent(
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
-export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
+export function RealisticGrowthTree({
+  viewModel,
+  selection,
+  onSelectWood,
+  onSelectLeaf,
+  onClearSelection
+}: RealisticGrowthTreeProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const woodMeshesRef = useRef<WoodMesh[]>([]);
   const leafMeshesRef = useRef<LeafMesh[]>([]);
-  const asOf = useMemo(() => new Date(), []);
-  const sceneModel = useMemo(
-    () => buildGrowthTreeViewModel(data, asOf),
-    [asOf, data]
-  );
   const woodSegments = useMemo(
     () => [
-      sceneModel.root,
-      ...sceneModel.abilityBranches,
-      ...sceneModel.longGoalTwigs,
-      ...sceneModel.shortGoalBranches
+      viewModel.root,
+      ...viewModel.abilityBranches,
+      ...viewModel.longGoalTwigs,
+      ...viewModel.shortGoalBranches
     ],
-    [sceneModel]
+    [viewModel]
   );
-  const [selection, setSelection] = useState<GrowthTreeSelection>(() =>
-    clearTreeSelection()
-  );
-
-  const selectedSegment =
-    woodSegments.find(
-      (segment) =>
-        segment.entityType === selection.entityType &&
-        segment.entityId === selection.entityId
-    ) ?? null;
-  const selectedLeaf =
-    sceneModel.activityLeaves.find(
-      (leaf) => leaf.activityId === selection.leafId
-    ) ?? null;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -181,7 +167,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
 
     const selectableLeaves: LeafMesh[] = [];
     const leafByObject = new Map<string, GrowthTreeLeaf>();
-    for (const leaf of sceneModel.activityLeaves) {
+    for (const leaf of viewModel.activityLeaves) {
       const mesh = createActivityLeafMesh(leaf);
       selectableLeaves.push(mesh);
       leafByObject.set(mesh.uuid, leaf);
@@ -191,7 +177,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
 
     const pollenGeometry = new THREE.BufferGeometry();
     const pollenPositions: number[] = [];
-    const vitality = Math.min(1, sceneModel.vitalityElements.length / 18);
+    const vitality = Math.min(1, viewModel.vitalityElements.length / 18);
     const pollenCount = 120 + Math.round(vitality * 160);
     for (let index = 0; index < pollenCount; index += 1) {
       const radius = 2.2 + (index % 31) * 0.09;
@@ -265,9 +251,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
       if (woodHit) {
         const segment = woodByObject.get(woodHit.object.uuid);
         if (segment) {
-          setSelection((current) =>
-            selectTreeWood(current, segment)
-          );
+          onSelectWood(segment);
           return;
         }
       }
@@ -276,12 +260,12 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
       if (leafHit) {
         const leaf = leafByObject.get(leafHit.object.uuid);
         if (leaf) {
-          setSelection((current) => selectTreeLeaf(current, leaf));
+          onSelectLeaf(leaf);
           return;
         }
       }
 
-      setSelection(clearTreeSelection());
+      onClearSelection();
     };
 
     const onPointerCancel = (event: PointerEvent) => {
@@ -366,7 +350,7 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, [sceneModel, woodSegments]);
+  }, [onClearSelection, onSelectLeaf, onSelectWood, viewModel, woodSegments]);
 
   useEffect(() => {
     woodMeshesRef.current.forEach((mesh) => {
@@ -395,18 +379,13 @@ export function RealisticGrowthTree({ data }: RealisticGrowthTreeProps) {
   }, [selection]);
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#9edcff] text-[#17351d]">
+    <div className="relative min-h-screen overflow-hidden bg-[#9edcff] text-[#17351d]">
       <div
         className="absolute inset-0"
         data-testid="realistic-growth-tree-canvas"
         ref={mountRef}
       />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_74%_16%,rgba(255,244,170,0.7),transparent_15%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(55,134,45,0.08)_72%,rgba(31,99,33,0.24))]" />
-      <GrowthTreeDetailsPanel
-        leaf={selectedLeaf}
-        segment={selectedSegment}
-        vitality={Math.min(1, sceneModel.vitalityElements.length / 18)}
-      />
-    </main>
+    </div>
   );
 }
