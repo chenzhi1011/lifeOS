@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { GrowthTreeSelection } from "@/src/domain/tree-interaction";
@@ -22,6 +22,16 @@ import {
   movePointerGesture,
   type PointerGestureState
 } from "./growth-tree-pointer";
+import {
+  createGrowthEnvironment,
+  type AssetLoadDiagnostic,
+  type GrowthEnvironmentLayer
+} from "./growth-tree/GrowthEnvironment";
+import {
+  createVitalityElements,
+  type VitalityElementsLayer
+} from "./growth-tree/VitalityElements";
+import { GROWTH_SCENE_CONFIG } from "./growth-tree/scene-config";
 
 type GrowthTreeSceneProps = {
   viewModel: GrowthTreeViewModel;
@@ -33,8 +43,11 @@ type GrowthTreeSceneProps = {
 
 type SceneRuntime = {
   scene: THREE.Scene;
+  environment: GrowthEnvironmentLayer | null;
   layer: RealisticGrowthTreeLayer | null;
+  vitality: VitalityElementsLayer | null;
   hoveredUuid: string | null;
+  externalTreeVisible: boolean;
 };
 
 function pointerFromEvent(
@@ -87,12 +100,26 @@ function updateLayerMaterials(
       (selection.entityType === "long_goal" ||
         selection.entityType === "short_goal") &&
       target.goalId === selection.entityId;
+    const baseColor =
+      target.kind === "leaf"
+        ? GROWTH_SCENE_CONFIG.colors.leaf
+        : (material.userData.baseColor as number);
+    const leafHighlight = GROWTH_SCENE_CONFIG.colors.leafHighlight;
     const color = resolveTreeMaterialColor(
       {
-        baseColor: material.userData.baseColor as number,
-        hoverColor: material.userData.hoverColor as number,
-        selectedColor: material.userData.selectedColor as number,
-        relatedColor: material.userData.relatedColor as number | undefined
+        baseColor,
+        hoverColor:
+          target.kind === "leaf"
+            ? leafHighlight
+            : (material.userData.hoverColor as number),
+        selectedColor:
+          target.kind === "leaf"
+            ? leafHighlight
+            : (material.userData.selectedColor as number),
+        relatedColor:
+          target.kind === "leaf"
+            ? leafHighlight
+            : (material.userData.relatedColor as number | undefined)
       },
       { selected, hovered, related }
     );
@@ -121,6 +148,9 @@ export function GrowthTreeScene({
 }: GrowthTreeSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<SceneRuntime | null>(null);
+  const [assetDiagnostics, setAssetDiagnostics] = useState<
+    AssetLoadDiagnostic[]
+  >([]);
   const selectionRef = useRef(selection);
   const onSelectWoodRef = useRef(onSelectWood);
   const onSelectLeafRef = useRef(onSelectLeaf);
@@ -137,19 +167,18 @@ export function GrowthTreeScene({
     }
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setClearColor(0x9edcff, 1);
-    renderer.shadowMap.enabled = true;
+    renderer.setClearColor(0xa9d9e5, 1);
+    renderer.shadowMap.enabled = GROWTH_SCENE_CONFIG.performance.shadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x9edcff);
-    scene.fog = new THREE.Fog(0xcef4ff, 18, 42);
+    scene.background = new THREE.Color(0xa9d9e5);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    camera.position.set(0, 3.4, 9.6);
+    camera.position.set(0.7, 3.7, 10.8);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, 2.5, 0);
+    controls.target.set(-0.45, 2.45, -0.8);
     controls.minDistance = 5.2;
     controls.maxDistance = 12;
 
@@ -162,28 +191,48 @@ export function GrowthTreeScene({
     fill.position.set(5, 4, -5);
     scene.add(fill);
 
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(18, 64),
-      new THREE.MeshStandardMaterial({
-        color: 0x567348,
-        roughness: 0.97
-      })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
-
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
-    const runtime: SceneRuntime = { scene, layer: null, hoveredUuid: null };
+    const runtime: SceneRuntime = {
+      scene,
+      environment: null,
+      layer: null,
+      vitality: null,
+      hoveredUuid: null,
+      externalTreeVisible: false
+    };
     runtimeRef.current = runtime;
+    const environment = createGrowthEnvironment({
+      onDiagnostic(diagnostic) {
+        setAssetDiagnostics((current) =>
+          current.some(
+            (entry) =>
+              entry.asset === diagnostic.asset && entry.url === diagnostic.url
+          )
+            ? current
+            : [...current, diagnostic]
+        );
+      },
+      onTreeModelVisibilityChange(visible) {
+        runtime.externalTreeVisible = visible;
+        if (runtime.layer) {
+          runtime.layer.group.visible = !visible;
+        }
+      }
+    });
+    runtime.environment = environment;
+    scene.fog = environment.fog;
+    scene.add(environment.group);
     let pointerGesture: PointerGestureState | null = null;
 
     const resize = () => {
       const width = Math.max(1, mount.clientWidth);
       const height = Math.max(1, mount.clientHeight);
       renderer.setPixelRatio(
-        Math.min(window.devicePixelRatio || 1, 2)
+        Math.min(
+          window.devicePixelRatio || 1,
+          GROWTH_SCENE_CONFIG.performance.maxPixelRatio
+        )
       );
       renderer.setSize(width, height);
       camera.aspect = width / height;
@@ -287,12 +336,16 @@ export function GrowthTreeScene({
     window.addEventListener("resize", resize);
 
     let animationId = 0;
-    const animate = () => {
+    const startedAt = performance.now() / 1_000;
+    const animate = (timestamp: number) => {
+      const elapsedSeconds = timestamp / 1_000 - startedAt;
+      runtime.environment?.update(elapsedSeconds);
+      runtime.vitality?.updateVitalityElements(elapsedSeconds);
       controls.update();
       renderer.render(scene, camera);
       animationId = requestAnimationFrame(animate);
     };
-    animate();
+    animationId = requestAnimationFrame(animate);
 
     return () => {
       cancelAnimationFrame(animationId);
@@ -307,8 +360,16 @@ export function GrowthTreeScene({
         runtime.layer.dispose();
         runtime.layer = null;
       }
-      ground.geometry.dispose();
-      ground.material.dispose();
+      if (runtime.vitality) {
+        scene.remove(runtime.vitality.group);
+        runtime.vitality.dispose();
+        runtime.vitality = null;
+      }
+      if (runtime.environment) {
+        scene.remove(runtime.environment.group);
+        runtime.environment.dispose();
+        runtime.environment = null;
+      }
       controls.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
@@ -329,15 +390,25 @@ export function GrowthTreeScene({
       runtime.layer.dispose();
     }
     const layer = createRealisticGrowthTreeLayer(viewModel);
+    layer.group.position.x = GROWTH_SCENE_CONFIG.treeOffsetX;
+    layer.group.visible = !runtime.externalTreeVisible;
     runtime.layer = layer;
     runtime.hoveredUuid = null;
     runtime.scene.add(layer.group);
+    const vitality = createVitalityElements(viewModel.vitalityElements);
+    runtime.vitality = vitality;
+    runtime.scene.add(vitality.group);
     updateLayerMaterials(layer, selectionRef.current, null);
     return () => {
       if (runtime.layer === layer) {
         runtime.scene.remove(layer.group);
         layer.dispose();
         runtime.layer = null;
+      }
+      if (runtime.vitality === vitality) {
+        runtime.scene.remove(vitality.group);
+        vitality.dispose();
+        runtime.vitality = null;
       }
     };
   }, [viewModel]);
@@ -354,13 +425,32 @@ export function GrowthTreeScene({
   }, [selection, viewModel]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#9edcff] text-[#17351d]">
+    <div className="relative min-h-screen overflow-hidden bg-[#a9d9e5] text-[#17351d]">
       <div
         className="absolute inset-0"
         data-testid="realistic-growth-tree-canvas"
         ref={mountRef}
       />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_74%_16%,rgba(255,244,170,0.7),transparent_15%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(55,134,45,0.08)_72%,rgba(31,99,33,0.24))]" />
+      <div
+        aria-label="近期生命力"
+        className="pointer-events-none absolute bottom-4 left-4 rounded-full border border-[#365c43]/20 bg-[#f4f6e9]/85 px-3 py-2 text-xs font-medium text-[#294a34] shadow-md backdrop-blur"
+        role="status"
+      >
+        近期生命力 · 水滴 {viewModel.vitalityElements.filter((item) => item.type === "water").length} · 小生物 {viewModel.vitalityElements.filter((item) => item.type === "creature").length} · 花草 {viewModel.vitalityElements.filter((item) => item.type === "flora").length}
+      </div>
+      {assetDiagnostics.length > 0 ? (
+        <aside
+          aria-label="资源加载提示"
+          className="absolute bottom-16 left-4 max-w-xs rounded-xl border border-[#8a632a]/25 bg-[#fff8df]/92 px-3 py-2 text-xs text-[#65491f] shadow-md backdrop-blur"
+          role="status"
+        >
+          {assetDiagnostics.map((diagnostic) => (
+            <p key={`${diagnostic.asset}-${diagnostic.url}`}>
+              asset_load_failed：{diagnostic.asset} 模型加载失败，已使用默认场景。
+            </p>
+          ))}
+        </aside>
+      ) : null}
     </div>
   );
 }
