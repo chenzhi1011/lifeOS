@@ -13,5 +13,27 @@ export function normalizeParseResult(result: LifeEventParseResult, rawText: stri
     };
   }
 
+  if (result.type === "task") {
+    if (result.path === "one_off" && result.goal) {
+      throw new Error("one_off forbids goal");
+    }
+    if (result.path === "goal" && !result.goal) {
+      throw new Error("goal path requires goal");
+    }
+  }
+
+  if ("goal" in result && result.goal) {
+    const reference = result.goal.ability;
+    if (reference && ((!reference.id && !reference.title) || (reference.id && reference.title))) {
+      throw new Error("ability reference requires exactly one of id or title");
+    }
+    if (result.goal.goalType === "long_term" && !reference) {
+      throw new Error("long_term goal requires ability");
+    }
+    if (result.goal.goalType === "short_term" && reference) {
+      throw new Error("short_term goal forbids ability");
+    }
+  }
+
   return { ...result, confidence };
 }

@@ -1,9 +1,49 @@
 import { describe, expect, it, vi } from "vitest";
 import { authenticateActionToken, extractBearerToken, hashActionToken } from "@/src/actions/auth";
 import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
+import { writeLifeEventFromAction } from "@/src/actions/repository";
 import { checkActionRateLimit, resetActionRateLimits } from "@/src/actions/rate-limit";
 import { requireActionCredential } from "@/src/actions/request";
-import { validateLifeEventPayload } from "@/src/actions/validation";
+import { toParseResult, validateLifeEventPayload } from "@/src/actions/validation";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+type RecordedOperation = {
+  table: string;
+  kind: "insert" | "upsert";
+  value: Record<string, unknown>;
+};
+
+function createRecordingSupabase(
+  rows: Partial<Record<string, Record<string, unknown>>> = {}
+) {
+  const operations: RecordedOperation[] = [];
+  const client = {
+    from(table: string) {
+      const builder = {
+        insert(value: Record<string, unknown>) {
+          operations.push({ table, kind: "insert" as const, value });
+          return builder;
+        },
+        upsert(value: Record<string, unknown>) {
+          operations.push({ table, kind: "upsert" as const, value });
+          return builder;
+        },
+        select() {
+          return builder;
+        },
+        single() {
+          return Promise.resolve({
+            data: rows[table] ?? { id: `${table}-id` },
+            error: null
+          });
+        }
+      };
+      return builder;
+    }
+  } as unknown as SupabaseClient;
+
+  return { client, operations };
+}
 
 describe("Custom GPT action security", () => {
   it("extracts bearer tokens and hashes them without preserving the raw token", async () => {
@@ -56,6 +96,159 @@ describe("Custom GPT action security", () => {
         date: "2026-07-25"
       })
     ).toThrow();
+  });
+
+  it("accepts one-off tasks and preserves their path", () => {
+    const payload = validateLifeEventPayload({
+      type: "task",
+      path: "one_off",
+      rawText: "买水",
+      confidence: 0.96,
+      task: { title: "买水" }
+    });
+
+    expect(payload.type).toBe("task");
+    if (payload.type !== "task") {
+      throw new Error("expected task payload");
+    }
+    expect(payload.path).toBe("one_off");
+    expect(toParseResult(payload)).toMatchObject({
+      type: "task",
+      path: "one_off",
+      task: { title: "买水" }
+    });
+  });
+
+  it("enforces task path mutual exclusion", () => {
+    expect(() =>
+      validateLifeEventPayload({
+        type: "task",
+        path: "goal",
+        rawText: "准备面试",
+        confidence: 0.9,
+        task: { title: "准备面试" }
+      })
+    ).toThrow(/goal path requires goal/);
+
+    expect(() =>
+      validateLifeEventPayload({
+        type: "task",
+        path: "one_off",
+        rawText: "买水",
+        confidence: 0.9,
+        goal: { title: "生活", category: "日常" },
+        task: { title: "买水" }
+      })
+    ).toThrow(/one_off forbids goal/);
+  });
+
+  it("accepts ability events", () => {
+    const payload = validateLifeEventPayload({
+      type: "ability",
+      rawText: "培养写作能力",
+      confidence: 0.94,
+      ability: { title: "写作能力" }
+    });
+
+    expect(toParseResult(payload)).toEqual({
+      type: "ability",
+      rawText: "培养写作能力",
+      confidence: 0.94,
+      ability: { title: "写作能力" }
+    });
+  });
+
+  it("enforces typed goal and ability-reference semantics", () => {
+    expect(() =>
+      validateLifeEventPayload({
+        type: "goal",
+        rawText: "持续学 React",
+        confidence: 0.9,
+        goal: { title: "React", category: "职业", goalType: "long_term" }
+      })
+    ).toThrow(/long_term goal requires ability/);
+
+    expect(() =>
+      validateLifeEventPayload({
+        type: "goal",
+        rawText: "通过考试",
+        confidence: 0.9,
+        goal: {
+          title: "通过考试",
+          category: "职业",
+          goalType: "short_term",
+          ability: { title: "考试能力" }
+        }
+      })
+    ).toThrow(/short_term goal forbids ability/);
+
+    expect(() =>
+      validateLifeEventPayload({
+        type: "goal",
+        rawText: "持续学 React",
+        confidence: 0.9,
+        goal: {
+          title: "React",
+          category: "职业",
+          goalType: "long_term",
+          ability: {
+            id: "11111111-1111-4111-8111-111111111111",
+            title: "前端能力"
+          }
+        }
+      })
+    ).toThrow(/ability reference requires exactly one of id or title/);
+  });
+
+  it("writes one-off tasks without touching goals", async () => {
+    const { client, operations } = createRecordingSupabase();
+    const payload = validateLifeEventPayload({
+      type: "task",
+      path: "one_off",
+      rawText: "买水",
+      confidence: 0.96,
+      task: { title: "买水" },
+      metric: { type: "count", value: 1, unit: "count" }
+    });
+
+    const result = await writeLifeEventFromAction("user-a", payload, client);
+
+    expect(result.mode).toBe("supabase");
+    expect(operations.some(({ table }) => table === "goals" || table === "goal_aliases")).toBe(false);
+    expect(operations.find(({ table }) => table === "tasks")?.value).toMatchObject({
+      user_id: "user-a",
+      goal_id: null,
+      planned_metric_type: "count",
+      planned_value: 1,
+      planned_unit: "count"
+    });
+  });
+
+  it("replays an archived ability without reactivating it", async () => {
+    const archivedAbility = {
+      id: "ability-1",
+      title: "写作能力",
+      status: "archived",
+      archived_at: "2026-07-01T00:00:00Z"
+    };
+    const { client, operations } = createRecordingSupabase({
+      abilities: archivedAbility
+    });
+    const payload = validateLifeEventPayload({
+      type: "ability",
+      rawText: "培养写作能力",
+      confidence: 0.95,
+      ability: { title: "写作能力" }
+    });
+
+    const result = await writeLifeEventFromAction("user-a", payload, client);
+
+    expect(result.result).toMatchObject({ ability: archivedAbility });
+    expect(operations.find(({ table }) => table === "abilities")).toEqual({
+      table: "abilities",
+      kind: "upsert",
+      value: { user_id: "user-a", title: "写作能力" }
+    });
   });
 
   it("rejects a user-controlled userId in a batch payload", () => {

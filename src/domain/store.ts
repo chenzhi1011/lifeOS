@@ -5,6 +5,7 @@ import type {
   Goal,
   InboxItem,
   IntentType,
+  LifeEventGoalReference,
   LifeEventParseResult,
   LifeOSState,
   Message,
@@ -35,7 +36,68 @@ function nowIso(): string {
 }
 
 function defaultMetric(type: IntentType): "duration" | "count" | "milestone" {
-  return type === "goal" ? "duration" : type === "activity" ? "duration" : "count";
+  return type === "activity" ? "duration" : "count";
+}
+
+function normalizedTitle(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function validateAbilityReference(goal: LifeEventGoalReference): void {
+  const reference = goal.ability;
+  if (!reference) {
+    return;
+  }
+  if ((!reference.id && !reference.title) || (reference.id && reference.title)) {
+    throw new Error("ability reference requires exactly one of id or title");
+  }
+}
+
+function validateGoalShape(goal: LifeEventGoalReference): void {
+  validateAbilityReference(goal);
+  if (goal.goalType === "long_term" && !goal.ability) {
+    throw new Error("long_term goal requires ability");
+  }
+  if (goal.goalType === "short_term" && goal.ability) {
+    throw new Error("short_term goal forbids ability");
+  }
+  if (!goal.goalType && goal.ability) {
+    throw new Error("ability reference requires a typed goal");
+  }
+}
+
+function validateMetric(metric: { type: string; value: number; unit: string } | undefined): void {
+  if (!metric) {
+    return;
+  }
+  if (
+    !["duration", "count", "milestone"].includes(metric.type) ||
+    !Number.isFinite(metric.value) ||
+    metric.value <= 0 ||
+    !["minute", "hour", "count"].includes(metric.unit)
+  ) {
+    throw new Error("invalid metric");
+  }
+}
+
+function validateParseResult(parsed: LifeEventParseResult): void {
+  if (parsed.type === "task") {
+    if (parsed.path === "one_off" && parsed.goal) {
+      throw new Error("one_off forbids goal");
+    }
+    if (parsed.path === "goal" && !parsed.goal) {
+      throw new Error("goal path requires goal");
+    }
+  }
+  if (parsed.type === "activity" && (!parsed.goal || !parsed.metric)) {
+    throw new Error("activity requires goal and metric");
+  }
+  if ("goal" in parsed && parsed.goal) {
+    validateGoalShape(parsed.goal);
+  }
+  if ("metric" in parsed) {
+    validateMetric(parsed.metric);
+  }
 }
 
 type GoalBearingParseResult = Extract<
@@ -46,40 +108,133 @@ type GoalBearingParseResult = Extract<
 export function createLifeOSStore(initialState: LifeOSState) {
   const state = initialState;
 
+  function resolveAbility(userId: string, reference: NonNullable<LifeEventGoalReference["ability"]>): Ability {
+    const candidates = state.abilities.filter(
+      (ability) =>
+        ability.userId === userId &&
+        ability.status === "active" &&
+        ((reference.id !== undefined && ability.id === reference.id) ||
+          (reference.title !== undefined &&
+            normalizedTitle(ability.title) === normalizedTitle(reference.title)))
+    );
+
+    if (candidates.length > 1) {
+      throw new Error(`multiple active abilities match: ${reference.title ?? reference.id}`);
+    }
+    if (!candidates[0]) {
+      throw new Error(`ability does not exist: ${reference.title ?? reference.id}`);
+    }
+    return candidates[0];
+  }
+
   function resolveGoal(userId: string, parsed: GoalBearingParseResult): Goal | undefined {
     if (!parsed.goal) {
       return undefined;
     }
 
-    const existing = state.goals.find(
-      (goal) => goal.userId === userId && goal.title.toLowerCase() === parsed.goal?.title.toLowerCase()
+    const abilityReference = parsed.goal.ability;
+    const ability = abilityReference
+      ? resolveAbility(userId, abilityReference)
+      : undefined;
+    const requestedTitle = normalizedTitle(parsed.goal.title);
+    const activeGoalIds = new Set(
+      state.goals
+        .filter((goal) => goal.userId === userId && goal.status === "active")
+        .map((goal) => goal.id)
     );
+    const matchingIds = new Set(
+      state.goals
+        .filter(
+          (goal) =>
+            goal.userId === userId &&
+            (parsed.type === "goal" || goal.status === "active") &&
+            normalizedTitle(goal.title) === requestedTitle
+        )
+        .map((goal) => goal.id)
+    );
+    for (const alias of state.goalAliases) {
+      if (
+        alias.userId === userId &&
+        activeGoalIds.has(alias.goalId) &&
+        normalizedTitle(alias.alias) === requestedTitle
+      ) {
+        matchingIds.add(alias.goalId);
+      }
+    }
+    const candidates = state.goals.filter((goal) => matchingIds.has(goal.id));
+    if (candidates.length > 1) {
+      throw new Error(`multiple active goals match: ${parsed.goal.title}`);
+    }
+
+    const parentCandidates = parsed.goal.goalType && parsed.goal.parentTitle
+      ? state.goals.filter(
+          (goal) =>
+            goal.userId === userId &&
+            goal.status === "active" &&
+            normalizedTitle(goal.title) === normalizedTitle(parsed.goal?.parentTitle ?? "")
+        )
+      : [];
+    if (parentCandidates.length > 1) {
+      throw new Error(`multiple active parent goals match: ${parsed.goal.parentTitle}`);
+    }
+    if (parsed.goal.goalType && parsed.goal.parentTitle && !parentCandidates[0]) {
+      throw new Error(`parent goal does not exist: ${parsed.goal.parentTitle}`);
+    }
+    const parent = parentCandidates[0];
+
+    function persistAliases(goalId: string): void {
+      const requestedAliases = parsed.goal?.aliases ?? [];
+      for (const alias of requestedAliases) {
+        const existingAlias = state.goalAliases.find(
+          (candidate) =>
+            candidate.userId === userId &&
+            normalizedTitle(candidate.alias) === normalizedTitle(alias)
+        );
+        if (existingAlias && existingAlias.goalId !== goalId) {
+          throw new Error(`goal alias conflicts with existing goal: ${alias}`);
+        }
+      }
+      for (const alias of requestedAliases) {
+        const existingAlias = state.goalAliases.find(
+          (candidate) =>
+            candidate.userId === userId &&
+            normalizedTitle(candidate.alias) === normalizedTitle(alias)
+        );
+        if (!existingAlias) {
+          state.goalAliases.push({
+            id: id("alias"),
+            userId,
+            goalId,
+            alias,
+            createdAt: nowIso()
+          });
+        }
+      }
+    }
+
+    const existing = candidates[0];
     if (existing) {
+      if (parsed.goal.goalType) {
+        const expectedAbilityId = parsed.goal.goalType === "long_term"
+          ? ability?.id ?? null
+          : null;
+        if (
+          existing.goalType !== parsed.goal.goalType ||
+          existing.abilityId !== expectedAbilityId ||
+          existing.category !== parsed.goal.category ||
+          existing.metricType !== (parsed.goal.metricType ?? defaultMetric(parsed.type)) ||
+          existing.parentGoalId !== (parent?.id ?? null)
+        ) {
+          throw new Error(`goal identity conflicts with existing goal: ${parsed.goal.title}`);
+        }
+      }
+      persistAliases(existing.id);
       return existing;
     }
 
     if (!parsed.goal.goalType) {
-      return undefined;
+      throw new Error(`goal does not exist: ${parsed.goal.title}`);
     }
-
-    const abilityReference = parsed.goal.ability;
-    const ability = abilityReference
-      ? state.abilities.find(
-          (candidate) =>
-            candidate.userId === userId &&
-            ((abilityReference.id !== undefined && candidate.id === abilityReference.id) ||
-              (abilityReference.title !== undefined &&
-                candidate.title.toLowerCase() === abilityReference.title.toLowerCase()))
-        )
-      : undefined;
-
-    if (parsed.goal.goalType === "long_term" && !ability) {
-      return undefined;
-    }
-
-    const parent = parsed.goal.parentTitle
-      ? state.goals.find((goal) => goal.userId === userId && goal.title === parsed.goal?.parentTitle)
-      : state.goals.find((goal) => goal.userId === userId && goal.title === parsed.goal?.category);
 
     const goal: Goal = {
       id: id("goal"),
@@ -95,16 +250,31 @@ export function createLifeOSStore(initialState: LifeOSState) {
       completedAt: null,
       createdAt: nowIso()
     };
+    persistAliases(goal.id);
     state.goals.push(goal);
-
-    for (const alias of parsed.goal.aliases ?? []) {
-      state.goalAliases.push({ id: id("alias"), userId, goalId: goal.id, alias, createdAt: nowIso() });
-    }
 
     return goal;
   }
 
   function applyParseResult(userId: string, source: Message["source"], rawText: string, parsed: LifeEventParseResult): ApplyResult {
+    validateParseResult(parsed);
+
+    const existingAbility = parsed.type === "ability"
+      ? state.abilities.filter(
+          (ability) =>
+            ability.userId === userId &&
+            normalizedTitle(ability.title) === normalizedTitle(parsed.ability.title)
+        )
+      : [];
+    if (existingAbility.length > 1) {
+      throw new Error(`multiple abilities match: ${parsed.type === "ability" ? parsed.ability.title : ""}`);
+    }
+
+    const goal = parsed.type === "inbox" || parsed.type === "ability" ||
+      (parsed.type === "task" && parsed.path === "one_off")
+      ? undefined
+      : resolveGoal(userId, parsed);
+
     const message: Message = {
       id: id("msg"),
       userId,
@@ -134,11 +304,7 @@ export function createLifeOSStore(initialState: LifeOSState) {
     }
 
     if (parsed.type === "ability") {
-      const existing = state.abilities.find(
-        (ability) =>
-          ability.userId === userId &&
-          ability.title.toLowerCase() === parsed.ability?.title.toLowerCase()
-      );
+      const existing = existingAbility[0];
       if (existing) {
         return { message, ability: existing };
       }
@@ -154,10 +320,6 @@ export function createLifeOSStore(initialState: LifeOSState) {
       state.abilities.unshift(ability);
       return { message, ability };
     }
-
-    const goal = parsed.type === "task" && parsed.path === "one_off"
-      ? undefined
-      : resolveGoal(userId, parsed);
 
     if (parsed.type === "goal") {
       return { message, goal };

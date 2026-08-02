@@ -25,6 +25,16 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
     };
   }
 
+  if (/^(买水|买菜|倒垃圾|打扫卫生)$/.test(normalized)) {
+    return {
+      type: "task",
+      path: "one_off",
+      confidence: 0.96,
+      rawText: normalized,
+      task: { title: normalized }
+    };
+  }
+
   if (/想.*(AWS|Rust|AI|大模型|DevOps)/i.test(normalized) || /今年.*考.*AWS/i.test(normalized)) {
     const title = /Rust/i.test(normalized) ? "Rust" : /AI|大模型/i.test(normalized) ? "AI" : "AWS DevOps";
     return {
@@ -33,7 +43,6 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
       goal: {
         title,
         category: "职业",
-        parentTitle: "职业",
         goalType: "long_term",
         ability: { title: "前端能力" },
         metricType: "duration",

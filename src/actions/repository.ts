@@ -10,6 +10,8 @@ import type {
 } from "./batch-resolution";
 import type { LifeEventActionPayload } from "./validation";
 import { toParseResult } from "./validation";
+import { normalizeIntentTitle } from "./batch-resolution";
+import type { AbilityReference, LifeEventGoalReference } from "@/src/domain/types";
 
 type ContextRow = Record<string, unknown>;
 
@@ -257,64 +259,236 @@ export async function readActionContext(
   );
 }
 
-async function resolveSupabaseGoal(userId: string, payload: LifeEventActionPayload) {
-  const supabase = createServiceSupabaseClient();
-  if (!supabase || !payload.goal) {
-    return null;
+type SupabaseGoalRow = {
+  id: string;
+  title: string;
+  category: string;
+  parent_goal_id: string | null;
+  goal_type: "long_term" | "short_term";
+  ability_id: string | null;
+  metric_type: ActionMetricType;
+  status: "active" | "paused" | "completed";
+  created_at: string;
+};
+
+function requireUnique<T>(candidates: T[], ambiguousMessage: string): T | undefined {
+  if (candidates.length > 1) {
+    throw new Error(ambiguousMessage);
+  }
+  return candidates[0];
+}
+
+async function resolveSupabaseAbility(
+  userId: string,
+  reference: AbilityReference,
+  supabase: SupabaseClient
+) {
+  const { data, error } = await supabase
+    .from("abilities")
+    .select("id,title,status,created_at,archived_at")
+    .eq("user_id", userId);
+  if (error) {
+    throw new Error(error.message);
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("goals")
-    .select("id,title,category,parent_goal_id,metric_type,status,created_at")
-    .eq("user_id", userId)
-    .eq("title", payload.goal.title)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(existingError.message);
+  const candidates = (data ?? []).filter(
+    (ability) =>
+      ability.status === "active" &&
+      ((reference.id !== undefined && ability.id === reference.id) ||
+        (reference.title !== undefined &&
+          normalizeIntentTitle(ability.title) === normalizeIntentTitle(reference.title)))
+  );
+  const ability = requireUnique(
+    candidates,
+    `multiple active abilities match: ${reference.title ?? reference.id}`
+  );
+  if (!ability) {
+    throw new Error(`ability does not exist: ${reference.title ?? reference.id}`);
   }
+  return ability;
+}
+
+async function upsertSupabaseAbility(
+  userId: string,
+  title: string,
+  supabase: SupabaseClient
+) {
+  const { data, error } = await supabase
+    .from("abilities")
+    .upsert(
+      { user_id: userId, title },
+      { onConflict: "user_id,title" }
+    )
+    .select("id,title,status,created_at,archived_at")
+    .single();
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function resolveSupabaseGoal(
+  userId: string,
+  goalInput: LifeEventGoalReference,
+  eventType: LifeEventActionPayload["type"],
+  supabase: SupabaseClient
+): Promise<SupabaseGoalRow> {
+  const [{ data: goals, error: goalsError }, { data: aliases, error: aliasesError }] =
+    await Promise.all([
+      supabase
+        .from("goals")
+        .select(
+          "id,title,category,parent_goal_id,goal_type,ability_id,metric_type,status,created_at"
+        )
+        .eq("user_id", userId),
+      supabase
+        .from("goal_aliases")
+        .select("goal_id,alias")
+        .eq("user_id", userId)
+    ]);
+  if (goalsError || aliasesError) {
+    throw new Error(goalsError?.message ?? aliasesError?.message);
+  }
+
+  const rows = (goals ?? []) as SupabaseGoalRow[];
+  const requestedTitle = goalInput.title.trim().toLowerCase();
+  const activeIds = new Set(
+    rows.filter((goal) => goal.status === "active").map((goal) => goal.id)
+  );
+  const matchingIds = new Set(
+    rows
+      .filter(
+        (goal) =>
+          (eventType === "goal" || goal.status === "active") &&
+          goal.title.trim().toLowerCase() === requestedTitle
+      )
+      .map((goal) => goal.id)
+  );
+  for (const alias of aliases ?? []) {
+    if (
+      activeIds.has(alias.goal_id) &&
+      alias.alias.trim().toLowerCase() === requestedTitle
+    ) {
+      matchingIds.add(alias.goal_id);
+    }
+  }
+
+  const existing = requireUnique(
+    rows.filter((goal) => matchingIds.has(goal.id)),
+    `multiple active goals match: ${goalInput.title}`
+  );
+  const ability = goalInput.ability
+    ? await resolveSupabaseAbility(userId, goalInput.ability, supabase)
+    : null;
+
+  let parentGoalId: string | null = null;
+  if (goalInput.parentTitle) {
+    const parent = requireUnique(
+      rows.filter(
+        (goal) =>
+          goal.status === "active" &&
+          goal.title.trim().toLowerCase() === goalInput.parentTitle?.trim().toLowerCase()
+      ),
+      `multiple active parent goals match: ${goalInput.parentTitle}`
+    );
+    if (!parent) {
+      throw new Error(`parent goal does not exist: ${goalInput.parentTitle}`);
+    }
+    parentGoalId = parent.id;
+  }
+
+  const requestedAliases = goalInput.aliases ?? [];
+  for (const alias of requestedAliases) {
+    const existingAlias = (aliases ?? []).find(
+      (candidate) => candidate.alias.trim().toLowerCase() === alias.trim().toLowerCase()
+    );
+    if (existingAlias && existingAlias.goal_id !== existing?.id) {
+      throw new Error(`goal alias conflicts with existing goal: ${alias}`);
+    }
+  }
+
+  async function persistAliases(goalId: string): Promise<void> {
+    for (const alias of requestedAliases) {
+      const existingAlias = (aliases ?? []).find(
+        (candidate) => candidate.alias.trim().toLowerCase() === alias.trim().toLowerCase()
+      );
+      if (!existingAlias) {
+        const { error: aliasError } = await supabase
+          .from("goal_aliases")
+          .insert({ user_id: userId, goal_id: goalId, alias });
+        if (aliasError) {
+          throw new Error(aliasError.message);
+        }
+      }
+    }
+  }
+
   if (existing) {
+    if (goalInput.goalType) {
+      const metricType = goalInput.metricType ?? "count";
+      if (
+        existing.goal_type !== goalInput.goalType ||
+        existing.ability_id !== (goalInput.goalType === "long_term" ? ability?.id ?? null : null) ||
+        existing.category !== goalInput.category ||
+        existing.metric_type !== metricType ||
+        existing.parent_goal_id !== parentGoalId
+      ) {
+        throw new Error(`goal identity conflicts with existing goal: ${goalInput.title}`);
+      }
+    }
+    await persistAliases(existing.id);
     return existing;
   }
 
-  const { data: parent } = await supabase
-    .from("goals")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("title", payload.goal.parentTitle ?? payload.goal.category)
-    .maybeSingle();
+  if (!goalInput.goalType) {
+    throw new Error(`goal does not exist: ${goalInput.title}`);
+  }
 
   const { data: goal, error } = await supabase
     .from("goals")
     .insert({
       user_id: userId,
-      title: payload.goal.title,
-      category: payload.goal.category,
-      parent_goal_id: parent?.id ?? null,
-      metric_type: payload.goal.metricType ?? (payload.type === "goal" || payload.type === "activity" ? "duration" : "count"),
-      status: "active"
+      title: goalInput.title,
+      category: goalInput.category,
+      parent_goal_id: parentGoalId,
+      goal_type: goalInput.goalType,
+      ability_id: goalInput.goalType === "long_term" ? ability?.id ?? null : null,
+      metric_type: goalInput.metricType ?? "count",
+      status: "active",
+      due_at: null,
+      completed_at: null
     })
-    .select("id,title,category,parent_goal_id,metric_type,status,created_at")
+    .select(
+      "id,title,category,parent_goal_id,goal_type,ability_id,metric_type,status,created_at"
+    )
     .single();
-
   if (error) {
     throw new Error(error.message);
   }
 
-  for (const alias of payload.goal.aliases ?? []) {
-    await supabase.from("goal_aliases").upsert({ user_id: userId, goal_id: goal.id, alias }, { onConflict: "user_id,alias" });
-  }
+  await persistAliases(goal.id);
 
-  return goal;
+  return goal as SupabaseGoalRow;
 }
 
-async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPayload) {
-  const supabase = createServiceSupabaseClient();
+async function writeSupabaseLifeEvent(
+  userId: string,
+  payload: LifeEventActionPayload,
+  supabase: SupabaseClient | null
+) {
   if (!supabase) {
     return null;
   }
 
   const parsed = toParseResult(payload);
+  const ability = payload.type === "ability"
+    ? await upsertSupabaseAbility(userId, payload.ability.title, supabase)
+    : null;
+  const goal = payload.type === "task" && payload.path === "one_off"
+    ? null
+    : "goal" in payload && payload.goal
+      ? await resolveSupabaseGoal(userId, payload.goal, payload.type, supabase)
+      : null;
   const { data: message, error: messageError } = await supabase
     .from("messages")
     .insert({
@@ -350,7 +524,10 @@ async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPa
     return { message, inboxItem };
   }
 
-  const goal = await resolveSupabaseGoal(userId, payload);
+
+  if (payload.type === "ability") {
+    return { message, ability };
+  }
 
   if (payload.type === "goal") {
     return { message, goal };
@@ -366,7 +543,10 @@ async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPa
         title: payload.task.title,
         status: "open",
         due_at: payload.task.dueAt ?? null,
-        priority: payload.task.priority ?? "normal"
+        priority: payload.task.priority ?? "normal",
+        planned_metric_type: payload.metric?.type ?? null,
+        planned_value: payload.metric?.value ?? null,
+        planned_unit: payload.metric?.unit ?? null
       })
       .select("id")
       .single();
@@ -374,7 +554,7 @@ async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPa
     return { message, goal, task };
   }
 
-  if (payload.type === "activity" && goal && payload.metric) {
+  if (payload.type === "activity" && goal) {
     const { data: activity, error } = await supabase
       .from("activities")
       .insert({
@@ -393,7 +573,7 @@ async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPa
     return { message, goal, activity };
   }
 
-  if (payload.type === "reminder" && payload.reminder) {
+  if (payload.type === "reminder") {
     let taskId: string | null = null;
     if (payload.task) {
       const { data: task, error } = await supabase
@@ -405,7 +585,10 @@ async function writeSupabaseLifeEvent(userId: string, payload: LifeEventActionPa
           title: payload.task.title,
           status: "open",
           due_at: payload.task.dueAt ?? null,
-          priority: payload.task.priority ?? "normal"
+          priority: payload.task.priority ?? "normal",
+          planned_metric_type: payload.metric?.type ?? null,
+          planned_value: payload.metric?.value ?? null,
+          planned_unit: payload.metric?.unit ?? null
         })
         .select("id")
         .single();
@@ -442,17 +625,15 @@ function ensureLocalUser(userId: string) {
       defaultReminderTime: "09:00",
       createdAt: new Date().toISOString()
     });
-    state.goals.push(
-      { id: `${userId}-life`, userId, title: "人生", category: "root", parentGoalId: null, goalType: null, abilityId: null, metricType: "milestone", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() },
-      { id: `${userId}-career`, userId, title: "职业", category: "职业", parentGoalId: `${userId}-life`, goalType: null, abilityId: null, metricType: "duration", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() },
-      { id: `${userId}-health`, userId, title: "健康", category: "健康", parentGoalId: `${userId}-life`, goalType: null, abilityId: null, metricType: "count", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() },
-      { id: `${userId}-interest`, userId, title: "兴趣", category: "兴趣", parentGoalId: `${userId}-life`, goalType: null, abilityId: null, metricType: "count", status: "active", dueAt: null, completedAt: null, createdAt: new Date().toISOString() }
-    );
   }
 }
 
-export async function writeLifeEventFromAction(userId: string, payload: LifeEventActionPayload) {
-  const supabaseResult = await writeSupabaseLifeEvent(userId, payload);
+export async function writeLifeEventFromAction(
+  userId: string,
+  payload: LifeEventActionPayload,
+  supabase: SupabaseClient | null = createServiceSupabaseClient()
+) {
+  const supabaseResult = await writeSupabaseLifeEvent(userId, payload, supabase);
   if (supabaseResult) {
     return { mode: "supabase", result: supabaseResult };
   }

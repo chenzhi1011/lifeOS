@@ -100,18 +100,13 @@ describe("Life OS store", () => {
     expect(store.getState().abilities).toContainEqual(result.ability);
   });
 
-  it("does not resolve a goal for a one-off task", () => {
+  it("writes a one-off task without resolving a goal", () => {
     const store = createLifeOSStore(createInitialState());
     const goalCount = store.getState().goals.length;
     const result = store.applyParseResult("demo-user", "mock", "买水", {
       type: "task",
       path: "one_off",
       confidence: 0.96,
-      goal: {
-        title: "不应创建的目标",
-        category: "日常",
-        goalType: "short_term"
-      },
       task: { title: "买水" }
     });
 
@@ -120,16 +115,99 @@ describe("Life OS store", () => {
     expect(store.getState().goals).toHaveLength(goalCount);
   });
 
-  it("only creates goals with an explicit goal type", () => {
+  it("rejects invalid task path combinations before writing", () => {
+    const store = createLifeOSStore(createInitialState());
+    const messageCount = store.getState().messages.length;
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "买水", {
+        type: "task",
+        path: "one_off",
+        confidence: 0.96,
+        goal: { title: "生活", category: "日常" },
+        task: { title: "买水" }
+      })
+    ).toThrow(/one_off forbids goal/);
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "准备面试", {
+        type: "task",
+        path: "goal",
+        confidence: 0.96,
+        task: { title: "准备面试" }
+      })
+    ).toThrow(/goal path requires goal/);
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "准备不存在的考试", {
+        type: "task",
+        path: "goal",
+        confidence: 0.96,
+        goal: { title: "不存在的考试", category: "职业" },
+        task: { title: "准备考试" }
+      })
+    ).toThrow(/goal does not exist/);
+
+    expect(store.getState().messages).toHaveLength(messageCount);
+  });
+
+  it("rejects illegal typed goals before writing", () => {
+    const store = createLifeOSStore(createInitialState());
+    const messageCount = store.getState().messages.length;
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "学写作", {
+        type: "goal",
+        confidence: 0.94,
+        goal: {
+          title: "写作",
+          category: "兴趣",
+          goalType: "long_term"
+        }
+      })
+    ).toThrow(/long_term goal requires ability/);
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "参加比赛", {
+        type: "goal",
+        confidence: 0.94,
+        goal: {
+          title: "参加比赛",
+          category: "兴趣",
+          goalType: "short_term",
+          ability: { title: "写作能力" }
+        }
+      })
+    ).toThrow(/short_term goal forbids ability/);
+
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "学写作", {
+        type: "goal",
+        confidence: 0.94,
+        goal: {
+          title: "写作",
+          category: "兴趣",
+          goalType: "long_term",
+          ability: { id: "ability-frontend", title: "前端能力" }
+        }
+      })
+    ).toThrow(/ability reference requires exactly one of id or title/);
+
+    expect(store.getState().messages).toHaveLength(messageCount);
+  });
+
+  it("rejects unresolved references and only creates explicitly typed goals", () => {
     const store = createLifeOSStore(createInitialState());
 
-    const implicit = store.applyParseResult("demo-user", "mock", "学习写作", {
-      type: "activity",
-      confidence: 0.92,
-      goal: { title: "写作", category: "兴趣" },
-      summary: "学习写作",
-      metric: { type: "duration", value: 30, unit: "minute" }
-    });
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "学习写作", {
+        type: "activity",
+        confidence: 0.92,
+        goal: { title: "写作", category: "兴趣" },
+        summary: "学习写作",
+        metric: { type: "duration", value: 30, unit: "minute" }
+      })
+    ).toThrow(/goal does not exist/);
     const explicit = store.applyParseResult("demo-user", "mock", "参加比赛", {
       type: "goal",
       confidence: 0.92,
@@ -140,7 +218,6 @@ describe("Life OS store", () => {
       }
     });
 
-    expect(implicit.goal).toBeUndefined();
     expect(store.getState().goals.some((goal) => goal.title === "写作")).toBe(false);
     expect(explicit.goal).toMatchObject({
       title: "参加写作比赛",
@@ -168,6 +245,41 @@ describe("Life OS store", () => {
       goalType: "long_term",
       abilityId: "ability-frontend"
     });
+  });
+
+  it("does not reactivate archived abilities or use them for long-term goals", () => {
+    const initial = createInitialState();
+    initial.abilities.push({
+      id: "ability-writing-archived",
+      userId: "demo-user",
+      title: "写作能力",
+      status: "archived",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      archivedAt: "2026-07-01T00:00:00.000Z"
+    });
+    const store = createLifeOSStore(initial);
+    const count = store.getState().abilities.length;
+
+    const replay = store.applyParseResult("demo-user", "mock", "培养写作能力", {
+      type: "ability",
+      confidence: 0.95,
+      ability: { title: "写作能力" }
+    });
+
+    expect(replay.ability?.status).toBe("archived");
+    expect(store.getState().abilities).toHaveLength(count);
+    expect(() =>
+      store.applyParseResult("demo-user", "mock", "长期练习写作", {
+        type: "goal",
+        confidence: 0.95,
+        goal: {
+          title: "写作练习",
+          category: "兴趣",
+          goalType: "long_term",
+          ability: { title: "写作能力" }
+        }
+      })
+    ).toThrow(/ability does not exist/);
   });
 
   it("does not reuse seed ids when writing new records", () => {
