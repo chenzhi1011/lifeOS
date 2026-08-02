@@ -36,3 +36,7 @@ docker exec "$container_name" psql --username postgres --dbname postgres \
 docker exec "$container_name" psql --username postgres --dbname postgres \
   --set ON_ERROR_STOP=on \
   --file /workspace/supabase/tests/batch_intake.sql
+
+docker exec "$container_name" psql --username postgres --dbname postgres \
+  --set ON_ERROR_STOP=on \
+  --file /workspace/supabase/tests/growth_tree_domain.sql
