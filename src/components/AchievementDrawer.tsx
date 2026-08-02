@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type { Achievement } from "@/src/domain/types";
 
 type AchievementDrawerProps = {
   achievements: Achievement[];
   onClose: () => void;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
 };
+
+const focusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
 
 function achievedTime(achievement: Achievement): number {
   const value = Date.parse(achievement.achievedAt);
@@ -15,9 +25,11 @@ function achievedTime(achievement: Achievement): number {
 
 export function AchievementDrawer({
   achievements,
-  onClose
+  onClose,
+  returnFocusRef
 }: AchievementDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
   const orderedAchievements = [...achievements].sort(
     (left, right) =>
       achievedTime(right) - achievedTime(left) || left.id.localeCompare(right.id)
@@ -28,24 +40,61 @@ export function AchievementDrawer({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelector)
+      );
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) {
+        return;
+      }
+
+      const activeElement = document.activeElement;
+      if (
+        event.shiftKey &&
+        (activeElement === first || !dialog.contains(activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (activeElement === last || !dialog.contains(activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      returnFocusRef.current?.focus();
+    };
+  }, [onClose, returnFocusRef]);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-[#15351d]/24 backdrop-blur-[2px]">
-      <button
-        aria-label="关闭果实面板"
-        className="absolute inset-0 cursor-default"
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        data-testid="achievement-backdrop"
         onClick={onClose}
-        type="button"
+        role="presentation"
       />
       <aside
         aria-labelledby="achievement-drawer-title"
         aria-modal="true"
         className="relative z-10 h-full w-full overflow-y-auto border-l border-[#315d3a]/20 bg-[#f8f7ed]/95 p-5 text-[#18321e] shadow-2xl sm:max-w-md sm:p-7"
+        ref={dialogRef}
         role="dialog"
       >
         <div className="flex items-start justify-between gap-4">

@@ -140,21 +140,48 @@ describe("GrowthTreeDashboard", () => {
     ];
     render(<GrowthTreeDashboard viewModel={viewModel()} achievements={achievements} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "果实面板 · 2" }));
+    const trigger = screen.getByRole("button", { name: "果实面板 · 2" });
+    trigger.focus();
+    fireEvent.click(trigger);
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    const closeButton = screen.getByRole("button", { name: "关闭果实面板" });
+    const evidenceLink = screen.getByRole("link", { name: "查看成果证据" });
+    expect(document.activeElement).toBe(closeButton);
     expect(screen.getAllByTestId("achievement-title").map((node) => node.textContent)).toEqual([
       "通过前端面试",
       "通过笔试"
     ]);
     expect(screen.getByText("第一次拿到理想岗位 offer")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "查看成果证据" }).getAttribute("href")).toBe(
+    expect(evidenceLink.getAttribute("href")).toBe(
       "https://example.com/offer"
     );
     expect(screen.queryByText("未完成 Task")).toBeNull();
 
+    evidenceLink.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(closeButton);
+    closeButton.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(evidenceLink);
+
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("restores trigger focus after button and backdrop closure", () => {
+    render(<GrowthTreeDashboard viewModel={viewModel()} achievements={[]} />);
+    const trigger = screen.getByRole("button", { name: "果实面板 · 0" });
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "关闭果实面板" }));
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId("achievement-backdrop"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("lifts scene selections into one HTML detail panel", () => {
@@ -204,6 +231,28 @@ describe("GrowthTreeDashboard", () => {
     render(<GrowthTreeDashboard viewModel={model} achievements={[]} />);
 
     expect(screen.getByText("创建第一个能力或目标")).toBeTruthy();
+  });
+
+  it("does not show the empty guide when vitality elements are present", () => {
+    const model = viewModel();
+    model.abilityBranches = [];
+    model.longGoalTwigs = [];
+    model.shortGoalBranches = [];
+    model.activityLeaves = [];
+    model.vitalityElements = [
+      {
+        id: "vitality-task-a",
+        taskId: "task-a",
+        type: "water",
+        source: "one_off_completion",
+        position: { x: 0, y: 1, z: 0 }
+      }
+    ];
+
+    render(<GrowthTreeDashboard viewModel={model} achievements={[]} />);
+
+    expect(screen.getByTestId("realistic-growth-tree-canvas")).toBeTruthy();
+    expect(screen.queryByText("创建第一个能力或目标")).toBeNull();
   });
 });
 

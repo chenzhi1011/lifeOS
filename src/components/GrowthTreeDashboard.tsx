@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Achievement } from "@/src/domain/types";
 import {
   clearTreeSelection,
@@ -30,6 +30,7 @@ export function GrowthTreeDashboard({
     clearTreeSelection()
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const onSelectWood = useCallback(
     (wood: Pick<TreeWood, "entityType" | "entityId">) => {
@@ -55,6 +56,7 @@ export function GrowthTreeDashboard({
   const trulyEmpty =
     !hasTreeData &&
     achievements.length === 0 &&
+    viewModel.vitalityElements.length === 0 &&
     viewModel.diagnostics.length === 0;
 
   return (
@@ -71,6 +73,7 @@ export function GrowthTreeDashboard({
         <button
           className="rounded-full border border-[#315d3a]/25 bg-[#f8f7ed]/90 px-4 py-2.5 text-sm font-semibold text-[#18321e] shadow-lg backdrop-blur hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
           onClick={() => setDrawerOpen(true)}
+          ref={drawerTriggerRef}
           type="button"
         >
           果实面板 · {achievements.length}
@@ -110,7 +113,11 @@ export function GrowthTreeDashboard({
       />
 
       {drawerOpen ? (
-        <AchievementDrawer achievements={achievements} onClose={closeDrawer} />
+        <AchievementDrawer
+          achievements={achievements}
+          onClose={closeDrawer}
+          returnFocusRef={drawerTriggerRef}
+        />
       ) : null}
     </main>
   );
