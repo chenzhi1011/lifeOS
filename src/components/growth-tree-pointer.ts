@@ -15,6 +15,7 @@ export type PointerGestureState = {
   lastY: number;
   maxDistance: number;
   accumulatedDistance: number;
+  clickEligible: boolean;
 };
 
 export type PointerGestureEnd = {
@@ -40,8 +41,12 @@ export function beginPointerGesture(
   state: PointerGestureState | null,
   sample: PointerGestureSample
 ): PointerGestureState | null {
+  if (state !== null) {
+    return state.pointerId !== sample.pointerId && state.clickEligible
+      ? { ...state, clickEligible: false }
+      : state;
+  }
   if (
-    state !== null ||
     !sample.isPrimary ||
     (sample.pointerType === "mouse" && sample.button !== 0)
   ) {
@@ -54,7 +59,8 @@ export function beginPointerGesture(
     lastX: sample.clientX,
     lastY: sample.clientY,
     maxDistance: 0,
-    accumulatedDistance: 0
+    accumulatedDistance: 0,
+    clickEligible: true
   };
 }
 
@@ -91,6 +97,7 @@ export function endPointerGesture(
     state: null,
     matched: true,
     isClick:
+      completed.clickEligible &&
       completed.maxDistance < CLICK_DISTANCE &&
       completed.accumulatedDistance < CLICK_DISTANCE
   };

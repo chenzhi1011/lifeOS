@@ -20,6 +20,7 @@ type PointerGestureState = {
   lastY: number;
   maxDistance: number;
   accumulatedDistance: number;
+  clickEligible: boolean;
 };
 
 type PointerGestureResult = {
@@ -150,8 +151,51 @@ describe("growth tree pointer gesture", () => {
       sample(3, 10, 10, { pointerType: "pen" })
     );
 
-    expect(second).toBe(begun);
-    expect(anotherPrimary).toBe(begun);
+    expect(second).toMatchObject({ pointerId: 1, clickEligible: false });
+    expect(anotherPrimary).toBe(second);
+  });
+
+  it("rejects a stationary primary click after a secondary touch joins", () => {
+    const api = gestureApi();
+    expect(api).not.toBeNull();
+    if (!api) return;
+
+    const primary = api.beginPointerGesture(
+      null,
+      sample(1, 10, 10, { pointerType: "touch" })
+    );
+    const withSecondary = api.beginPointerGesture(
+      primary,
+      sample(2, 20, 20, {
+        pointerType: "touch",
+        isPrimary: false
+      })
+    );
+    const secondaryMoved = api.movePointerGesture(
+      withSecondary,
+      sample(2, 24, 20, {
+        pointerType: "touch",
+        isPrimary: false
+      })
+    );
+    const secondaryEnded = api.endPointerGesture(
+      secondaryMoved,
+      sample(2, 24, 20, {
+        pointerType: "touch",
+        isPrimary: false
+      })
+    );
+    const primaryEnded = api.endPointerGesture(
+      secondaryEnded.state,
+      sample(1, 10, 10, { pointerType: "touch" })
+    );
+
+    expect(secondaryEnded).toMatchObject({ matched: false, isClick: false });
+    expect(primaryEnded).toMatchObject({
+      matched: true,
+      isClick: false,
+      state: null
+    });
   });
 
   it("only matching cancellation clears the gesture", () => {
