@@ -1111,4 +1111,251 @@ begin
 end
 $test$;
 
+insert into goals (
+  id, user_id, title, category, goal_type, ability_id,
+  metric_type, status, completed_at
+)
+values
+  (
+    '14000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000001',
+    'Alias Owner Goal', 'test', 'short_term', null,
+    'count', 'active', null
+  ),
+  (
+    '14000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000001',
+    'Completed Explicit Goal', 'test', 'short_term', null,
+    'count', 'completed', now()
+  ),
+  (
+    '14000000-0000-4000-8000-000000000003',
+    '00000000-0000-4000-8000-000000000001',
+    'Paused Explicit Goal', 'test', 'short_term', null,
+    'count', 'paused', null
+  );
+
+insert into goal_aliases (user_id, goal_id, alias)
+values (
+  '00000000-0000-4000-8000-000000000001',
+  '14000000-0000-4000-8000-000000000001',
+  'Shared Alias X'
+);
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+  alias_count_before bigint;
+  inbox_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+  select count(*) into alias_count_before from goal_aliases;
+  select count(*) into inbox_count_before from inbox_items;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-existing-alias-conflict',
+      'hash-existing-alias-conflict',
+      'new goal attempts another goal alias',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', 'Alias Thief Goal',
+          'category', 'test',
+          'goalType', 'short_term',
+          'abilityId', null,
+          'metricType', 'count',
+          'aliases', jsonb_build_array('Shared Alias X'),
+          'confidence', 0.99
+        )
+      )
+    );
+  exception when others then
+    if position('goal alias belongs to another goal' in sqlerrm) = 0 then
+      raise;
+    end if;
+    failed := true;
+  end;
+
+  if not failed
+     or (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from goals) <> goal_count_before
+     or (select count(*) from goal_aliases) <> alias_count_before
+     or (select count(*) from inbox_items) <> inbox_count_before
+     or exists (select 1 from goals where title = 'Alias Thief Goal')
+     or not exists (
+       select 1 from goal_aliases
+       where user_id = '00000000-0000-4000-8000-000000000001'
+         and goal_id = '14000000-0000-4000-8000-000000000001'
+         and alias = 'Shared Alias X'
+     ) then
+    raise exception 'existing alias conflict must roll back the complete batch';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  goal_count_before bigint;
+  alias_count_before bigint;
+  inbox_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into goal_count_before from goals;
+  select count(*) into alias_count_before from goal_aliases;
+  select count(*) into inbox_count_before from inbox_items;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-same-alias-conflict',
+      'hash-same-alias-conflict',
+      'two new goals claim one alias',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', 'Batch Alias Goal One',
+          'category', 'test',
+          'goalType', 'short_term',
+          'abilityId', null,
+          'metricType', 'count',
+          'aliases', jsonb_build_array('Same Batch Alias Y'),
+          'confidence', 0.99
+        ),
+        jsonb_build_object(
+          'kind', 'goal',
+          'title', 'Batch Alias Goal Two',
+          'category', 'test',
+          'goalType', 'short_term',
+          'abilityId', null,
+          'metricType', 'count',
+          'aliases', jsonb_build_array('Same Batch Alias Y'),
+          'confidence', 0.99
+        )
+      )
+    );
+  exception when others then
+    if position('goal alias belongs to another goal' in sqlerrm) = 0 then
+      raise;
+    end if;
+    failed := true;
+  end;
+
+  if not failed
+     or (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from goals) <> goal_count_before
+     or (select count(*) from goal_aliases) <> alias_count_before
+     or (select count(*) from inbox_items) <> inbox_count_before
+     or exists (
+       select 1 from goals
+       where title in ('Batch Alias Goal One', 'Batch Alias Goal Two')
+     )
+     or exists (
+       select 1 from goal_aliases where alias = 'Same Batch Alias Y'
+     ) then
+    raise exception 'same-batch alias conflict must roll back both goals';
+  end if;
+end
+$test$;
+
+do $test$
+declare
+  batch_count_before bigint;
+  message_count_before bigint;
+  task_count_before bigint;
+  reminder_count_before bigint;
+  activity_count_before bigint;
+  failed boolean := false;
+begin
+  select count(*) into batch_count_before from action_batches;
+  select count(*) into message_count_before from messages;
+  select count(*) into task_count_before from tasks;
+  select count(*) into reminder_count_before from reminders;
+  select count(*) into activity_count_before from activities;
+
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-completed-explicit-goal',
+      'hash-completed-explicit-goal',
+      'task must reject completed explicit goal',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'task',
+          'title', 'Task On Completed Goal',
+          'goalId', '14000000-0000-4000-8000-000000000002',
+          'dueAt', '2026-08-03T09:00:00+09:00',
+          'remindAt', '2026-08-03T09:00:00+09:00',
+          'priority', 'normal',
+          'confidence', 0.99
+        )
+      )
+    );
+  exception when others then
+    if position('goal does not belong to user or is not active' in sqlerrm) = 0 then
+      raise;
+    end if;
+    failed := true;
+  end;
+
+  if not failed
+     or (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from tasks) <> task_count_before
+     or (select count(*) from reminders) <> reminder_count_before
+     or exists (select 1 from tasks where title = 'Task On Completed Goal') then
+    raise exception 'completed explicit goal task batch must roll back completely';
+  end if;
+
+  failed := false;
+  begin
+    perform record_life_event_batch(
+      '00000000-0000-4000-8000-000000000001',
+      'batch-paused-explicit-goal',
+      'hash-paused-explicit-goal',
+      'activity must reject paused explicit goal',
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'activity',
+          'summary', 'Activity On Paused Goal',
+          'goalId', '14000000-0000-4000-8000-000000000003',
+          'metricType', 'count',
+          'value', 1,
+          'unit', 'count',
+          'occurredOn', '2026-08-03',
+          'confidence', 0.99
+        )
+      )
+    );
+  exception when others then
+    if position('goal does not belong to user or is not active' in sqlerrm) = 0 then
+      raise;
+    end if;
+    failed := true;
+  end;
+
+  if not failed
+     or (select count(*) from action_batches) <> batch_count_before
+     or (select count(*) from messages) <> message_count_before
+     or (select count(*) from activities) <> activity_count_before
+     or exists (
+       select 1 from activities where summary = 'Activity On Paused Goal'
+     ) then
+    raise exception 'paused explicit goal activity batch must roll back completely';
+  end if;
+end
+$test$;
+
 select 'batch intake SQL behavior tests passed' as result;

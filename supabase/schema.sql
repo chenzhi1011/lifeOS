@@ -360,6 +360,7 @@ declare
   v_response jsonb;
   v_updated_id uuid;
   v_alias text;
+  v_alias_owner_goal_id uuid;
 begin
   if not exists (select 1 from profiles where user_id = p_user_id) then
     raise exception 'profile does not exist for user %', p_user_id;
@@ -585,22 +586,38 @@ begin
         select value
         from jsonb_array_elements_text(coalesce(v_event->'aliases', '[]'::jsonb))
       loop
+        v_alias_owner_goal_id := null;
         insert into goal_aliases (user_id, goal_id, alias)
         values (p_user_id, v_goal_id, v_alias)
-        on conflict (user_id, alias) do nothing;
+        on conflict (user_id, alias) do nothing
+        returning goal_id into v_alias_owner_goal_id;
+
+        if v_alias_owner_goal_id is null then
+          select goal_id into v_alias_owner_goal_id
+          from goal_aliases
+          where user_id = p_user_id
+            and alias = v_alias
+          for update;
+        end if;
+
+        if v_alias_owner_goal_id is distinct from v_goal_id then
+          raise exception 'goal alias belongs to another goal at event index %', v_event_index;
+        end if;
       end loop;
 
     elsif v_kind in ('task', 'activity') then
       v_goal_id := nullif(v_event->>'goalId', '')::uuid;
 
       if v_goal_id is not null then
-        if not exists (
-          select 1
-          from goals
-          where user_id = p_user_id
-            and id = v_goal_id
-        ) then
-          raise exception 'goal does not belong to user at event index %', v_event_index;
+        select id into v_goal_id
+        from goals
+        where user_id = p_user_id
+          and id = v_goal_id
+          and status = 'active'
+        for update;
+
+        if not found then
+          raise exception 'goal does not belong to user or is not active at event index %', v_event_index;
         end if;
       elsif nullif(btrim(v_event->>'goalTitle'), '') is not null then
         select
@@ -616,6 +633,17 @@ begin
           raise exception 'active goalTitle was not created before event index %', v_event_index;
         elsif v_goal_match_count > 1 then
           raise exception 'goalTitle is ambiguous at event index %', v_event_index;
+        end if;
+
+        perform 1
+        from goals
+        where user_id = p_user_id
+          and id = v_goal_id
+          and status = 'active'
+        for update;
+
+        if not found then
+          raise exception 'goal does not belong to user or is not active at event index %', v_event_index;
         end if;
       end if;
 

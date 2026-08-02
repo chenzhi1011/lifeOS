@@ -75,6 +75,21 @@ describe("growth tree domain schema", () => {
     );
   });
 
+  it.each([schema, migration])(
+    "locks active explicit goals and rejects aliases owned by another goal",
+    (sql) => {
+      expect(sql).toMatch(
+        /select id into v_goal_id[\s\S]*?status = 'active'[\s\S]*?for update/i
+      );
+      expect(sql).toMatch(
+        /returning goal_id into v_alias_owner_goal_id/i
+      );
+      expect(sql).toMatch(
+        /v_alias_owner_goal_id is distinct from v_goal_id/i
+      );
+    }
+  );
+
   it.each([schema, mappingMigration])(
     "guards the manual mapping RPC with complete expected snapshots and service-role-only execution",
     (sql) => {
