@@ -1,8 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildGrowthMigrationPlan,
+  main,
   parseMigrationArgs,
   readMigrationEnvironment,
   runGrowthMigration,
@@ -238,9 +241,15 @@ describe("growth model migration", () => {
     expect(() =>
       parseMigrationArgs(["--mapping", "relative.json"])
     ).toThrow(/absolute/i);
-    expect(() =>
-      parseMigrationArgs(["--mapping", "/tmp/map.json", "--force"])
-    ).toThrow(/unknown/i);
+    const secretArgument = "--force-secret-argument";
+    let message = "";
+    try {
+      parseMigrationArgs(["--mapping", "/tmp/map.json", secretArgument]);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatch(/unknown/i);
+    expect(message).not.toContain(secretArgument);
   });
 
   it("reports only missing environment variable names", () => {
@@ -273,17 +282,17 @@ describe("growth model migration", () => {
       goals: 4,
       tasks: 2,
       activities: 1,
-      achievements: 1,
-      abilities: 0
+      achievements: 1
     });
     expect(plan.afterCounts).toEqual({
       profiles: 1,
       goals: 4,
       tasks: 2,
       activities: 1,
-      achievements: 1,
-      abilities: 2
+      achievements: 1
     });
+    expect(plan.beforeCounts).not.toHaveProperty("abilities");
+    expect(plan.afterCounts).not.toHaveProperty("abilities");
     expect(plan.expectedSnapshot.expectedGoalIds).toEqual([...ids.goals]);
     expect(plan.expectedSnapshot.expectedTaskIds).toEqual([...ids.tasks]);
     expect(plan.operations).toEqual(
@@ -298,6 +307,22 @@ describe("growth model migration", () => {
     );
     expect(JSON.stringify(plan)).not.toContain("rawMessage");
     expect(JSON.stringify(plan)).not.toContain("service-secret");
+  });
+
+  it("plans a required redirect for an unclassified legacy achievement", () => {
+    const snapshot = validSnapshot();
+    snapshot.achievements[0] = {
+      ...snapshot.achievements[0]!,
+      shortGoalId: null
+    };
+
+    const plan = buildGrowthMigrationPlan(validMapping(), snapshot);
+
+    expect(plan.operations).toContainEqual({
+      kind: "redirect_achievement",
+      entityId: ids.achievements[0],
+      targetGoalId: ids.goals[1]
+    });
   });
 
   it("rejects incomplete, unknown, and cross-user snapshots before apply", () => {
@@ -369,6 +394,82 @@ describe("growth model migration", () => {
     });
   });
 
+  it("keeps repository failures generic without exposing business identifiers", async () => {
+    const secret = "private-row-90000000-0000-4000-8000-000000000009";
+    const readFailure: MigrationRepository = {
+      readSnapshot: vi.fn().mockRejectedValue(new Error(secret)),
+      applyGrowthMapping: vi.fn()
+    };
+    await expect(
+      runGrowthMigration({
+        mapping: validMapping(),
+        apply: false,
+        repository: readFailure
+      })
+    ).rejects.toThrow("growth migration snapshot read failed");
+    await runGrowthMigration({
+      mapping: validMapping(),
+      apply: false,
+      repository: readFailure
+    }).catch((error: unknown) => {
+      expect(String(error)).not.toContain(secret);
+    });
+
+    const applyFailure: MigrationRepository = {
+      readSnapshot: vi.fn().mockResolvedValue(validSnapshot()),
+      applyGrowthMapping: vi.fn().mockRejectedValue(new Error(secret))
+    };
+    await expect(
+      runGrowthMigration({
+        mapping: validMapping(),
+        apply: true,
+        repository: applyFailure
+      })
+    ).rejects.toThrow("growth migration apply failed");
+    await runGrowthMigration({
+      mapping: validMapping(),
+      apply: true,
+      repository: applyFailure
+    }).catch((error: unknown) => {
+      expect(String(error)).not.toContain(secret);
+    });
+  });
+
+  it("keeps mapping file and validation failures generic at the CLI boundary", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "life-os-growth-migration-")
+    );
+    const secretUuid = "90000000-0000-4000-8000-000000000009";
+    const malformedPath = path.join(tempDirectory, "secret-invalid-json.json");
+    const invalidMappingPath = path.join(tempDirectory, "secret-invalid-map.json");
+    const missingPath = path.join(tempDirectory, "secret-missing-map.json");
+    await writeFile(malformedPath, `{\"private\":\"${secretUuid}\"`, "utf8");
+    await writeFile(
+      invalidMappingPath,
+      JSON.stringify({ ...validMapping(), userId: secretUuid, rawInput: secretUuid }),
+      "utf8"
+    );
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-secret");
+
+    try {
+      for (const mappingPath of [malformedPath, invalidMappingPath, missingPath]) {
+        let message = "";
+        try {
+          await main(["--mapping", mappingPath]);
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+        expect(message).toBe("mapping file is invalid or unreadable");
+        expect(message).not.toContain(mappingPath);
+        expect(message).not.toContain(secretUuid);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("loads env before creating a client and keeps the imported module inert", () => {
     const script = readFileSync(
       path.resolve("scripts/migrate-growth-model.ts"),
@@ -386,5 +487,19 @@ describe("growth model migration", () => {
     expect(script).toContain("activities");
     expect(script).toContain("achievements");
     expect(script).toContain("apply_growth_model_mapping");
+    expect(script).toMatch(
+      /shortGoalId:\s*nullableString\(\s*row,\s*"short_goal_id",\s*"achievements"\s*\)/
+    );
+  });
+
+  it("documents the five-table count scope and sensitive dry-run output", () => {
+    const readme = readFileSync(path.resolve("README.md"), "utf8");
+
+    expect(readme).toContain(
+      "profiles/goals/tasks/activities/achievements"
+    );
+    expect(readme).toContain("upsert_ability");
+    expect(readme).toContain("业务 ID 和 Ability title");
+    expect(readme).toContain("不得提交或分享");
   });
 });

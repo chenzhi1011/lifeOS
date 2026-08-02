@@ -87,6 +87,16 @@ describe("growth tree domain schema", () => {
       expect(sql).toContain("expectedAchievementIds");
       expect(sql).toMatch(/for update/i);
       expect(sql).toMatch(/raise exception 'snapshot mismatch/i);
+      expect(sql).toMatch(/item->>'goalType' is null/i);
+      expect(sql).toMatch(
+        /jsonb_typeof\(item->'target'\) is distinct from 'object'/i
+      );
+      expect(sql).toMatch(
+        /jsonb_typeof\(p_expected_snapshot#>'\{counts,profiles\}'\) is distinct from 'number'/i
+      );
+      expect(sql).toMatch(
+        /cardinality\(v_actual_goal_ids\) is distinct from v_expected_goal_count/i
+      );
       expect(sql).toMatch(
         /revoke execute on function public\.apply_growth_model_mapping\(jsonb, jsonb\) from public, anon, authenticated/i
       );

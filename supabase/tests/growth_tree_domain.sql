@@ -513,12 +513,18 @@ values ('00000000-0000-4000-8000-000000000003');
 insert into profiles (user_id, display_name)
 values ('00000000-0000-4000-8000-000000000003', 'mapping test user');
 
-insert into abilities (id, user_id, title)
-values (
-  '58000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000003',
-  'Legacy Ability'
-);
+insert into abilities (id, user_id, title, status, archived_at)
+values
+  (
+    '58000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000003',
+    'Legacy Ability', 'active', null
+  ),
+  (
+    '58000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+    'Mapped Ability', 'archived', now()
+  );
 
 insert into goals (
   id, user_id, title, category, goal_type, ability_id, metric_type
@@ -538,7 +544,8 @@ values
   (
     '59000000-0000-4000-8000-000000000003',
     '00000000-0000-4000-8000-000000000003',
-    'Mapping Goal C', 'test', 'short_term', null, 'milestone'
+    'Mapping Goal C', 'test', 'long_term',
+    '58000000-0000-4000-8000-000000000001', 'milestone'
   );
 
 insert into messages (
@@ -588,15 +595,29 @@ values (
   'count', 1, 'count', '2026-08-02'
 );
 
+alter table achievements alter column short_goal_id drop not null;
+alter table achievements disable trigger achievements_short_goal_guard;
+
 insert into achievements (
   id, user_id, short_goal_id, title, metric_type, achieved_at
 )
 values (
   '5d000000-0000-4000-8000-000000000001',
   '00000000-0000-4000-8000-000000000003',
-  '59000000-0000-4000-8000-000000000002',
+  null,
   'Mapping harvest', 'milestone', now()
 );
+
+alter table achievements enable trigger achievements_short_goal_guard;
+
+create or replace function fail_growth_mapping_achievement_update()
+returns trigger
+language plpgsql
+as $function$
+begin
+  raise exception 'forced achievement mapping failure';
+end
+$function$;
 
 do $test$
 declare
@@ -671,6 +692,117 @@ declare
 begin
   begin
     perform apply_growth_model_mapping(
+      mapping #- '{goals,0,goalType}',
+      expected_snapshot
+    );
+    raise exception 'missing goalType mapping was accepted';
+  exception when others then
+    if sqlerrm = 'missing goalType mapping was accepted' then
+      raise;
+    end if;
+    if position('invalid goal classification' in sqlerrm) = 0 then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform apply_growth_model_mapping(
+      mapping #- '{taskOverrides,0,target,kind}',
+      expected_snapshot
+    );
+    raise exception 'missing task target kind was accepted';
+  exception when others then
+    if sqlerrm = 'missing task target kind was accepted' then
+      raise;
+    end if;
+    if position('invalid task target' in sqlerrm) = 0 then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform apply_growth_model_mapping(
+      mapping,
+      expected_snapshot #- '{counts,goals}'
+    );
+    raise exception 'missing expected goal count was accepted';
+  exception when others then
+    if sqlerrm = 'missing expected goal count was accepted' then
+      raise;
+    end if;
+    if position('expected snapshot counts' in sqlerrm) = 0 then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform apply_growth_model_mapping(
+      jsonb_set(
+        mapping,
+        '{taskOverrides,1,target,targetGoalId}',
+        '"61000000-0000-4000-8000-000000000003"'::jsonb
+      ),
+      expected_snapshot
+    );
+    raise exception 'cross-user target was accepted';
+  exception when others then
+    if sqlerrm = 'cross-user target was accepted' then
+      raise;
+    end if;
+    if position('invalid task target' in sqlerrm) = 0 then
+      raise;
+    end if;
+  end;
+
+  execute 'create trigger zz_mapping_failure_guard before update on achievements for each row execute function fail_growth_mapping_achievement_update()';
+  failed := false;
+  begin
+    perform apply_growth_model_mapping(mapping, expected_snapshot);
+  exception when others then
+    if position('forced achievement mapping failure' in sqlerrm) = 0 then
+      raise;
+    end if;
+    failed := true;
+  end;
+  if not failed
+     or not exists (
+       select 1 from abilities
+       where id = '58000000-0000-4000-8000-000000000002'
+         and status = 'archived' and archived_at is not null
+     )
+     or exists (
+       select 1 from abilities
+       where user_id = '00000000-0000-4000-8000-000000000003'
+         and title = 'Outcome Ability'
+     )
+     or not exists (
+       select 1 from goals
+       where id = '59000000-0000-4000-8000-000000000003'
+         and goal_type = 'long_term'
+         and ability_id = '58000000-0000-4000-8000-000000000001'
+     )
+     or not exists (
+       select 1 from tasks
+       where id = '5b000000-0000-4000-8000-000000000001'
+         and goal_id = '59000000-0000-4000-8000-000000000002'
+     )
+     or not exists (
+       select 1 from activities
+       where id = '5c000000-0000-4000-8000-000000000001'
+         and goal_id = '59000000-0000-4000-8000-000000000002'
+     )
+     or not exists (
+       select 1 from achievements
+       where id = '5d000000-0000-4000-8000-000000000001'
+         and short_goal_id is null
+     ) then
+    raise exception 'late achievement failure must roll back prior mapping writes';
+  end if;
+  execute 'drop trigger zz_mapping_failure_guard on achievements';
+
+  failed := false;
+  begin
+    perform apply_growth_model_mapping(
       mapping,
       jsonb_set(expected_snapshot, '{counts,goals}', '4'::jsonb)
     );
@@ -685,7 +817,7 @@ begin
      or exists (
        select 1 from abilities
        where user_id = '00000000-0000-4000-8000-000000000003'
-         and title in ('Mapped Ability', 'Outcome Ability')
+         and title = 'Outcome Ability'
      )
      or not exists (
        select 1 from goals
@@ -705,7 +837,7 @@ begin
      or not exists (
        select 1 from achievements
        where id = '5d000000-0000-4000-8000-000000000001'
-         and short_goal_id = '59000000-0000-4000-8000-000000000002'
+         and short_goal_id is null
      ) then
     raise exception 'snapshot mismatch must leave all mapping entities unchanged';
   end if;
@@ -745,10 +877,39 @@ begin
        select 1 from achievements
        where id = '5d000000-0000-4000-8000-000000000001'
          and short_goal_id = '59000000-0000-4000-8000-000000000003'
+     )
+     or not exists (
+       select 1 from abilities
+       where id = '58000000-0000-4000-8000-000000000002'
+         and title = 'Mapped Ability'
+         and status = 'active'
+         and archived_at is null
+     )
+     or (
+       select count(*) from abilities
+       where user_id = '00000000-0000-4000-8000-000000000003'
+         and title in ('Mapped Ability', 'Outcome Ability')
+     ) <> 2 then
+    raise exception 'complete mapping must update goals, tasks, activities, achievements, and ability upserts together: %', result;
+  end if;
+
+  result := apply_growth_model_mapping(mapping, expected_snapshot);
+  if result->>'applied' <> 'true'
+     or (
+       select count(*) from abilities
+       where user_id = '00000000-0000-4000-8000-000000000003'
+         and title in ('Mapped Ability', 'Outcome Ability')
+     ) <> 2
+     or not exists (
+       select 1 from achievements
+       where id = '5d000000-0000-4000-8000-000000000001'
+         and short_goal_id = '59000000-0000-4000-8000-000000000003'
      ) then
-    raise exception 'complete mapping must update goals, tasks, activities, and achievements together: %', result;
+    raise exception 'reapplying the same complete mapping must be idempotent: %', result;
   end if;
 end
 $test$;
+
+drop function fail_growth_mapping_achievement_update();
 
 select 'growth completion SQL behavior tests passed' as result;

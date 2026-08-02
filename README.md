@@ -210,13 +210,13 @@ node scripts/generate-action-token.mjs zhi-custom-gpt YOUR_SUPABASE_AUTH_USER_ID
 
 已有数据不能根据标题自动猜测长期/短期分类。先在仓库外准备固定格式的 mapping JSON；该文件可能包含用户和业务记录 ID，**不要提交到 Git**。
 
-先运行只读 dry-run，并把完整输出保存下来：
+先运行只读 dry-run。输出中的 before/after counts 只覆盖脚本实际读取的 `profiles/goals/tasks/activities/achievements` 五张表；Ability 不做额外读取或数量推测，需要创建、复用或重新激活的意图统一以 `upsert_ability` 操作列出。
 
 ```bash
 npm run migrate:growth-model -- --mapping /absolute/path/mapping.json
 ```
 
-逐项核对输出里的 user、before/after 数量和每一条 Goal、Task、Activity、Achievement 操作。只有用户再次明确批准这份具体 mapping 后，才可以运行写入：
+逐项核对输出里的 user、before/after 数量和每一条 Goal、Task、Activity、Achievement 操作。dry-run 输出本身包含业务 ID 和 Ability title，必须只在仓库外的受限位置保存，**不得提交或分享**。只有用户再次明确批准这份具体 mapping 后，才可以运行写入：
 
 ```bash
 npm run migrate:growth-model -- --mapping /absolute/path/mapping.json --apply

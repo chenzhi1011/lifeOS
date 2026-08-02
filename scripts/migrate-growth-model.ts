@@ -57,7 +57,7 @@ export type GrowthSnapshot = {
   achievements: Array<{
     id: string;
     userId: string;
-    shortGoalId: string;
+    shortGoalId: string | null;
   }>;
 };
 
@@ -67,7 +67,6 @@ type EntityCounts = {
   tasks: number;
   activities: number;
   achievements: number;
-  abilities: number;
 };
 
 export type ExpectedSnapshot = {
@@ -76,7 +75,7 @@ export type ExpectedSnapshot = {
   expectedTaskIds: string[];
   expectedActivityIds: string[];
   expectedAchievementIds: string[];
-  counts: Omit<EntityCounts, "abilities">;
+  counts: EntityCounts;
 };
 
 export type GrowthMigrationOperation =
@@ -110,6 +109,13 @@ export type MigrationRepository = {
     expectedSnapshot: ExpectedSnapshot;
   }): Promise<unknown>;
 };
+
+class SafeCliError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SafeCliError";
+  }
+}
 
 function requireUnique(
   values: string[],
@@ -202,14 +208,14 @@ export function parseMigrationArgs(args: string[]): {
       apply = true;
       continue;
     }
-    throw new Error(`unknown migration argument: ${argument}`);
+    throw new SafeCliError("unknown migration argument");
   }
 
   if (!mappingPath) {
-    throw new Error("--mapping is required");
+    throw new SafeCliError("--mapping is required");
   }
   if (!path.isAbsolute(mappingPath)) {
-    throw new Error("--mapping must be an absolute path");
+    throw new SafeCliError("--mapping must be an absolute path");
   }
   return { mappingPath, apply };
 }
@@ -225,7 +231,9 @@ export function readMigrationEnvironment(
   ].filter((value): value is string => Boolean(value));
 
   if (missing.length > 0) {
-    throw new Error(`missing environment variables: ${missing.join(", ")}`);
+    throw new SafeCliError(
+      `missing environment variables: ${missing.join(", ")}`
+    );
   }
   return { url: url as string, serviceRoleKey: serviceRoleKey as string };
 }
@@ -390,8 +398,8 @@ export function buildGrowthMigrationPlan(
     counts
   };
   return {
-    beforeCounts: { ...counts, abilities: 0 },
-    afterCounts: { ...counts, abilities: abilityTitles.length },
+    beforeCounts: counts,
+    afterCounts: counts,
     expectedSnapshot,
     operations
   };
@@ -407,15 +415,25 @@ export async function runGrowthMigration(options: {
   result?: unknown;
 }> {
   const mapping = validateGrowthMapping(options.mapping);
-  const snapshot = await options.repository.readSnapshot(mapping.userId);
+  let snapshot: GrowthSnapshot;
+  try {
+    snapshot = await options.repository.readSnapshot(mapping.userId);
+  } catch {
+    throw new Error("growth migration snapshot read failed");
+  }
   const plan = buildGrowthMigrationPlan(mapping, snapshot);
   if (!options.apply) {
     return { mode: "dry-run", plan };
   }
-  const result = await options.repository.applyGrowthMapping({
-    mapping,
-    expectedSnapshot: plan.expectedSnapshot
-  });
+  let result: unknown;
+  try {
+    result = await options.repository.applyGrowthMapping({
+      mapping,
+      expectedSnapshot: plan.expectedSnapshot
+    });
+  } catch {
+    throw new Error("growth migration apply failed");
+  }
   return { mode: "apply", plan, result };
 }
 
@@ -520,7 +538,7 @@ function createMigrationRepository(
         achievements: achievements.map((row) => ({
           id: requiredString(row, "id", "achievements"),
           userId: requiredString(row, "user_id", "achievements"),
-          shortGoalId: requiredString(
+          shortGoalId: nullableString(
             row,
             "short_goal_id",
             "achievements"
@@ -545,17 +563,31 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   initializeCliEnvironment();
   const parsedArgs = parseMigrationArgs(args);
   const environment = readMigrationEnvironment(process.env);
-  const mapping = validateGrowthMapping(
-    JSON.parse(await readFile(parsedArgs.mappingPath, "utf8")) as unknown
-  );
-  const output = await runGrowthMigration({
-    mapping,
-    apply: parsedArgs.apply,
-    repository: createMigrationRepository(
-      environment.url,
-      environment.serviceRoleKey
-    )
-  });
+  let mapping: GrowthMapping;
+  try {
+    mapping = validateGrowthMapping(
+      JSON.parse(await readFile(parsedArgs.mappingPath, "utf8")) as unknown
+    );
+  } catch {
+    throw new SafeCliError("mapping file is invalid or unreadable");
+  }
+  let output: Awaited<ReturnType<typeof runGrowthMigration>>;
+  try {
+    output = await runGrowthMigration({
+      mapping,
+      apply: parsedArgs.apply,
+      repository: createMigrationRepository(
+        environment.url,
+        environment.serviceRoleKey
+      )
+    });
+  } catch {
+    throw new SafeCliError(
+      parsedArgs.apply
+        ? "growth migration apply failed"
+        : "growth migration dry-run failed"
+    );
+  }
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 }
 
@@ -564,7 +596,8 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : "migration failed";
+    const message =
+      error instanceof SafeCliError ? error.message : "growth migration failed";
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });
