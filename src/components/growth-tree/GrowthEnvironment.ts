@@ -19,9 +19,19 @@ export type GrowthEnvironmentLayer = {
   dispose: () => void;
 };
 
-type GrowthEnvironmentOptions = {
+export type GrowthEnvironmentOptions = {
   onDiagnostic?: (diagnostic: AssetLoadDiagnostic) => void;
-  onTreeModelVisibilityChange?: (visible: boolean) => void;
+  modelUrls?: Record<GrowthSceneAsset, string | null>;
+  loaderFactory?: () => GrowthEnvironmentLoader;
+};
+
+export type GrowthEnvironmentLoader = {
+  load: (
+    url: string,
+    onLoad: (loaded: { scene: THREE.Group }) => void,
+    onProgress: ((event: ProgressEvent<EventTarget>) => void) | undefined,
+    onError: (error: unknown) => void
+  ) => unknown;
 };
 
 function subduedColor(hex: number): THREE.Color {
@@ -58,9 +68,23 @@ function disposeObjectResources(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   const textures = new Set<THREE.Texture>();
+  const instances = new Set<THREE.InstancedMesh>();
+  const skeletons = new Set<THREE.Skeleton>();
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) {
       return;
+    }
+    if (object instanceof THREE.InstancedMesh && !instances.has(object)) {
+      instances.add(object);
+      object.dispose();
+    }
+    if (
+      object instanceof THREE.SkinnedMesh &&
+      object.skeleton &&
+      !skeletons.has(object.skeleton)
+    ) {
+      skeletons.add(object.skeleton);
+      object.skeleton.dispose();
     }
     if (!geometries.has(object.geometry)) {
       geometries.add(object.geometry);
@@ -88,6 +112,11 @@ export function createLake(): THREE.Mesh<
     positions.setY(index, Math.sin(x * 0.72 + z * 0.38) * 0.025);
   }
   positions.needsUpdate = true;
+  if (positions instanceof THREE.InterleavedBufferAttribute) {
+    positions.data.setUsage(THREE.DynamicDrawUsage);
+  } else {
+    positions.setUsage(THREE.DynamicDrawUsage);
+  }
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
@@ -219,11 +248,13 @@ function loadConfiguredModels(
   options: GrowthEnvironmentOptions,
   isDisposed: () => boolean
 ): void {
-  const loader = new GLTFLoader();
-  const models = GROWTH_SCENE_CONFIG.models as Record<
-    GrowthSceneAsset,
-    string | null
-  >;
+  const loader = options.loaderFactory?.() ?? new GLTFLoader();
+  const models =
+    options.modelUrls ??
+    (GROWTH_SCENE_CONFIG.models as Record<
+      GrowthSceneAsset,
+      string | null
+    >);
 
   for (const asset of Object.keys(models) as GrowthSceneAsset[]) {
     const url = models[asset];
@@ -240,7 +271,14 @@ function loadConfiguredModels(
         gltf.scene.name = `growth-${asset}-model`;
         if (asset === "tree") {
           gltf.scene.position.x = GROWTH_SCENE_CONFIG.treeOffsetX;
-          options.onTreeModelVisibilityChange?.(true);
+          gltf.scene.userData.decorative = true;
+          gltf.scene.traverse((object) => {
+            object.userData.decorative = true;
+            object.userData.selectable = false;
+            if (object instanceof THREE.Mesh) {
+              object.raycast = () => undefined;
+            }
+          });
         }
         fallbacks[asset] && (fallbacks[asset]!.visible = false);
         root.add(gltf.scene);
@@ -305,7 +343,6 @@ export function createGrowthEnvironment(
         return;
       }
       disposed = true;
-      options.onTreeModelVisibilityChange?.(false);
       disposeObjectResources(group);
       group.clear();
     }

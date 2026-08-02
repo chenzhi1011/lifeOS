@@ -31,7 +31,9 @@ const caps: Record<VitalityElementType, number> = {
 
 function geometryFor(type: VitalityElementType): THREE.BufferGeometry {
   if (type === "water") {
-    return new THREE.SphereGeometry(0.15, 8, 6);
+    const geometry = new THREE.SphereGeometry(0.15, 8, 6);
+    geometry.scale(0.78, 1.25, 0.78);
+    return geometry;
   }
   if (type === "creature") {
     return new THREE.DodecahedronGeometry(0.16, 0);
@@ -93,6 +95,7 @@ function createInstanceLayer(
     selected.length
   );
   mesh.name = `vitality-${type}`;
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = type !== "water";
   mesh.receiveShadow = type !== "water";
   mesh.frustumCulled = false;
@@ -111,10 +114,7 @@ function setInstanceTransform(
   transform.scale.setScalar(1);
 
   if (layer.type === "water") {
-    const shimmer = Math.sin(elapsedSeconds * 0.75 + record.phase);
-    transform.position.y += shimmer * record.amplitude;
-    transform.rotation.z = 0.18 * Math.sin(record.phase);
-    transform.scale.set(0.78, 1.25 + shimmer * 0.05, 0.78);
+    // Water remains still; only its shared material highlight changes over time.
   } else if (layer.type === "creature") {
     const pace = elapsedSeconds * 0.22 + record.phase;
     transform.position.x += Math.cos(pace) * record.amplitude;
@@ -172,6 +172,7 @@ export function createVitalityElements(
       }
       disposed = true;
       for (const layer of layers) {
+        layer.mesh.dispose();
         layer.mesh.geometry.dispose();
         if (Array.isArray(layer.mesh.material)) {
           layer.mesh.material.forEach((material) => material.dispose());

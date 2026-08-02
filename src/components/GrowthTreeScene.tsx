@@ -47,7 +47,6 @@ type SceneRuntime = {
   layer: RealisticGrowthTreeLayer | null;
   vitality: VitalityElementsLayer | null;
   hoveredUuid: string | null;
-  externalTreeVisible: boolean;
 };
 
 function pointerFromEvent(
@@ -198,8 +197,7 @@ export function GrowthTreeScene({
       environment: null,
       layer: null,
       vitality: null,
-      hoveredUuid: null,
-      externalTreeVisible: false
+      hoveredUuid: null
     };
     runtimeRef.current = runtime;
     const environment = createGrowthEnvironment({
@@ -212,12 +210,6 @@ export function GrowthTreeScene({
             ? current
             : [...current, diagnostic]
         );
-      },
-      onTreeModelVisibilityChange(visible) {
-        runtime.externalTreeVisible = visible;
-        if (runtime.layer) {
-          runtime.layer.group.visible = !visible;
-        }
       }
     });
     runtime.environment = environment;
@@ -343,6 +335,28 @@ export function GrowthTreeScene({
       runtime.vitality?.updateVitalityElements(elapsedSeconds);
       controls.update();
       renderer.render(scene, camera);
+      if (
+        runtime.environment &&
+        runtime.layer &&
+        runtime.vitality &&
+        renderer.domElement.getAttribute("data-scene-ready") !== "true"
+      ) {
+        renderer.domElement.setAttribute("data-scene-ready", "true");
+        renderer.domElement.setAttribute(
+          "data-scene-objects",
+          JSON.stringify({
+            lake: scene.getObjectByName("growth-lake") ? 1 : 0,
+            mountains: scene.getObjectByName("growth-mountain-layers") ? 1 : 0,
+            tree: runtime.layer.selectable.length,
+            vitality: runtime.vitality.group.children.reduce(
+              (count, object) =>
+                count +
+                (object instanceof THREE.InstancedMesh ? object.count : 0),
+              0
+            )
+          })
+        );
+      }
       animationId = requestAnimationFrame(animate);
     };
     animationId = requestAnimationFrame(animate);
@@ -373,6 +387,8 @@ export function GrowthTreeScene({
       controls.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
+      renderer.domElement.removeAttribute("data-scene-ready");
+      renderer.domElement.removeAttribute("data-scene-objects");
       runtimeRef.current = null;
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
@@ -391,7 +407,6 @@ export function GrowthTreeScene({
     }
     const layer = createRealisticGrowthTreeLayer(viewModel);
     layer.group.position.x = GROWTH_SCENE_CONFIG.treeOffsetX;
-    layer.group.visible = !runtime.externalTreeVisible;
     runtime.layer = layer;
     runtime.hoveredUuid = null;
     runtime.scene.add(layer.group);

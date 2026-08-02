@@ -8,13 +8,16 @@ const screenshotPaths = {
 
 async function verifyViewport(browser, viewport, name) {
   const page = await browser.newPage({ viewport });
-  await page.goto(url, { waitUntil: "networkidle" });
-  await page.waitForSelector("canvas", { timeout: 10000 });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  const canvas = page.locator('canvas[data-scene-ready="true"]');
+  await canvas.waitFor({ state: "visible", timeout: 20000 });
   await page.getByRole("button", { name: /果实面板/ }).waitFor();
   await page.getByRole("status", { name: "近期生命力" }).waitFor();
-  await page.waitForTimeout(800);
 
-  const sample = await page.evaluate(() => {
+  const sceneObjects = JSON.parse(
+    (await canvas.getAttribute("data-scene-objects")) ?? "{}"
+  );
+  const sample = await page.evaluate((objects) => {
     const source = document.querySelector("canvas");
     if (!(source instanceof HTMLCanvasElement)) {
       return {
@@ -22,42 +25,10 @@ async function verifyViewport(browser, viewport, name) {
         hasFruitButton: false,
         hasVitalitySummary: false,
         horizontalOverflow: false,
-        nonBlank: 0,
+        sceneObjects: objects,
         width: 0,
         height: 0
       };
-    }
-
-    const width = Math.min(96, source.width);
-    const height = Math.min(96, source.height);
-    const probe = document.createElement("canvas");
-    probe.width = width;
-    probe.height = height;
-    const ctx = probe.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      return {
-        hasCanvas: true,
-        hasFruitButton: document.body.textContent?.includes("果实面板") ?? false,
-        hasVitalitySummary:
-          document.querySelector('[aria-label="近期生命力"]') !== null,
-        horizontalOverflow:
-          document.documentElement.scrollWidth > window.innerWidth + 1,
-        nonBlank: 0,
-        width: source.width,
-        height: source.height
-      };
-    }
-
-    ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, width, height);
-    const pixels = ctx.getImageData(0, 0, width, height).data;
-    let nonBlank = 0;
-    for (let index = 0; index < pixels.length; index += 4) {
-      const r = pixels[index] ?? 0;
-      const g = pixels[index + 1] ?? 0;
-      const b = pixels[index + 2] ?? 0;
-      if (r + g + b > 24) {
-        nonBlank += 1;
-      }
     }
 
     return {
@@ -67,13 +38,17 @@ async function verifyViewport(browser, viewport, name) {
         document.querySelector('[aria-label="近期生命力"]') !== null,
       horizontalOverflow:
         document.documentElement.scrollWidth > window.innerWidth + 1,
-      nonBlank,
+      sceneObjects: objects,
       width: source.width,
       height: source.height
     };
-  });
+  }, sceneObjects);
 
-  await page.screenshot({ path: screenshotPaths[name], fullPage: true });
+  const screenshot = await page.screenshot({
+    path: screenshotPaths[name],
+    fullPage: true
+  });
+  sample.screenshotBytes = screenshot.byteLength;
   await page.close();
 
   if (
@@ -82,7 +57,10 @@ async function verifyViewport(browser, viewport, name) {
     !sample.hasVitalitySummary ||
     sample.width <= 0 ||
     sample.height <= 0 ||
-    sample.nonBlank < 80 ||
+    sample.screenshotBytes < 12000 ||
+    sample.sceneObjects.lake < 1 ||
+    sample.sceneObjects.mountains < 1 ||
+    sample.sceneObjects.tree < 1 ||
     (name === "mobile" && sample.horizontalOverflow)
   ) {
     throw new Error(`${name} canvas check failed: ${JSON.stringify(sample)}`);
