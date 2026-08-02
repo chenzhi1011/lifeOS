@@ -23,6 +23,29 @@ export type RealisticGrowthTreeLayer = {
   dispose: () => void;
 };
 
+export type TreeMaterialPalette = {
+  baseColor: number;
+  hoverColor: number;
+  selectedColor: number;
+  relatedColor?: number;
+};
+
+export function resolveTreeMaterialColor(
+  palette: TreeMaterialPalette,
+  state: { selected: boolean; hovered: boolean; related: boolean }
+): number {
+  if (state.selected) {
+    return palette.selectedColor;
+  }
+  if (state.hovered) {
+    return palette.hoverColor;
+  }
+  if (state.related) {
+    return palette.relatedColor ?? palette.baseColor;
+  }
+  return palette.baseColor;
+}
+
 function rememberOwnedMesh(
   mesh: THREE.Mesh,
   geometries: Set<THREE.BufferGeometry>,

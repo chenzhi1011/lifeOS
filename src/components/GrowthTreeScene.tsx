@@ -11,9 +11,17 @@ import type {
 } from "@/src/domain/tree-visualization";
 import {
   createRealisticGrowthTreeLayer,
+  resolveTreeMaterialColor,
   type RealisticGrowthTreeLayer,
   type TreeSelectionTarget
 } from "./RealisticGrowthTree";
+import {
+  beginPointerGesture,
+  cancelPointerGesture,
+  endPointerGesture,
+  movePointerGesture,
+  type PointerGestureState
+} from "./growth-tree-pointer";
 
 type GrowthTreeSceneProps = {
   viewModel: GrowthTreeViewModel;
@@ -72,7 +80,6 @@ function updateLayerMaterials(
     if (!target || !material) {
       continue;
     }
-    const baseColor = material.userData.baseColor as number;
     const hovered = object.uuid === hoveredUuid;
     const selected = targetIsSelected(target, selection);
     const related =
@@ -80,15 +87,19 @@ function updateLayerMaterials(
       (selection.entityType === "long_goal" ||
         selection.entityType === "short_goal") &&
       target.goalId === selection.entityId;
-    const color = selected
-      ? (material.userData.selectedColor as number)
-      : hovered
-        ? (material.userData.hoverColor as number)
-        : related
-          ? ((material.userData.relatedColor as number | undefined) ?? baseColor)
-          : baseColor;
+    const color = resolveTreeMaterialColor(
+      {
+        baseColor: material.userData.baseColor as number,
+        hoverColor: material.userData.hoverColor as number,
+        selectedColor: material.userData.selectedColor as number,
+        relatedColor: material.userData.relatedColor as number | undefined
+      },
+      { selected, hovered, related }
+    );
     material.color.setHex(color);
-    material.emissive.setHex(selected ? 0x315d18 : 0x000000);
+    material.emissive.setHex(
+      selected ? (target.kind === "leaf" ? 0x315d18 : 0x4a2f14) : 0x000000
+    );
     material.emissiveIntensity = selected ? 0.18 : 0;
   }
 }
@@ -125,12 +136,7 @@ export function GrowthTreeScene({
       return;
     }
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: false,
-      preserveDrawingBuffer: true
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setClearColor(0x9edcff, 1);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -171,11 +177,14 @@ export function GrowthTreeScene({
     const pointer = new THREE.Vector2();
     const runtime: SceneRuntime = { scene, layer: null, hoveredUuid: null };
     runtimeRef.current = runtime;
-    let pointerDown: { x: number; y: number } | null = null;
+    let pointerGesture: PointerGestureState | null = null;
 
     const resize = () => {
       const width = Math.max(1, mount.clientWidth);
       const height = Math.max(1, mount.clientHeight);
+      renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio || 1, 2)
+      );
       renderer.setSize(width, height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
@@ -189,11 +198,34 @@ export function GrowthTreeScene({
       raycaster.setFromCamera(pointer, camera);
       return selectedTarget(layer, raycaster);
     };
+    const capturePointer = (pointerId: number) => {
+      try {
+        renderer.domElement.setPointerCapture(pointerId);
+      } catch {
+        // The pointer may already have ended before capture is established.
+      }
+    };
+    const releasePointer = (pointerId: number) => {
+      try {
+        if (renderer.domElement.hasPointerCapture(pointerId)) {
+          renderer.domElement.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // Losing capture during controls cleanup is safe to ignore.
+      }
+    };
     const onPointerDown = (event: PointerEvent) => {
-      pointerDown = { x: event.clientX, y: event.clientY };
-      renderer.domElement.setPointerCapture(event.pointerId);
+      const nextGesture = beginPointerGesture(pointerGesture, event);
+      if (nextGesture === pointerGesture) {
+        return;
+      }
+      pointerGesture = nextGesture;
+      if (pointerGesture) {
+        capturePointer(pointerGesture.pointerId);
+      }
     };
     const onPointerMove = (event: PointerEvent) => {
+      pointerGesture = movePointerGesture(pointerGesture, event);
       const layer = runtime.layer;
       if (!layer) {
         return;
@@ -208,12 +240,13 @@ export function GrowthTreeScene({
       }
     };
     const onPointerUp = (event: PointerEvent) => {
-      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
-        renderer.domElement.releasePointerCapture(event.pointerId);
+      const completed = endPointerGesture(pointerGesture, event);
+      pointerGesture = completed.state;
+      if (!completed.matched) {
+        return;
       }
-      const start = pointerDown;
-      pointerDown = null;
-      if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) >= 5) {
+      releasePointer(event.pointerId);
+      if (!completed.isClick) {
         return;
       }
       const target = raycast(event);
@@ -232,9 +265,10 @@ export function GrowthTreeScene({
       }
     };
     const onPointerCancel = (event: PointerEvent) => {
-      pointerDown = null;
-      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
-        renderer.domElement.releasePointerCapture(event.pointerId);
+      const cancelled = cancelPointerGesture(pointerGesture, event.pointerId);
+      pointerGesture = cancelled.state;
+      if (cancelled.matched) {
+        releasePointer(event.pointerId);
       }
     };
     const onPointerLeave = () => {
@@ -277,6 +311,7 @@ export function GrowthTreeScene({
       ground.material.dispose();
       controls.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       runtimeRef.current = null;
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);

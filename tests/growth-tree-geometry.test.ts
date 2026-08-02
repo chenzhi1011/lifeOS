@@ -74,12 +74,30 @@ type LayerFactory = (
   dispose: () => void;
 };
 
+type ColorResolver = (
+  palette: {
+    baseColor: number;
+    hoverColor: number;
+    selectedColor: number;
+    relatedColor?: number;
+  },
+  state: { selected: boolean; hovered: boolean; related: boolean }
+) => number;
+
 function layerFactory(): LayerFactory | undefined {
   return (
     realisticGrowthTree as typeof realisticGrowthTree & {
       createRealisticGrowthTreeLayer?: LayerFactory;
     }
   ).createRealisticGrowthTreeLayer;
+}
+
+function colorResolver(): ColorResolver | undefined {
+  return (
+    realisticGrowthTree as typeof realisticGrowthTree & {
+      resolveTreeMaterialColor?: ColorResolver;
+    }
+  ).resolveTreeMaterialColor;
 }
 
 describe("growth tree geometry", () => {
@@ -122,6 +140,49 @@ describe("growth tree geometry", () => {
     expect(completed.material.userData.hoverColor).toBe(
       completed.material.userData.baseColor
     );
+  });
+
+  it("restores base color after hover and prioritizes controlled selection", () => {
+    const resolveColor = colorResolver();
+    expect(resolveColor).toBeTypeOf("function");
+    if (!resolveColor) {
+      return;
+    }
+    const palette = {
+      baseColor: 0x111111,
+      hoverColor: 0x222222,
+      selectedColor: 0x333333,
+      relatedColor: 0x444444
+    };
+
+    expect(
+      resolveColor(palette, {
+        selected: false,
+        hovered: true,
+        related: false
+      })
+    ).toBe(palette.hoverColor);
+    expect(
+      resolveColor(palette, {
+        selected: true,
+        hovered: true,
+        related: true
+      })
+    ).toBe(palette.selectedColor);
+    expect(
+      resolveColor(palette, {
+        selected: false,
+        hovered: false,
+        related: true
+      })
+    ).toBe(palette.relatedColor);
+    expect(
+      resolveColor(palette, {
+        selected: false,
+        hovered: false,
+        related: false
+      })
+    ).toBe(palette.baseColor);
   });
 
   it("builds selectable identity targets and disposes owned resources once", () => {
