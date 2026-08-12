@@ -83,6 +83,7 @@ Three.js 曲线枝干、叶片和交互对象
 - 相同输入重复计算得到完全相同的 recipe 和 skeleton；
 - 新增 Activity 未跨阶段时，已有永久骨架不变；
 - 跨阶段时只改变所属 Goal 和人生领域的局部结构；
+- 永久尺寸的成长前期明显、后期递减，并在成熟时趋近固定上限；
 - 低活跃只影响叶片，不删除历史枝干；
 - 所有业务枝叶仍可点击并打开正确详情；
 - 完整 Vitest、数据库测试、类型检查、生产构建和浏览器验收通过。
@@ -121,11 +122,22 @@ Three.js 曲线枝干、叶片和交互对象
 
 **为什么要改：** 如果直接相加，单位选择会不合理地决定树长多快，异常大的数值还可能让树突然变形。
 
-**准备怎么改：** 新增 GrowthMetrics，把不同单位转换为有上限的成长点，再分别计算历史累计和最近 30 天状态。
+**准备怎么改：** 新增 GrowthMetrics，把不同单位转换为有上限的成长点，再用负指数饱和曲线 `1 - e^(-points/35)` 计算成熟度。它与普通指数相反：前期变化快，成熟后逐渐放慢。历史累计和最近 30 天状态仍分开计算。
 
-**改完后的用户体验：** 树的成长速度可解释、不会因为输入单位或异常数字失控。
+**改完后的用户体验：** 新用户前几次完成目标就能明显看到树成长，获得成就感；成熟树仍会保留所有积累记录，但不会无限变高、变粗或挤出画面。
 
-**负责人验收问题：** 是否接受第一版换算规则和阶段阈值，后续通过数据观察再调参？
+**第一版成长速度示例：**
+
+| 成长点 | 成熟度 | 产品感受 |
+|---:|---:|---|
+| 0 | 0% | 初始幼树 |
+| 5 | 13% | 很快出现第一次明显成长 |
+| 15 | 35% | 前期反馈仍然强烈 |
+| 35 | 63% | 进入稳定成长阶段 |
+| 70 | 86% | 接近成熟，增长开始明显放慢 |
+| 140 | 98% | 成熟树，后续以细节和长期记录为主 |
+
+**负责人验收问题：** 是否接受曲线常数 35 和阶段点 `[0,5,15,35,70,140]` 作为第一版，后续通过真实使用数据调参？
 
 ### 修改 4：建立 TreeRecipe 树形配方
 
@@ -135,7 +147,7 @@ Three.js 曲线枝干、叶片和交互对象
 
 **准备怎么改：** 用 TreeRecipe 集中描述树干、七根领域枝、目标枝和树冠参数。数据库不保存这些参数，它们由数据随时重新计算。
 
-**改完后的用户体验：** 工作量增加会让对应领域枝变粗、变长；七根主枝的位置仍保持稳定。
+**改完后的用户体验：** 工作量增加会让对应领域枝按“前快后慢”的成熟度变粗、变长；七根主枝的位置仍保持稳定。
 
 **负责人验收问题：** 是否认可“固定主枝位置，数据只改变生长程度”的原则？
 
@@ -888,6 +900,7 @@ export type GrowthStage = 0 | 1 | 2 | 3 | 4 | 5;
 export type EntityGrowthMetric = {
   entityId: string;
   lifetimePoints: number;
+  maturity: number;
   activeDays: number;
   recentPoints: number;
   recentScore: number;
@@ -895,13 +908,30 @@ export type EntityGrowthMetric = {
 };
 
 export const GROWTH_STAGE_THRESHOLDS = [0, 5, 15, 35, 70, 140] as const;
+export const MATURITY_CURVE_K = 35;
+
+export function maturityFromPoints(points: number): number {
+  return -Math.expm1(-Math.max(0, points) / MATURITY_CURVE_K);
+}
 ```
 
-所有输出使用有限数字，`recentScore` clamp 到 `[0, 1]`。领域指标等于该领域下所有长期和短期 Goal 的指标之和。即使领域没有任何数据，也必须输出零值指标，保证七根主树杈存在。
+`Math.expm1` 在 points 很小时比 `1 - Math.exp(...)` 更稳定。所有输出使用有限数字，`maturity` 和 `recentScore` clamp 到 `[0, 1]`。领域指标等于该领域下所有长期和短期 Goal 的指标之和。即使领域没有任何数据，也必须输出零值指标，保证七根主树杈存在。
 
 - [ ] **Step 4：实现并测试边界条件**
 
-补充空数据、恰好跨阈值、未来日期不计入近期窗口、不同输入顺序输出相同的测试。
+补充空数据、恰好跨阈值、未来日期不计入近期窗口、不同输入顺序输出相同的测试。成长曲线必须满足：
+
+```ts
+expect(maturityFromPoints(0)).toBe(0);
+expect(maturityFromPoints(5)).toBeCloseTo(0.133, 3);
+expect(maturityFromPoints(35)).toBeCloseTo(0.632, 3);
+expect(maturityFromPoints(140)).toBeCloseTo(0.982, 3);
+expect(maturityFromPoints(5) - maturityFromPoints(0)).toBeGreaterThan(
+  maturityFromPoints(75) - maturityFromPoints(70)
+);
+```
+
+还要循环验证 points 增加时 maturity 永不下降、始终小于等于 1。
 
 Run: `npm test -- tests/growth-metrics.test.ts`
 
@@ -971,12 +1001,15 @@ export type TreeRecipe = {
 采用以下范围，而不是让数据无限放大：
 
 ```ts
-trunk.height = lerp(2.8, 5.2, maturity);
-trunk.radius = lerp(0.28, 0.62, maturity);
-branch.length = lerp(0.8, 2.6, stage / 5);
-branch.radius = lerp(0.07, 0.28, stage / 5);
+const lockedMaturity = maturityFromPoints(GROWTH_STAGE_THRESHOLDS[stage]);
+trunk.height = lerp(2.8, 5.2, lockedMaturity);
+trunk.radius = lerp(0.28, 0.62, lockedMaturity);
+branch.length = lerp(0.8, 2.6, lockedMaturity);
+branch.radius = lerp(0.07, 0.28, lockedMaturity);
 canopy.retention = lerp(0.45, 1, recentScore);
 ```
+
+使用阶段阈值对应的 `lockedMaturity`，而不是当前连续 maturity，确保未跨阶段的单次 Activity 只改变嫩叶和近期状态，不会让永久骨架每次发生微小位移。
 
 七根主树杈的方向由 `LIFE_AREAS[].slot` 和预设方位表决定；Goal 子枝方向由 `seedFromId(entityId, "branch-azimuth")` 决定，不能根据数据库返回顺序决定。
 
@@ -1374,6 +1407,7 @@ git commit -m "docs: document semantic tree generation"
 | 数据量大导致卡顿 | 叶片和 Mesh 数过多 | 装饰叶 InstancedMesh、数量上限、几何分段预算 |
 | 新旧写入不一致 | 某入口留下 message 却没留下 task | 退役非事务单事件入口，只保留 batch RPC |
 | 不同指标不可比 | 1 小时和 1 次被简单相加 | 在 GrowthMetrics 层集中换算并设置单次上限 |
+| 前期反馈太弱或后期失控 | 新用户看不到变化，或成熟树无限增大 | 使用 `1-e^(-points/35)` 负指数饱和曲线，并把永久几何锁定在阶段快照 |
 | 低活跃惩罚感过强 | 用户回来看到秃树 | 永久骨架不退化，叶片最低保留 45% |
 | 树好看但不可解释 | 用户不知道哪根枝是什么 | 每根语义枝保留实体 ID，点击打开现有详情 |
 | 旧数据阻塞上线 | 新 CHECK 扫描历史数据失败 | 迁移使用 NOT VALID，用户清理后再 validate |
@@ -1392,7 +1426,7 @@ git commit -m "docs: document semantic tree generation"
 
 1. **检查点 1：写入可信**——非法数据测试全部通过后才进入树形开发。
 2. **检查点 2：纯函数可信**——用 JSON 快照审查 recipe/skeleton，不先看漂亮画面。
-3. **检查点 3：视觉可信**——确认低、中、高三种数据量的树形差异。
+3. **检查点 3：视觉可信**——确认 0、5、15、35、70、140 点六个阶段的变化前期明显、后期收敛，并检查低、中、高数据量的树形差异。
 4. **检查点 4：交互可信**——逐个点击七个领域、long goal、short goal、Activity 和果实。
 5. **检查点 5：发布可信**——数据库与前端分两次发布，每次均可独立回退。
 
