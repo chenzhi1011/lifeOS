@@ -87,7 +87,462 @@ Three.js 曲线枝干、叶片和交互对象
 - 所有业务枝叶仍可点击并打开正确详情；
 - 完整 Vitest、数据库测试、类型检查、生产构建和浏览器验收通过。
 
-## 三、文件结构
+## 三、非技术审核指南：每项修改为什么存在
+
+下面不是代码清单，而是项目负责人需要批准的业务变化。审核时不需要判断函数名称是否合适，只需要确认“问题是否真实、改完的行为是否符合产品”。
+
+### 修改 1：用七个固定领域替代 Ability
+
+**现在是什么：** 数据库有一张 `abilities` 表。长期目标必须先关联 Ability，树再把 Ability 画成一级主枝。
+
+**为什么要改：** 这与新的产品决定冲突。工作、成长、健康等应该是所有用户共有且稳定的一级结构，不应该因为 AI 或用户创建了一个“能力”而多出或重排主树杈。
+
+**准备怎么改：** 删除 `abilities` 表、`goals.ability_id`、Ability API 事件以及前后端 Ability 类型。每个长期/短期 Goal 直接保存一个 `life_area`。
+
+**改完后的用户体验：** 所有用户永远看到七根主树杈。新增“每周跑步”只会在健康树杈下面长出目标枝，不会创建第八根主树杈。
+
+**负责人验收问题：** 是否确认人生领域固定为七个，且第一版不允许用户自定义？
+
+### 修改 2：只保留一个可靠的生产写入入口
+
+**现在是什么：** 项目同时有单事件写入和批量事务写入。旧单事件写入依次写 message、goal、task/activity，中途失败可能只留下前半部分。
+
+**为什么要改：** 树依赖数据关系完整。半套数据可能出现“有消息但没有 Todo”或“Todo 完成但没有 Activity”，导致树与真实行为不一致。
+
+**准备怎么改：** 生产集成只允许调用 `/api/actions/life-events`。它在一个数据库事务中完成所有写入；任何一步失败，整批都不保存。旧入口返回 410，告诉调用方迁移到新入口。
+
+**改完后的用户体验：** 同一句输入不会只保存一半；重复提交同一个批次不会生成重复记录。
+
+**负责人验收问题：** 是否接受旧集成必须升级到批量端点？
+
+### 修改 3：增加成长点数换算层
+
+**现在是什么：** Activity 可能记录分钟、小时、次数或里程碑，现有树主要直接累计 `value`。这样“练琴 60 分钟”和“跑步 1 次”无法公平比较。
+
+**为什么要改：** 如果直接相加，单位选择会不合理地决定树长多快，异常大的数值还可能让树突然变形。
+
+**准备怎么改：** 新增 GrowthMetrics，把不同单位转换为有上限的成长点，再分别计算历史累计和最近 30 天状态。
+
+**改完后的用户体验：** 树的成长速度可解释、不会因为输入单位或异常数字失控。
+
+**负责人验收问题：** 是否接受第一版换算规则和阶段阈值，后续通过数据观察再调参？
+
+### 修改 4：建立 TreeRecipe 树形配方
+
+**现在是什么：** 数据投影代码直接计算 Three.js 坐标，业务含义和视觉参数混在一起，很难像 EZ-Tree 一样集中调整树形。
+
+**为什么要改：** 产品以后会不断调整树高、分叉角度、枝条弯曲和叶密度。如果没有中间配方，每次视觉调整都可能破坏数据映射。
+
+**准备怎么改：** 用 TreeRecipe 集中描述树干、七根领域枝、目标枝和树冠参数。数据库不保存这些参数，它们由数据随时重新计算。
+
+**改完后的用户体验：** 工作量增加会让对应领域枝变粗、变长；七根主枝的位置仍保持稳定。
+
+**负责人验收问题：** 是否认可“固定主枝位置，数据只改变生长程度”的原则？
+
+### 修改 5：建立不会重排的语义骨架
+
+**现在是什么：** 当前使用稳定随机值计算少量直线枝，但没有完整的父子骨架契约。
+
+**为什么要改：** 如果新增一条记录后所有随机数重新分配，用户会看到旧目标突然换到另一边，失去“这是我的树”的连续感。
+
+**准备怎么改：** 七个领域使用固定方位；每个 Goal 的方向只由自身 ID 决定。新增 Goal 只在所属领域增加局部分枝。
+
+**改完后的用户体验：** 树会成长，但已经认识的枝条不会乱跑。
+
+**负责人验收问题：** 是否将位置稳定性置于每次生成的完全自然随机感之上？
+
+### 修改 6：把业务数据投影和 Three.js 渲染分开
+
+**现在是什么：** `tree-visualization.ts` 同时处理业务筛选、统计、坐标和诊断，修改任何一层都容易牵动其他部分。
+
+**为什么要改：** 数据规则和画面规则的变化频率不同。分开后，可以调整树的画风而不改变数据库含义。
+
+**准备怎么改：** 业务层只产出 metrics、recipe、skeleton；Three.js 层只把 skeleton 画出来。
+
+**改完后的用户体验：** 没有直接功能变化，但后续视觉迭代更安全、更快。
+
+**负责人验收问题：** 是否接受这部分属于必要基础建设，而不是立刻可见的画面功能？
+
+### 修改 7：把直线圆柱换成自然曲线枝干
+
+**现在是什么：** 每根枝是两个点之间的一根直圆柱，因此画面像结构示意图。
+
+**为什么要改：** EZ-Tree 视觉自然的关键之一是枝条由连续弯曲段组成，而不是直棍。
+
+**准备怎么改：** 使用三次贝塞尔曲线和 Three.js `TubeGeometry` 生成弯曲枝干，同时保留每根枝的领域/Goal ID。
+
+**改完后的用户体验：** 树的轮廓更自然，点击枝条仍能打开正确详情。
+
+**负责人验收问题：** 第一版是否接受枝条内部半径一致，以换取较低实现风险；父粗子细通过不同层级枝条体现？
+
+### 修改 8：数据少时也要有完整树冠
+
+**现在是什么：** 只有真实 Activity 才生成数据叶，所以新用户或低活跃用户的树很秃。
+
+**为什么要改：** 树首先要像一棵树，但又不能伪造 Activity。
+
+**准备怎么改：** 增加不可点击的装饰叶形成基础树冠；真实 Activity 叶颜色更亮并可点击。近期活跃度只改变树冠密度和颜色，最低保留 45%。
+
+**改完后的用户体验：** 数据少时仍有完整绿色树冠；用户仍能区分哪些亮叶代表真实执行。
+
+**负责人验收问题：** 是否接受装饰叶不对应数据库记录？
+
+### 修改 9：控制性能和资源释放
+
+**现在是什么：** 数据增长后，每片叶、每根枝都可能成为独立 WebGL 对象；反复刷新还可能遗漏资源释放。
+
+**为什么要改：** 手机端可能卡顿、耗电，长时间打开可能逐渐占用更多显存。
+
+**准备怎么改：** 装饰叶合并成 InstancedMesh，限制枝叶数量和几何精度，并测试每次更新只释放一次旧资源。
+
+**改完后的用户体验：** 桌面和手机上旋转、缩放更稳定，长时间使用不会越来越卡。
+
+**负责人验收问题：** 是否接受在极大数据量时压缩装饰细节，而不是无限增加叶片？
+
+### 修改 10：分两阶段发布并提供回退点
+
+**现在是什么：** Ability 删除同时影响数据库、API、读取和渲染，是一次破坏性结构变更。
+
+**为什么要改：** 如果所有变化一次上线，故障时很难判断是数据还是画面问题。
+
+**准备怎么改：** 先完成数据库字段准备和手工归类，再在短维护窗口删除 Ability 并切换 API；数据稳定后再单独发布程序树渲染。
+
+**改完后的用户体验：** 发布过程可能有一次短维护窗口，但数据与画面可以分别验收和回退。
+
+**负责人验收问题：** 是否接受短维护窗口来换取安全的结构切换？
+
+## 四、修改完成后的数据库存储结构
+
+### 1. 总体关系
+
+```text
+Supabase auth.users
+└── profiles（Life OS 用户）
+    ├── external_accounts（微信/Telegram/App 外部身份）
+    ├── action_credentials（Custom GPT/API 凭证）
+    ├── action_batches（一次原子写入批次）
+    │   └── messages（用户原始输入及解析结果）
+    ├── goals（长期/短期目标，直接属于固定领域）
+    │   ├── goal_aliases（目标别名）
+    │   ├── tasks（目标 Todo）
+    │   │   ├── reminders（提醒）
+    │   │   └── activities（完成后产生的真实执行）
+    │   ├── activities（没有 Todo 也可直接记录执行）
+    │   └── achievements（仅短期目标完成后产生）
+    ├── tasks（goal_id 为空时是一次性 Todo）
+    └── inbox_items（无法可靠分类、等待用户确认）
+```
+
+最终数据库中没有 `abilities` 表，也没有 `goals.ability_id`。
+
+除固定领域枚举外，所有业务表都通过 `user_id` 隔离用户。Supabase Row Level Security 继续限制登录用户只能访问自己的行；需要跨表事务的 HTTP API 在服务器端使用 service role，并在 RPC 中再次按 `p_user_id` 校验归属。service role 密钥不得发送到浏览器。
+
+### 2. 固定人生领域如何保存
+
+七个领域不单独建表，因为它们不是用户数据，而是产品常量：
+
+```text
+work           工作
+growth         成长
+health         健康
+life           生活
+finance        财务
+relationships  人际关系
+entertainment  娱乐
+```
+
+数据库通过 CHECK 约束保证 `goals.life_area` 只能使用这七个值。长期和短期 Goal 都必须直接选择一个领域。
+
+### 3. 每张表保存什么
+
+#### `profiles`：用户基本设置
+
+| 关键字段 | 含义 |
+|---|---|
+| `user_id` | Supabase 登录用户 UUID，主键 |
+| `display_name` | 显示名称 |
+| `timezone` | 用户时区，决定“今天”和提醒时间 |
+| `default_reminder_time` | 默认提醒时刻 |
+
+#### `external_accounts`：外部平台账号映射
+
+把微信、Telegram 或 App 外部用户 ID 映射到 Life OS 用户。它不参与树形计算。
+
+#### `action_credentials`：API 访问凭证
+
+保存凭证名称、token 哈希、启用/撤销状态和最后使用时间。数据库只保存哈希，不保存明文 token。
+
+#### `action_batches`：一次完整写入请求
+
+| 关键字段 | 含义 |
+|---|---|
+| `idempotency_key` | 防止同一请求重复写入 |
+| `request_hash` | 判断相同 key 是否被错误用于不同内容 |
+| `raw_text` | 用户整段原始输入 |
+| `response_json` | 第一次执行结果，重复请求直接复用 |
+
+#### `goals`：所有长期和短期目标
+
+| 字段 | 含义和规则 |
+|---|---|
+| `id`、`user_id` | Goal 身份和所属用户 |
+| `title` | 目标名称，同一用户内唯一 |
+| `life_area` | 必填，只能是七个固定领域之一 |
+| `goal_type` | `long_term` 或 `short_term` |
+| `category` | 保留的自由文本展示标签；不决定树枝位置 |
+| `parent_goal_id` | 可选的父目标关系；第一版树形不依赖它 |
+| `metric_type` | duration、count 或 milestone |
+| `status` | active、paused、completed |
+| `due_at` | 可选截止时间 |
+| `completed_at` | completed 时必须存在 |
+
+示例：
+
+```text
+“每周跑步”     life_area=health, goal_type=long_term
+“通过 AWS 考试” life_area=growth, goal_type=short_term
+“拿到新工作”   life_area=work,   goal_type=short_term
+```
+
+#### `goal_aliases`：目标别名
+
+例如 “AWS 认证”“AWS 考试”“SAA” 都可指向同一个 Goal。别名只用于输入解析，不额外生成树枝。
+
+#### `messages`：原始输入审计记录
+
+保存输入来源、原文、识别类型、置信度、解析 JSON、批次序号和处理状态。删除 Ability 后，允许类型为 task、activity、goal、reminder、inbox，不再允许 ability。
+
+#### `tasks`：待办事项
+
+| 情况 | `goal_id` | 树上的处理 |
+|---|---|---|
+| 买水、打扫卫生 | `null` | 未完成不显示；完成后成为近期生命力装饰 |
+| 今天跑步 30 分钟 | 健康领域下的 Goal ID | 未完成不显示；完成后产生 Activity 叶片 |
+
+Task 保存状态、截止时间、优先级和计划指标。Task 不保存 `life_area`，避免与 Goal 出现两份互相矛盾的分类。
+
+#### `activities`：真实发生的执行
+
+Activity 必须关联 Goal，可以选择关联促成它的 Task。它保存执行摘要、日期、指标类型、正数值和单位，是树成长的主要事实来源。
+
+单位规则：duration 只能用 minute/hour；count 和 milestone 只能用 count。
+
+#### `reminders`：提醒计划
+
+关联 Task 和原始 message，保存提醒时间、重复规则以及 scheduled/sent/cancelled 状态。它不参与树形计算。
+
+#### `inbox_items`：等待确认的数据
+
+当系统无法唯一判断 Goal 或事件类型时，不冒险创建错误数据，而是保存建议内容、原因和待处理状态。
+
+#### `achievements`：短期成果/果实
+
+每个已完成短期 Goal 最多对应一个 Achievement，保存标题、说明、证据链接和达成时间。数据库触发器必须同时检查 Goal 为 `short_term` 且状态已经是 `completed`；长期或未完成 Goal 都不能拥有 Achievement。
+
+### 4. 三条典型写入链路
+
+```text
+一次性 Todo：
+message → task(goal_id=null) → 完成 task
+                              └→ 不创建 activity
+
+目标 Todo：
+message → task(goal_id=某 Goal) → 完成 task
+                                  └→ activity(goal_id=同一 Goal)
+
+短期目标完成：
+goal(status=completed) → achievement(short_goal_id=该 Goal)
+```
+
+## 五、全部 API 说明
+
+### 1. API 分组
+
+| 分组 | 用途 | 身份验证 |
+|---|---|---|
+| Actions API | Custom GPT、自动化或外部客户端读写用户数据 | Bearer Action Token |
+| Completion API | 完成 Todo 或 Goal | Bearer Action Token |
+| Dashboard API | 网页读取树和详情 | 当前通过 `userId` 查询参数；后续正式多用户上线前应改为登录 Session |
+| Demo API | 本地演示自然语言解析 | 当前无鉴权且只写内存；生产环境应关闭 |
+| PostgreSQL RPC | HTTP API 内部使用的原子事务 | 仅 service role |
+
+### 2. `GET /api/actions/context`——读取写入上下文
+
+**调用者：** Custom GPT 或外部自动化。
+
+**目的：** 在写入前获取当前时间、已有 Goal、Goal 别名和未完成 Todo，避免重复创建或错误匹配。
+
+**认证：** `Authorization: Bearer los_...`。
+
+**修改背景：** 当前返回 `abilities`；Ability 删除后该字段也删除，Goal 新增 `lifeArea`。
+
+**最终返回示意：**
+
+```json
+{
+  "user": { "id": "uuid", "actionCredential": "my-gpt" },
+  "currentTime": "2026-08-12 10:00:00 Asia/Tokyo",
+  "timezone": "Asia/Tokyo",
+  "defaultReminderTime": "09:00",
+  "goals": [
+    {
+      "id": "goal-uuid",
+      "title": "每周跑步",
+      "goalType": "long_term",
+      "lifeArea": "health",
+      "status": "active"
+    }
+  ],
+  "aliases": [],
+  "openTasks": []
+}
+```
+
+### 3. `POST /api/actions/life-events`——唯一生产写入入口
+
+**调用者：** Custom GPT 或外部自动化。
+
+**目的：** 一次提交 1–20 个有顺序的事件，并在一个数据库事务中全部写入。
+
+**认证：** Bearer Action Token；有速率限制。
+
+**批次字段：**
+
+- `idempotencyKey`：同一输入的稳定唯一键；重复提交返回第一次结果。
+- `rawText`：用户完整原文。
+- `events`：有顺序的事件数组。
+
+**最终允许的事件：**
+
+| type | 用途 | 是否直接写 lifeArea |
+|---|---|---|
+| `goal` | 创建长期或短期 Goal | 是，必填 |
+| `task` | 创建一次性或目标 Todo | 否，从 Goal 继承 |
+| `activity` | 记录已发生的执行 | 否，从 Goal 继承 |
+| `inbox` | 保存无法可靠分类的内容 | 否 |
+
+不再允许 `ability`。
+
+**创建长期目标示例：**
+
+```json
+{
+  "idempotencyKey": "message-20260812-001",
+  "rawText": "我要每周跑步三次",
+  "events": [
+    {
+      "type": "goal",
+      "confidence": 0.96,
+      "goalType": "long_term",
+      "title": "每周跑步三次",
+      "lifeArea": "health",
+      "category": "运动",
+      "metricType": "count",
+      "aliases": ["跑步"]
+    }
+  ]
+}
+```
+
+**创建一次性 Todo 示例：**
+
+```json
+{
+  "idempotencyKey": "message-20260812-002",
+  "rawText": "明天买水",
+  "events": [
+    {
+      "type": "task",
+      "confidence": 0.99,
+      "path": "one_off",
+      "title": "买水",
+      "localDate": "2026-08-13",
+      "priority": "normal"
+    }
+  ]
+}
+```
+
+**重要行为：** 任一事件校验或写入失败，整批回滚；相同 idempotency key 配不同内容返回 409；存储不可用返回 503。
+
+### 4. `POST /api/actions/life-event`——旧单事件入口
+
+**当前：** 会执行多次非事务写入。
+
+**最终：** 退役并固定返回 `410 Gone`：
+
+```json
+{
+  "error": "single-event endpoint retired",
+  "replacement": "/api/actions/life-events"
+}
+```
+
+### 5. `POST /api/tasks/{id}/complete`——完成 Todo
+
+**调用者：** 有 Action Token 的客户端。
+
+**输入：**
+
+```json
+{
+  "occurredOn": "2026-08-12",
+  "metric": { "type": "duration", "value": 30, "unit": "minute" }
+}
+```
+
+`metric` 可省略：目标 Todo 优先使用 Task 计划指标，否则默认 count=1。
+
+**数据库行为：**
+
+- 锁定并完成一条 open Task；
+- `goal_id=null` 时不创建 Activity；
+- 有 Goal 时，在同一事务中创建 Activity；
+- 重复完成不会重复创建 Activity。
+
+### 6. `POST /api/goals/{id}/complete`——完成 Goal
+
+**输入：** 可选的 `title`、`note`、`evidenceUrl`。
+
+**数据库行为：**
+
+- 将 Goal 标记 completed 并填写 `completed_at`；
+- short_term Goal 创建或更新唯一 Achievement；
+- long_term Goal 不创建 Achievement；
+- 重复调用保持幂等。
+
+### 7. `GET /api/dashboard?userId={id}`——读取整棵树所需数据
+
+**调用者：** Dashboard 页面。
+
+**返回：** Goals、全部/近期 Activities、最近完成的一次性 Todo、Achievements、热力图和待确认数量。程序树在服务端/前端根据这些事实计算，不从数据库读取树形坐标。
+
+**当前限制：** 该接口通过查询参数决定用户，适合当前 MVP 和 demo-user，但不是最终多用户安全方案。本次程序树计划保持现状；正式开放前应另立安全任务，改为从 Supabase 登录 Session 推导 userId。
+
+### 8. `GET /api/goals/{id}?userId={id}`——读取目标详情
+
+返回单个 Goal、子目标、统计、近期 Activity 和热力图，用于目标详情页。它与 Dashboard API 有同样的 userId 查询参数限制。
+
+### 9. `POST /api/intake`——本地演示解析接口
+
+**当前：** 无 Bearer 鉴权，把自然语言交给 mock/AI parser，并写入进程内存 `lifeOSStore`；不会写 Supabase。
+
+**修改背景：** 它当前仍能产生 Ability 解析结果，与新模型冲突。
+
+**最终处理：** 更新 mock parser，使 Goal 直接带 `lifeArea`；删除 Ability 分支；仅在开发/演示环境启用，生产环境返回 404。它不属于生产数据写入路径。
+
+### 10. 数据库内部 RPC
+
+| RPC | HTTP 调用方 | 作用 | 最终状态 |
+|---|---|---|---|
+| `record_life_event_batch` | `/api/actions/life-events` | 原子写入 batch/messages/goals/tasks/activities/inbox | 保留并删除 Ability 逻辑 |
+| `complete_growth_task` | `/api/tasks/{id}/complete` | 完成 Task，目标 Todo 同时生成 Activity | 保留 |
+| `complete_growth_goal` | `/api/goals/{id}/complete` | 完成 Goal，短期 Goal 同时生成果实 | 保留 |
+| `apply_growth_model_mapping` | 旧迁移脚本 | 自动映射旧 Ability/Goal 数据 | 删除，不再使用 |
+
+这些 RPC 不直接暴露给浏览器，并只授权给 Supabase `service_role`。
+
+## 六、文件结构
 
 ### 新增文件
 
@@ -124,12 +579,20 @@ Three.js 曲线枝干、叶片和交互对象
 | `src/domain/aggregation.ts` | 删除 Ability 聚合，按 Goal.lifeArea 汇总领域数据 |
 | `src/db/lifeos-read.ts` | 不再读取 abilities，读取 goals.life_area |
 | `src/domain/store.ts`、`src/domain/seed.ts` | 删除内存模型中的 Ability 数据 |
+| `app/api/intake/route.ts`、`src/ai/mock-parser.ts` | 让 demo 解析使用 lifeArea，并禁止生产环境调用内存写入接口 |
 | `app/api/actions/life-event/route.ts` | 将旧单事件入口收口到事务批处理入口或明确退役 |
 | `docs/custom-gpt-actions/openapi.yaml` | 只公开事务性写入端点 |
 
-## 四、逐项实施任务
+### 删除文件
 
-### Task 1：固定七个人生领域并让数据库拒绝非法分类
+| 文件 | 删除原因 |
+|---|---|
+| `scripts/migrate-growth-model.ts` | 旧脚本围绕 Ability 自动映射；用户已决定手工修改数据 |
+| `tests/growth-model-migration.test.ts` | 被删除脚本的测试，不再代表产品需求 |
+
+## 七、逐项实施任务
+
+### Task 1：定义七个固定人生领域并准备数据库过渡字段
 
 **Files:**
 - Create: `supabase/migrations/202608120001_growth_input_constraints.sql`
@@ -247,7 +710,7 @@ git add supabase/migrations/202608120001_growth_input_constraints.sql supabase/s
 git commit -m "feat: define fixed life area branches"
 ```
 
-### Task 2：收口生产写入，禁止半套数据
+### Task 2：删除 Ability 并收口生产写入
 
 **Files:**
 - Create: `supabase/migrations/202608120002_fixed_life_area_writes.sql`
@@ -261,6 +724,9 @@ git commit -m "feat: define fixed life area branches"
 - Modify: `src/db/lifeos-read.ts`
 - Modify: `src/domain/store.ts`
 - Modify: `src/domain/seed.ts`
+- Modify: `app/api/intake/route.ts`
+- Modify: `src/ai/mock-parser.ts`
+- Modify: `package.json`
 - Modify: `supabase/schema.sql`
 - Modify: `docs/custom-gpt-actions/openapi.yaml`
 - Test: `tests/single-event-repository.test.ts`
@@ -268,13 +734,18 @@ git commit -m "feat: define fixed life area branches"
 - Test: `tests/batch-preparation.test.ts`
 - Test: `tests/batch-resolution.test.ts`
 - Test: `tests/custom-gpt-action-contract.test.ts`
+- Test: `tests/action-context.test.ts`
 - Test: `tests/aggregation.test.ts`
 - Test: `tests/lifeos-read.test.ts`
 - Test: `tests/store.test.ts`
+- Test: `tests/mock-parser.test.ts`
+- Create: `tests/intake-route.test.ts`
+- Delete: `scripts/migrate-growth-model.ts`
+- Delete: `tests/growth-model-migration.test.ts`
 
 - [ ] **Step 1：写固定领域输入契约测试**
 
-要求：生产输入不再接受 `type: "ability"`；长期和短期 Goal 都必须提交 `lifeArea`；Task 和 Activity 的 strict schema 拒绝 `lifeArea` 字段。SQL 测试同时证明缺少或使用非法 `life_area` 的 Goal 无法写入。
+要求：生产输入不再接受 `type: "ability"`；长期和短期 Goal 都必须提交 `lifeArea`；Task 和 Activity 的 strict schema 拒绝 `lifeArea` 字段；metric schema 在 API 层就拒绝错误的类型/单位组合。SQL 测试同时证明缺少或使用非法 `life_area` 的 Goal 无法写入，并证明 active short-term Goal 不能提前拥有 Achievement。
 
 ```ts
 expect(() => validateLifeEventBatchPayload({
@@ -310,7 +781,7 @@ Expected: FAIL，因为输入结构尚未要求固定领域，旧入口也仍执
 
 - [ ] **Step 4：删除 Ability 类型并更新输入与准备层**
 
-从 `IntentType`、`LifeEventParseResult`、batch validation、prepared event、action context 和 resolution 中删除 Ability。所有 Goal 增加必填 `lifeArea: LifeAreaId`。PreparedEvent 直接携带领域：
+从 `IntentType`、`LifeEventParseResult`、batch validation、prepared event、action context 和 resolution 中删除 Ability。所有 Goal 增加必填 `lifeArea: LifeAreaId`；metric 的 Zod schema同步强制 duration→minute/hour、count/milestone→count。PreparedEvent 直接携带领域：
 
 ```ts
 type PreparedGoal = {
@@ -340,15 +811,21 @@ drop table if exists abilities;
 
 同一迁移重建 `record_life_event_batch`：删除 `ability` event kind；Goal insert 必须写 `life_area`；相同标题但不同 `goal_type` 或 `life_area` 必须报 identity conflict。同步删除 messages/inbox 的 `ability` 允许值和所有 RPC 返回中的 `abilityId`。
 
+同步收紧 `enforce_achievement_short_goal()`：关联 Goal 除了必须为 short_term，还必须 `status = 'completed'` 且 `completed_at is not null`。
+
+同一迁移执行 `drop function if exists apply_growth_model_mapping(jsonb, jsonb);`。历史 migration 文件保留作为数据库变更记录，但可执行映射脚本和 npm 命令删除，防止未来误运行。
+
 迁移结束前执行 `alter table goals validate constraint goals_life_area_required_check;`。如果用户手工填写仍有遗漏，迁移必须失败并回滚，不能删除 Ability 后留下无法归类的 Goal。
 
 - [ ] **Step 6：删除读取与内存模型中的 Ability**
 
 `DashboardData`、`LifeOSState`、seed 和 Supabase read 不再包含 abilities。Goal 类型增加 `lifeArea: LifeAreaId`；数据库 reader 读取 `life_area` 并拒绝非法枚举。`category` 暂时保留为展示元数据，但树投影只能使用 `lifeArea`。
 
+同步更新 mock parser：原来创建 Ability 的规则改为直接创建带 `lifeArea` 的 Goal；`/api/intake` 在 production 返回 404，只保留本地 demo 用途。
+
 - [ ] **Step 7：退役生产入口并保留只读上下文代码**
 
-将 route 改为固定返回 410；从 `repository.ts` 删除或改为不再导出的 `writeSupabaseLifeEvent`、`materializeSupabaseGoal` 等非事务写入代码。保留 `readActionContext`，因为批处理准备阶段仍需要它。
+将 route 改为固定返回 410；从 `repository.ts` 删除 `writeSupabaseLifeEvent`、`materializeSupabaseGoal` 等非事务写入代码。保留 `readActionContext`，因为批处理准备阶段仍需要它。
 
 ```ts
 export async function POST() {
@@ -368,14 +845,15 @@ export async function POST() {
 
 - [ ] **Step 9：运行路由、批处理、读取和数据库测试**
 
-Run: `npm test -- tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/batch-resolution.test.ts tests/action-batch-route.test.ts tests/batch-repository.test.ts tests/custom-gpt-action-contract.test.ts tests/aggregation.test.ts tests/lifeos-read.test.ts tests/store.test.ts && npm run test:db`
+Run: `npm test -- tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/batch-resolution.test.ts tests/action-batch-route.test.ts tests/batch-repository.test.ts tests/custom-gpt-action-contract.test.ts tests/action-context.test.ts tests/aggregation.test.ts tests/lifeos-read.test.ts tests/store.test.ts tests/mock-parser.test.ts tests/intake-route.test.ts && npm run test:db`
 
 Expected: 全部 PASS；代码搜索不再发现生产 route 调用 `writeLifeEventFromAction`。
 
 - [ ] **Step 10：提交固定领域事务写入收口**
 
 ```bash
-git add supabase/migrations/202608120002_fixed_life_area_writes.sql supabase/schema.sql app/api/actions/life-event/route.ts src/actions/repository.ts src/domain/types.ts src/domain/life-event-schema.ts src/actions/batch-preparation.ts src/actions/batch-resolution.ts src/actions/batch-validation.ts src/domain/aggregation.ts src/db/lifeos-read.ts src/domain/store.ts src/domain/seed.ts docs/custom-gpt-actions/openapi.yaml tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/batch-resolution.test.ts tests/single-event-repository.test.ts tests/custom-gpt-action-contract.test.ts tests/aggregation.test.ts tests/lifeos-read.test.ts tests/store.test.ts
+git add supabase/migrations/202608120002_fixed_life_area_writes.sql supabase/schema.sql app/api/actions/life-event/route.ts app/api/intake/route.ts src/actions/repository.ts src/domain/types.ts src/domain/life-event-schema.ts src/actions/batch-preparation.ts src/actions/batch-resolution.ts src/actions/batch-validation.ts src/domain/aggregation.ts src/db/lifeos-read.ts src/domain/store.ts src/domain/seed.ts src/ai/mock-parser.ts package.json docs/custom-gpt-actions/openapi.yaml tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/batch-resolution.test.ts tests/single-event-repository.test.ts tests/custom-gpt-action-contract.test.ts tests/action-context.test.ts tests/aggregation.test.ts tests/lifeos-read.test.ts tests/store.test.ts tests/mock-parser.test.ts tests/intake-route.test.ts
+git rm scripts/migrate-growth-model.ts tests/growth-model-migration.test.ts
 git commit -m "refactor: replace abilities with fixed life areas"
 ```
 
@@ -865,7 +1343,7 @@ git add tests/growth-tree-dashboard.test.tsx docs/code-reading-guide.md README.m
 git commit -m "docs: document semantic tree generation"
 ```
 
-## 五、发布顺序
+## 八、发布顺序
 
 发布必须拆成两次，避免数据库和前端同时变化导致定位困难。
 
@@ -888,7 +1366,7 @@ git commit -m "docs: document semantic tree generation"
 4. 再部署生产前端。
 5. 出现渲染问题时可回退前端提交，数据库事实和写入约束不需要回退。
 
-## 六、风险与管理决策
+## 九、风险与管理决策
 
 | 风险 | 表现 | 控制办法 |
 |---|---|---|
@@ -901,11 +1379,11 @@ git commit -m "docs: document semantic tree generation"
 | 旧数据阻塞上线 | 新 CHECK 扫描历史数据失败 | 迁移使用 NOT VALID，用户清理后再 validate |
 | 删除 Ability 遗漏依赖 | 构建或 RPC 仍读取 abilities/ability_id | 删除前用全仓 `rg` 清单审计，类型、SQL、OpenAPI 和测试同一任务收口 |
 
-## 七、工作量与检查点
+## 十、工作量与检查点
 
-以一名熟悉 TypeScript/Three.js 的工程师为基准，建议安排 **8–12 个专注工程日**，不包含项目负责人手工修改生产数据的时间：
+以一名熟悉 TypeScript/Three.js 的工程师为基准，建议安排 **9–13 个专注工程日**，不包含项目负责人手工修改生产数据的时间：
 
-- 数据约束与写入收口：1–2 日；
+- 固定领域、Ability 删除、数据约束与写入收口：2–3 日；
 - GrowthMetrics、TreeRecipe、语义骨架：3–4 日；
 - Three.js 曲线几何、树冠与交互：3–4 日；
 - 全量测试、移动端调优和发布：1–2 日。
@@ -918,7 +1396,7 @@ git commit -m "docs: document semantic tree generation"
 4. **检查点 4：交互可信**——逐个点击七个领域、long goal、short goal、Activity 和果实。
 5. **检查点 5：发布可信**——数据库与前端分两次发布，每次均可独立回退。
 
-## 八、执行纪律
+## 十一、执行纪律
 
 - 每个任务先写失败测试，再写最小实现。
 - 每个任务完成后单独提交，不把十个任务压成一个大提交。

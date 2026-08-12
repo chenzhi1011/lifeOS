@@ -52,8 +52,9 @@
 - duration 只能使用 minute/hour；count 和 milestone 使用 count。
 - 完成目标 Todo 时事务性创建 Activity。
 - 完成一次性 Todo 时不创建 Activity。
-- 完成短期目标时事务性创建唯一 Achievement。
+- 完成短期目标时事务性创建唯一 Achievement；数据库禁止未完成或长期 Goal 拥有 Achievement。
 - 所有生产写入通过事务 RPC，不能留下半套数据。
+- 无鉴权的 `/api/intake` 只供本地演示，生产环境关闭；它不属于数据库写入入口。
 
 本项目不执行旧数据自动映射和自动修复。用户先手工把现有 Goal 补齐 `life_area`；确认无代码依赖 Ability 后，再执行删除 `ability_id` 和 `abilities` 的迁移。
 
@@ -136,6 +137,7 @@ TreeRecipe 是业务与几何之间唯一契约，采用 EZ-Tree 风格参数：
 - GLB 树模型。
 - 用户自选或新增人生领域。
 - Ability 概念及其兼容层。
+- 继续支持旧的非事务单事件写入 API。
 - 树木成长动画。
 - 把未完成 Todo 显示在树上。
 
