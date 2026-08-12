@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 Life OS 在保证新写入数据合法的前提下，根据每个用户的能力、目标和执行记录，稳定生成一棵形态独特、能够阶段成长、能够点击查看业务详情的程序树。
+**Goal:** 让 Life OS 在保证新写入数据合法的前提下，以七个固定人生领域作为一级主树杈，根据领域下的长期目标、短期目标和执行记录生成能够阶段成长、能够点击查看业务详情的程序树。
 
-**Architecture:** 数据库只保存能力、目标、Todo、Activity 和成果等业务事实。纯函数管线将这些事实依次转换为 `GrowthMetrics`、EZ-Tree 风格的 `TreeRecipe` 和携带业务 ID 的 `SemanticTreeSkeleton`，最后由 Three.js 生成曲线枝干与实例化叶片；现有场景、选择交互和详情面板继续复用。
+**Architecture:** 数据库保存 Goal、Todo、Activity 和成果等业务事实，每个 Goal 直接属于七个固定领域之一，不再存在 Ability。纯函数管线将这些事实依次转换为 `GrowthMetrics`、EZ-Tree 风格的 `TreeRecipe` 和携带业务 ID 的 `SemanticTreeSkeleton`，最后由 Three.js 生成曲线枝干与实例化叶片；现有场景、选择交互和详情面板继续复用。
 
 **Tech Stack:** Next.js 15、React 19、TypeScript 5.7、Three.js 0.185、Supabase/PostgreSQL、Zod、Vitest、Playwright、SQL 回归测试。
 
@@ -16,12 +16,12 @@
 
 这个项目把用户日常输入转换为结构化成长记录。用户看到的不是普通报表，而是一棵树：长期积累成为枝干，近期执行成为叶片，一次性事项成为水滴或小生物，短期目标的完成结果成为果实。
 
-数据库中的五类核心事实是：
+数据库中的核心事实是：
 
 | 数据 | 用户语言 | 在树上的意义 |
 |---|---|---|
-| `abilities` | 健身能力、弹琴能力、编程能力 | 一级主树杈 |
-| `goals` | 坚持健身、通过考试、找到工作 | 长期分枝或短期结果枝 |
+| 固定 life areas | 工作、成长、健康、生活、财务、人际关系、娱乐 | 始终存在的七根一级主树杈 |
+| `goals` | 坚持健身、通过考试、找到工作 | 领域下的长期积累枝或短期结果枝 |
 | `tasks` | 今天跑步、买水、打扫卫生 | 未完成时不显示；完成后触发反馈 |
 | `activities` | 实际跑了 30 分钟、练琴 1 小时 | 历史积累、嫩叶和树形成长依据 |
 | `achievements` | 考试通过、拿到 offer | 果实面板中的永久收获 |
@@ -39,7 +39,7 @@ EZ-Tree 是一个 Three.js 程序树生成器。它不是提供一棵固定模�
 - `angle`、`gnarliness`、`twist`：分叉方向、自然弯曲和扭转；
 - `leaves.count`、`size`：叶片数量和大小。
 
-本项目只参考这种“参数决定树形”的方法，不直接接入 EZ-Tree 运行库。原因是 EZ-Tree 会把许多枝条合并成视觉几何，难以保证某根枝永远对应某个 ability 或 goal。Life OS 的树不只是装饰，它必须保留业务身份和点击交互。
+本项目只参考这种“参数决定树形”的方法，不直接接入 EZ-Tree 运行库。原因是 EZ-Tree 会把许多枝条合并成视觉几何，难以保证某根枝永远对应某个人生领域或 Goal。Life OS 的树不只是装饰，它必须保留业务身份和点击交互。
 
 ### 3. 最终系统如何工作
 
@@ -55,7 +55,7 @@ EZ-Tree 是一个 Three.js 程序树生成器。它不是提供一棵固定模�
 Three.js 曲线枝干、叶片和交互对象
 ```
 
-用户每完成一次目标相关 Todo，会写入 Activity。Activity 会立即增加嫩叶或生命力；累计值跨过固定阶段阈值后，对应的枝干才永久增长。用户近期不活跃时，已经形成的枝干不会消失，只会出现轻微的叶片减少和颜色变淡。
+用户每完成一次目标相关 Todo，会写入 Activity。Activity 会立即增加嫩叶或生命力；累计值跨过固定阶段阈值后，对应的枝干才永久增长。七根一级主树杈不会因新增 Task 或 Goal 而增减或换位。用户近期不活跃时，已经形成的枝干不会消失，只会出现轻微的叶片减少和颜色变淡。
 
 ### 4. 本次明确不做什么
 
@@ -64,6 +64,7 @@ Three.js 曲线枝干、叶片和交互对象
 - 不安装 `@dgreenheck/ez-tree`。
 - 不播放成长动画。
 - 不把未完成 Todo 放在树上。
+- 不保留 Ability 表、类型、事件或兼容层。
 - 不让树形参数成为数据库字段；视觉结果必须可以从业务事实重新计算。
 
 ## 二、交付边界与完成标准
@@ -77,9 +78,11 @@ Three.js 曲线枝干、叶片和交互对象
 整个项目完成的判定不是“页面能打开”，而是以下事实同时成立：
 
 - 新写入无法产生负 Activity、错误单位或错误长期/短期关系；
+- 所有用户都稳定拥有工作、成长、健康、生活、财务、人际关系、娱乐七根一级主树杈；
+- 新增 Task 不会新增、重排或重新分类一级主树杈；
 - 相同输入重复计算得到完全相同的 recipe 和 skeleton；
 - 新增 Activity 未跨阶段时，已有永久骨架不变；
-- 跨阶段时只改变所属目标和能力的局部结构；
+- 跨阶段时只改变所属 Goal 和人生领域的局部结构；
 - 低活跃只影响叶片，不删除历史枝干；
 - 所有业务枝叶仍可点击并打开正确详情；
 - 完整 Vitest、数据库测试、类型检查、生产构建和浏览器验收通过。
@@ -91,11 +94,14 @@ Three.js 曲线枝干、叶片和交互对象
 | 文件 | 单一职责 |
 |---|---|
 | `supabase/migrations/202608120001_growth_input_constraints.sql` | 对今后的 Activity 和指标单位写入施加强约束 |
+| `supabase/migrations/202608120002_fixed_life_area_writes.sql` | 删除 Ability 结构并更新事务 RPC，使所有 Goal 明确写入固定领域 |
+| `src/domain/life-areas.ts` | 定义七个固定人生领域、中文标签和固定方位槽位 |
 | `src/domain/growth-metrics.ts` | 把 DashboardData 归一化为有界成长指标 |
 | `src/domain/tree-recipe.ts` | 把成长指标转换为 EZ-Tree 风格参数，不包含 Three.js |
 | `src/domain/semantic-tree-skeleton.ts` | 生成携带业务 ID 的稳定曲线骨架和叶片锚点 |
 | `src/components/growth-tree-semantic-geometry.ts` | 把语义骨架转换为 Three.js 几何和材质 |
 | `tests/growth-metrics.test.ts` | 指标换算、上限、近期窗口测试 |
+| `tests/life-areas.test.ts` | 七个固定领域、排序和输入校验测试 |
 | `tests/tree-recipe.test.ts` | 阶段阈值、参数范围、稳定性测试 |
 | `tests/semantic-tree-skeleton.test.ts` | 局部增长和不重排测试 |
 | `tests/growth-tree-semantic-geometry.test.ts` | 曲线几何、身份和资源释放测试 |
@@ -112,23 +118,43 @@ Three.js 曲线枝干、叶片和交互对象
 | `src/components/GrowthTreeScene.tsx` | 更新生成生命周期、季节材质和 readiness 统计 |
 | `src/components/growth-tree/scene-config.ts` | 集中维护树形范围、颜色与性能预算 |
 | `src/actions/repository.ts` | 停止生产环境的非事务多表写入 |
+| `src/domain/types.ts` | 删除 Ability 类型，并为所有 Goal 增加受约束的 lifeArea 类型 |
+| `src/domain/life-event-schema.ts` | 删除 Ability 事件，并要求长期/短期 Goal 明确选择人生领域 |
+| `src/actions/batch-preparation.ts` | 将 lifeArea 传给事务写入，Task 不参与领域分类 |
+| `src/domain/aggregation.ts` | 删除 Ability 聚合，按 Goal.lifeArea 汇总领域数据 |
+| `src/db/lifeos-read.ts` | 不再读取 abilities，读取 goals.life_area |
+| `src/domain/store.ts`、`src/domain/seed.ts` | 删除内存模型中的 Ability 数据 |
 | `app/api/actions/life-event/route.ts` | 将旧单事件入口收口到事务批处理入口或明确退役 |
 | `docs/custom-gpt-actions/openapi.yaml` | 只公开事务性写入端点 |
 
 ## 四、逐项实施任务
 
-### Task 1：数据库拒绝今后的非法成长记录
+### Task 1：固定七个人生领域并让数据库拒绝非法分类
 
 **Files:**
 - Create: `supabase/migrations/202608120001_growth_input_constraints.sql`
+- Create: `src/domain/life-areas.ts`
 - Modify: `supabase/schema.sql`
 - Modify: `supabase/operations/validate_growth_tree_constraints.sql`
 - Test: `supabase/tests/growth_tree_domain.sql`
 - Test: `tests/growth-tree-domain-schema.test.ts`
+- Test: `tests/life-areas.test.ts`
 
 - [ ] **Step 1：先写会失败的 SQL 契约测试**
 
-在 `supabase/tests/growth_tree_domain.sql` 增加事务内测试，分别尝试写入：`value = 0`、`value < 0`、`duration + count`、`count + hour`。每次必须捕获约束异常；若成功插入则主动 `raise exception`。
+在 `tests/life-areas.test.ts` 先锁定七个且仅七个领域及顺序；在 `supabase/tests/growth_tree_domain.sql` 增加事务内测试，分别尝试写入：`value = 0`、`value < 0`、`duration + count`、`count + hour`。Goal 的 life-area 强制测试放在 Task 2，因为 Task 1 只新增可供项目负责人手工填写的过渡列，不能提前中断现有写入。
+
+```ts
+expect(LIFE_AREAS.map((area) => area.id)).toEqual([
+  "work",
+  "growth",
+  "health",
+  "life",
+  "finance",
+  "relationships",
+  "entertainment"
+]);
+```
 
 ```sql
 begin
@@ -147,15 +173,40 @@ end;
 
 - [ ] **Step 2：运行数据库测试并确认新测试失败**
 
-Run: `npm run test:db`
+Run: `npm test -- tests/life-areas.test.ts && npm run test:db`
 
-Expected: FAIL，信息包含 `zero activity value must be rejected` 或错误单位未被拒绝。
+Expected: FAIL，因为 life areas 模块尚不存在，或 Activity 非法值尚未被拒绝。
 
-- [ ] **Step 3：增加仅约束新写入的迁移**
+- [ ] **Step 3：定义固定领域枚举**
 
-使用 `not valid`，这样约束立刻保护新数据，但不会扫描和阻塞用户尚未手工修正的旧数据。
+先建立唯一的应用层枚举；固定数组顺序同时作为渲染方位顺序，Task 不得修改它。
+
+```ts
+export const LIFE_AREA_IDS = [
+  "work", "growth", "health", "life",
+  "finance", "relationships", "entertainment"
+] as const;
+
+export type LifeAreaId = (typeof LIFE_AREA_IDS)[number];
+
+export const LIFE_AREAS = [
+  { id: "work", label: "工作", slot: 0 },
+  { id: "growth", label: "成长", slot: 1 },
+  { id: "health", label: "健康", slot: 2 },
+  { id: "life", label: "生活", slot: 3 },
+  { id: "finance", label: "财务", slot: 4 },
+  { id: "relationships", label: "人际关系", slot: 5 },
+  { id: "entertainment", label: "娱乐", slot: 6 }
+] as const;
+```
+
+- [ ] **Step 4：增加过渡字段和成长值约束**
+
+本迁移为 Goal 增加可空 `life_area`，供项目负责人手工填写；此时暂不增加必填约束，否则仍在运行的旧写入入口会立即失败。Activity 和 Task 指标约束使用 `not valid`，可以保护新写入而不扫描旧行。Ability 表和 `ability_id` 在 Task 2 的维护窗口统一删除。
 
 ```sql
+alter table goals add column if not exists life_area text;
+
 alter table activities add constraint activities_value_positive_check
   check (value > 0) not valid;
 
@@ -171,7 +222,7 @@ alter table tasks add constraint tasks_planned_metric_unit_check check (
 ) not valid;
 ```
 
-- [ ] **Step 4：同步 canonical schema 和手工验证操作**
+- [ ] **Step 5：同步 canonical schema 和手工验证操作**
 
 在 `supabase/schema.sql` 中使用同名有效约束；在验证脚本末尾加入：
 
@@ -181,31 +232,65 @@ alter table activities validate constraint activities_metric_unit_check;
 alter table tasks validate constraint tasks_planned_metric_unit_check;
 ```
 
-只有项目负责人手工修正旧数据后才执行验证脚本。
+Activity/Task 旧数据手工修正后执行这些验证；Goal 的 `life_area` 验证在 Task 2 切换完成后执行。
 
-- [ ] **Step 5：运行数据库和 schema 契约测试**
+- [ ] **Step 6：运行数据库和 schema 契约测试**
 
-Run: `npm run test:db && npm test -- tests/growth-tree-domain-schema.test.ts`
+Run: `npm run test:db && npm test -- tests/life-areas.test.ts tests/growth-tree-domain-schema.test.ts`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 6：提交数据库约束**
+- [ ] **Step 7：提交固定领域和数据库约束**
 
 ```bash
-git add supabase/migrations/202608120001_growth_input_constraints.sql supabase/schema.sql supabase/operations/validate_growth_tree_constraints.sql supabase/tests/growth_tree_domain.sql tests/growth-tree-domain-schema.test.ts
-git commit -m "feat: enforce growth input constraints"
+git add supabase/migrations/202608120001_growth_input_constraints.sql supabase/schema.sql supabase/operations/validate_growth_tree_constraints.sql supabase/tests/growth_tree_domain.sql src/domain/life-areas.ts tests/life-areas.test.ts tests/growth-tree-domain-schema.test.ts
+git commit -m "feat: define fixed life area branches"
 ```
 
 ### Task 2：收口生产写入，禁止半套数据
 
 **Files:**
+- Create: `supabase/migrations/202608120002_fixed_life_area_writes.sql`
 - Modify: `app/api/actions/life-event/route.ts`
 - Modify: `src/actions/repository.ts`
+- Modify: `src/domain/life-event-schema.ts`
+- Modify: `src/actions/batch-preparation.ts`
+- Modify: `src/actions/batch-resolution.ts`
+- Modify: `src/actions/batch-validation.ts`
+- Modify: `src/domain/aggregation.ts`
+- Modify: `src/db/lifeos-read.ts`
+- Modify: `src/domain/store.ts`
+- Modify: `src/domain/seed.ts`
+- Modify: `supabase/schema.sql`
 - Modify: `docs/custom-gpt-actions/openapi.yaml`
 - Test: `tests/single-event-repository.test.ts`
+- Test: `tests/batch-validation.test.ts`
+- Test: `tests/batch-preparation.test.ts`
+- Test: `tests/batch-resolution.test.ts`
 - Test: `tests/custom-gpt-action-contract.test.ts`
+- Test: `tests/aggregation.test.ts`
+- Test: `tests/lifeos-read.test.ts`
+- Test: `tests/store.test.ts`
 
-- [ ] **Step 1：写旧入口退役契约测试**
+- [ ] **Step 1：写固定领域输入契约测试**
+
+要求：生产输入不再接受 `type: "ability"`；长期和短期 Goal 都必须提交 `lifeArea`；Task 和 Activity 的 strict schema 拒绝 `lifeArea` 字段。SQL 测试同时证明缺少或使用非法 `life_area` 的 Goal 无法写入。
+
+```ts
+expect(() => validateLifeEventBatchPayload({
+  idempotencyKey: "batch-1",
+  rawText: "创建能力",
+  events: [{ type: "ability", title: "健身", confidence: 1 }]
+})).toThrow();
+
+expect(prepared.events[0]).toMatchObject({
+  kind: "goal",
+  goalType: "long_term",
+  lifeArea: "health"
+});
+```
+
+- [ ] **Step 2：写旧入口退役契约测试**
 
 旧 `/api/actions/life-event` 不再执行多次 `.from(...).insert(...)`。测试要求它返回 `410 Gone` 并指向 `/api/actions/life-events`。
 
@@ -217,13 +302,51 @@ expect(await response.json()).toEqual({
 });
 ```
 
-- [ ] **Step 2：运行测试确认失败**
+- [ ] **Step 3：运行测试确认失败**
 
-Run: `npm test -- tests/single-event-repository.test.ts tests/custom-gpt-action-contract.test.ts`
+Run: `npm test -- tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/single-event-repository.test.ts tests/custom-gpt-action-contract.test.ts`
 
-Expected: FAIL，因为旧入口目前仍执行非事务写入。
+Expected: FAIL，因为输入结构尚未要求固定领域，旧入口也仍执行非事务写入。
 
-- [ ] **Step 3：退役生产入口并保留只读上下文代码**
+- [ ] **Step 4：删除 Ability 类型并更新输入与准备层**
+
+从 `IntentType`、`LifeEventParseResult`、batch validation、prepared event、action context 和 resolution 中删除 Ability。所有 Goal 增加必填 `lifeArea: LifeAreaId`。PreparedEvent 直接携带领域：
+
+```ts
+type PreparedGoal = {
+  kind: "goal";
+  goalType: "long_term" | "short_term";
+  lifeArea: LifeAreaId;
+};
+```
+
+`Goal` 领域创建后属于身份的一部分，不能被同名新请求静默改变。Task 和 Activity 类型不包含 `lifeArea`，不会因为用户新增 Task 而改变分类。
+
+- [ ] **Step 5：更新事务 RPC 并删除数据库 Ability 结构**
+
+在项目负责人已手工给现有 Goal 填好 `life_area` 后应用 `202608120002_fixed_life_area_writes.sql`：
+
+```sql
+alter table goals add constraint goals_life_area_required_check check (
+  life_area is not null
+  and life_area in ('work', 'growth', 'health', 'life', 'finance', 'relationships', 'entertainment')
+) not valid;
+
+alter table goals drop constraint if exists goals_ability_fk;
+alter table goals drop constraint if exists goals_ability_shape_check;
+alter table goals drop column if exists ability_id;
+drop table if exists abilities;
+```
+
+同一迁移重建 `record_life_event_batch`：删除 `ability` event kind；Goal insert 必须写 `life_area`；相同标题但不同 `goal_type` 或 `life_area` 必须报 identity conflict。同步删除 messages/inbox 的 `ability` 允许值和所有 RPC 返回中的 `abilityId`。
+
+迁移结束前执行 `alter table goals validate constraint goals_life_area_required_check;`。如果用户手工填写仍有遗漏，迁移必须失败并回滚，不能删除 Ability 后留下无法归类的 Goal。
+
+- [ ] **Step 6：删除读取与内存模型中的 Ability**
+
+`DashboardData`、`LifeOSState`、seed 和 Supabase read 不再包含 abilities。Goal 类型增加 `lifeArea: LifeAreaId`；数据库 reader 读取 `life_area` 并拒绝非法枚举。`category` 暂时保留为展示元数据，但树投影只能使用 `lifeArea`。
+
+- [ ] **Step 7：退役生产入口并保留只读上下文代码**
 
 将 route 改为固定返回 410；从 `repository.ts` 删除或改为不再导出的 `writeSupabaseLifeEvent`、`materializeSupabaseGoal` 等非事务写入代码。保留 `readActionContext`，因为批处理准备阶段仍需要它。
 
@@ -239,21 +362,21 @@ export async function POST() {
 }
 ```
 
-- [ ] **Step 4：从 OpenAPI 移除旧端点**
+- [ ] **Step 8：从 OpenAPI 移除旧端点、Ability 事件并公开 lifeArea 枚举**
 
-确保 GPT Action 只看见 `/api/actions/life-events`。该端点已通过 `record_life_event_batch` 在一个 PostgreSQL 事务中写入 message、ability、goal、task、activity 和 inbox。
+确保 GPT Action 只看见 `/api/actions/life-events`。Goal schema 对长期和短期目标都使用七值 `lifeArea` 枚举；OpenAPI 中不存在 Ability schema；Task 不接受领域分类。该端点通过 `record_life_event_batch` 在一个 PostgreSQL 事务中写入 message、goal、task、activity 和 inbox。
 
-- [ ] **Step 5：运行路由、批处理和数据库测试**
+- [ ] **Step 9：运行路由、批处理、读取和数据库测试**
 
-Run: `npm test -- tests/action-batch-route.test.ts tests/batch-repository.test.ts tests/custom-gpt-action-contract.test.ts && npm run test:db`
+Run: `npm test -- tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/batch-resolution.test.ts tests/action-batch-route.test.ts tests/batch-repository.test.ts tests/custom-gpt-action-contract.test.ts tests/aggregation.test.ts tests/lifeos-read.test.ts tests/store.test.ts && npm run test:db`
 
 Expected: 全部 PASS；代码搜索不再发现生产 route 调用 `writeLifeEventFromAction`。
 
-- [ ] **Step 6：提交事务写入收口**
+- [ ] **Step 10：提交固定领域事务写入收口**
 
 ```bash
-git add app/api/actions/life-event/route.ts src/actions/repository.ts docs/custom-gpt-actions/openapi.yaml tests/single-event-repository.test.ts tests/custom-gpt-action-contract.test.ts
-git commit -m "refactor: require transactional life event writes"
+git add supabase/migrations/202608120002_fixed_life_area_writes.sql supabase/schema.sql app/api/actions/life-event/route.ts src/actions/repository.ts src/domain/types.ts src/domain/life-event-schema.ts src/actions/batch-preparation.ts src/actions/batch-resolution.ts src/actions/batch-validation.ts src/domain/aggregation.ts src/db/lifeos-read.ts src/domain/store.ts src/domain/seed.ts docs/custom-gpt-actions/openapi.yaml tests/batch-validation.test.ts tests/batch-preparation.test.ts tests/batch-resolution.test.ts tests/single-event-repository.test.ts tests/custom-gpt-action-contract.test.ts tests/aggregation.test.ts tests/lifeos-read.test.ts tests/store.test.ts
+git commit -m "refactor: replace abilities with fixed life areas"
 ```
 
 ### Task 3：建立可解释的成长指标 GrowthMetrics
@@ -296,7 +419,7 @@ export type EntityGrowthMetric = {
 export const GROWTH_STAGE_THRESHOLDS = [0, 5, 15, 35, 70, 140] as const;
 ```
 
-所有输出使用有限数字，`recentScore` clamp 到 `[0, 1]`。能力指标等于该 ability 下所有合法长期目标指标之和。
+所有输出使用有限数字，`recentScore` clamp 到 `[0, 1]`。领域指标等于该领域下所有长期和短期 Goal 的指标之和。即使领域没有任何数据，也必须输出零值指标，保证七根主树杈存在。
 
 - [ ] **Step 4：实现并测试边界条件**
 
@@ -326,12 +449,12 @@ git commit -m "feat: derive bounded growth metrics"
 expect(first).toEqual(second);
 expect(first.trunk.height).toBeGreaterThanOrEqual(2.8);
 expect(first.trunk.height).toBeLessThanOrEqual(5.2);
-expect(first.abilities.map((item) => item.entityId)).toEqual(
-  second.abilities.map((item) => item.entityId)
+expect(first.lifeAreas.map((item) => item.entityId)).toEqual(
+  LIFE_AREA_IDS
 );
 ```
 
-另外验证 ability 增加只新增一个主枝参数，不改变已有 ability 的 `azimuth`。
+另外验证新增 Task 不改变任何 life-area recipe；新增 Goal 只增加所属领域的目标枝参数，不改变七根主树杈的 `azimuth`。
 
 - [ ] **Step 2：运行测试确认失败**
 
@@ -343,7 +466,7 @@ Expected: FAIL，模块不存在。
 
 ```ts
 export type BranchRecipe = {
-  entityType: "ability" | "long_goal" | "short_goal";
+  entityType: "life_area" | "long_goal" | "short_goal";
   entityId: string;
   parentEntityId: string;
   stage: GrowthStage;
@@ -358,7 +481,7 @@ export type BranchRecipe = {
 export type TreeRecipe = {
   seed: number;
   trunk: { height: number; radius: number; sections: number };
-  abilities: BranchRecipe[];
+  lifeAreas: BranchRecipe[];
   longGoals: BranchRecipe[];
   shortGoals: BranchRecipe[];
   canopy: { retention: number; saturation: number; youngLeafRatio: number };
@@ -377,7 +500,21 @@ branch.radius = lerp(0.07, 0.28, stage / 5);
 canopy.retention = lerp(0.45, 1, recentScore);
 ```
 
-方向由 `seedFromId(entityId, "branch-azimuth")` 决定，不能根据数组下标决定。
+七根主树杈的方向由 `LIFE_AREAS[].slot` 和预设方位表决定；Goal 子枝方向由 `seedFromId(entityId, "branch-azimuth")` 决定，不能根据数据库返回顺序决定。
+
+第一版固定方位如下，角度围绕树干 Y 轴，`start` 是主树杈连接树干的高度比例。固定参数的目的是让七根枝互不重叠并形成前后层次；数据只能改变长度、粗细、弯曲和叶量。
+
+| 领域 | azimuth | start |
+|---|---:|---:|
+| 工作 | -70° | 0.38 |
+| 成长 | -20° | 0.50 |
+| 健康 | 30° | 0.62 |
+| 生活 | 80° | 0.74 |
+| 财务 | 135° | 0.42 |
+| 人际关系 | 195° | 0.56 |
+| 娱乐 | 255° | 0.68 |
+
+测试必须锁定这张表，后续视觉调整只能通过显式设计变更修改，不能因为增加 Task 或 Goal 自动变化。
 
 - [ ] **Step 5：运行 recipe 测试**
 
@@ -400,15 +537,14 @@ git commit -m "feat: map growth metrics to tree recipes"
 
 - [ ] **Step 1：写局部稳定性测试**
 
-生成基础骨架，再增加一个新 Activity 和一个新 ability：
+生成基础骨架，再增加一个新 Activity、一个新 Task 和一个新 Goal：
 
 ```ts
 expect(existingBranch(afterActivity)).toEqual(existingBranch(before));
-expect(existingAbilityBranches(afterAbility)).toEqual(
-  existingAbilityBranches(before)
-);
-expect(afterAbility.branches).toContainEqual(
-  expect.objectContaining({ entityId: "new-ability" })
+expect(lifeAreaBranches(afterTask)).toEqual(lifeAreaBranches(before));
+expect(lifeAreaBranches(afterGoal)).toEqual(lifeAreaBranches(before));
+expect(afterGoal.branches).toContainEqual(
+  expect.objectContaining({ entityId: "new-goal", parentEntityId: "health" })
 );
 ```
 
@@ -422,7 +558,7 @@ Expected: FAIL，模块不存在。
 
 ```ts
 export type SemanticBranch = {
-  entityType: "root" | "ability" | "long_goal" | "short_goal";
+  entityType: "root" | "life_area" | "long_goal" | "short_goal";
   entityId: string;
   parentEntityId: string | null;
   controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector];
@@ -443,7 +579,7 @@ export type SemanticLeaf = {
 
 - [ ] **Step 4：实现父子局部坐标生成**
 
-根从原点向上。ability 从主干稳定高度出发；long goal 从所属 ability 曲线上的稳定比例出发；short goal 从主干稳定位置出发。控制点加入由实体 seed 决定的小幅弯曲，但终点始终向上，避免枝干倒插地面。
+根从原点向上。七根 life area 主树杈从主干的预设高度和方位出发；long goal 与 short goal 都从所属 life area 曲线上的稳定比例出发。Goal 控制点加入由实体 seed 决定的小幅弯曲，但终点始终向上，避免枝干倒插地面。
 
 - [ ] **Step 5：实现确定性叶片保留**
 
@@ -473,9 +609,9 @@ git commit -m "feat: generate stable semantic tree skeletons"
 
 ```ts
 expect(model.recipe.seed).toBeTypeOf("number");
-expect(model.branches.find((b) => b.entityId === "ability-a")).toBeDefined();
+expect(model.branches.filter((b) => b.entityType === "life_area")).toHaveLength(7);
 expect(model.branches.find((b) => b.entityId === "long-active")?.parentEntityId)
-  .toBe("ability-b");
+  .toBe("growth");
 ```
 
 - [ ] **Step 2：运行现有投影测试确认失败**
@@ -524,9 +660,9 @@ git commit -m "refactor: project growth data through semantic recipes"
 
 ```ts
 expect(mesh.geometry).toBeInstanceOf(THREE.TubeGeometry);
-expect(mesh.userData.entityType).toBe("ability");
-expect(mesh.userData.entityId).toBe("ability-a");
-expect(layer.entityByUuid.get(mesh.uuid)?.entityId).toBe("ability-a");
+expect(mesh.userData.entityType).toBe("life_area");
+expect(mesh.userData.entityId).toBe("health");
+expect(layer.entityByUuid.get(mesh.uuid)?.entityId).toBe("health");
 ```
 
 同时 spy `geometry.dispose()` 和 `material.dispose()`，要求重复调用 layer.dispose 只释放一次。
@@ -674,7 +810,7 @@ git commit -m "perf: bound semantic tree rendering cost"
 
 - [ ] **Step 1：补充用户视角的组件测试**
 
-覆盖：空用户显示完整幼树；选择 ability 打开正确详情；选择 Activity 叶显示关联 goal；果实面板仍只展示短期成果；未完成 Todo 不成为树对象。
+覆盖：空用户也显示七根固定领域主树杈；选择领域打开领域汇总；选择长期/短期 Goal 打开正确详情；选择 Activity 叶显示关联 Goal；果实面板仍只展示短期成果；未完成 Todo 不成为树对象。
 
 - [ ] **Step 2：运行全部快速测试**
 
@@ -703,7 +839,7 @@ Run: `npm run dev`
 - 树位于画面中间偏左；
 - 山和湖仍有前后层次；
 - 树冠明显比当前版本丰富；
-- ability、goal 和 Activity 点击对象正确；
+- 七个领域、Goal 和 Activity 点击对象正确；
 - 旋转和缩放不产生明显卡顿；
 - 移动端没有面板遮住整棵树；
 - 控制台无 WebGL 资源或 shader 错误。
@@ -735,11 +871,14 @@ git commit -m "docs: document semantic tree generation"
 
 ### 发布 A：数据约束与写入入口
 
-1. 项目负责人手工检查现有数据，但不要求系统自动修改。
-2. 应用 `202608120001_growth_input_constraints.sql`；`NOT VALID` 约束立即保护新写入。
-3. 部署只公开批量事务端点的 API。
-4. 用真实用户创建一次性 Todo、长期目标 Todo、短期目标和 Activity，确认写入路径正确。
-5. 手工数据清理完成后，再执行 `validate_growth_tree_constraints.sql`。
+1. 应用 `202608120001_growth_input_constraints.sql`，只新增可空 `goals.life_area`，不影响旧写入。
+2. 项目负责人手工给每个现有 Goal 填入七个允许值之一的 `life_area`。
+3. 准备好删除 Ability 的新版应用和 `202608120002_fixed_life_area_writes.sql`。
+4. 进入短维护窗口，暂停 Action 写入。
+5. 执行第二个迁移；它先验证所有 Goal 已有合法领域，再删除 `goals.ability_id`、`abilities` 和 Ability 事件/RPC 逻辑。验证失败则整笔回滚。
+6. 立即部署只公开批量事务端点的新版应用，然后恢复写入。
+7. 用真实用户创建一次性 Todo、长期目标 Todo、短期目标和 Activity，确认 Task 不负责领域分类。
+8. 执行剩余 Activity/Task 约束的 `validate_growth_tree_constraints.sql`。
 
 ### 发布 B：程序树渲染
 
@@ -760,6 +899,7 @@ git commit -m "docs: document semantic tree generation"
 | 低活跃惩罚感过强 | 用户回来看到秃树 | 永久骨架不退化，叶片最低保留 45% |
 | 树好看但不可解释 | 用户不知道哪根枝是什么 | 每根语义枝保留实体 ID，点击打开现有详情 |
 | 旧数据阻塞上线 | 新 CHECK 扫描历史数据失败 | 迁移使用 NOT VALID，用户清理后再 validate |
+| 删除 Ability 遗漏依赖 | 构建或 RPC 仍读取 abilities/ability_id | 删除前用全仓 `rg` 清单审计，类型、SQL、OpenAPI 和测试同一任务收口 |
 
 ## 七、工作量与检查点
 
@@ -775,7 +915,7 @@ git commit -m "docs: document semantic tree generation"
 1. **检查点 1：写入可信**——非法数据测试全部通过后才进入树形开发。
 2. **检查点 2：纯函数可信**——用 JSON 快照审查 recipe/skeleton，不先看漂亮画面。
 3. **检查点 3：视觉可信**——确认低、中、高三种数据量的树形差异。
-4. **检查点 4：交互可信**——逐个点击 ability、long goal、short goal、Activity 和果实。
+4. **检查点 4：交互可信**——逐个点击七个领域、long goal、short goal、Activity 和果实。
 5. **检查点 5：发布可信**——数据库与前端分两次发布，每次均可独立回退。
 
 ## 八、执行纪律
