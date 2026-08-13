@@ -28,7 +28,7 @@ export function buildTreeRecipe(data: DashboardData, metrics: GrowthMetrics): Tr
     const { azimuth, start } = LIFE_AREA_BRANCH_PLACEMENTS[index]!;
     return branch("life_area", area.id, "root", metric.stage, start, azimuth);
   });
-  const goals = [...data.goals].sort((a, b) => a.id.localeCompare(b.id)).map((goal) => {
+  const goals = data.goals.filter((goal) => goal.goalType === "long_term" || goal.status !== "completed").sort((a, b) => a.id.localeCompare(b.id)).map((goal) => {
     const stage = goalMetric.get(goal.id)?.stage ?? 0;
     return branch(goal.goalType === "long_term" ? "long_goal" : "short_goal", goal.id, goal.lifeArea, stage,
       .42 + seedFromId(goal.id, "start") * .42, -35 + seedFromId(goal.id, "azimuth") * 70);

@@ -128,4 +128,14 @@ describe("Custom GPT batch intake database schema", () => {
       expect(sql).toMatch(/v_event->>'lifeArea'/i);
     }
   });
+
+  it("allows authenticated clients to read business tables but not write them directly", () => {
+    const schema = readFileSync(path.resolve("supabase/schema.sql"), "utf8");
+    const tables = ["profiles", "external_accounts", "action_credentials", "goals", "goal_aliases", "messages", "tasks", "activities", "reminders", "inbox_items", "achievements"];
+
+    for (const table of tables) {
+      expect(schema).toMatch(new RegExp(`create policy ${table}_own_rows\\s+on ${table}\\s+for select\\s+using`, "i"));
+    }
+    expect(schema).toMatch(/revoke\s+insert\s*,\s*update\s*,\s*delete\s+on\s+profiles\s*,[\s\S]*?achievements\s+from\s+anon\s*,\s*authenticated\s*;/i);
+  });
 });

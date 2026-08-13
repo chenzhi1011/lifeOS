@@ -313,20 +313,33 @@ alter table reminders enable row level security;
 alter table inbox_items enable row level security;
 alter table achievements enable row level security;
 
-create policy profiles_own_rows on profiles using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy external_accounts_own_rows on external_accounts using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy action_credentials_own_rows on action_credentials using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy profiles_own_rows on profiles for select using (user_id = auth.uid());
+create policy external_accounts_own_rows on external_accounts for select using (user_id = auth.uid());
+create policy action_credentials_own_rows on action_credentials for select using (user_id = auth.uid());
 create policy action_batches_own_rows on action_batches for select using (user_id = auth.uid());
-create policy goals_own_rows on goals using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy goal_aliases_own_rows on goal_aliases using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy messages_own_rows on messages using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy tasks_own_rows on tasks using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy activities_own_rows on activities using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy reminders_own_rows on reminders using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy inbox_items_own_rows on inbox_items using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy achievements_own_rows on achievements using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy goals_own_rows on goals for select using (user_id = auth.uid());
+create policy goal_aliases_own_rows on goal_aliases for select using (user_id = auth.uid());
+create policy messages_own_rows on messages for select using (user_id = auth.uid());
+create policy tasks_own_rows on tasks for select using (user_id = auth.uid());
+create policy activities_own_rows on activities for select using (user_id = auth.uid());
+create policy reminders_own_rows on reminders for select using (user_id = auth.uid());
+create policy inbox_items_own_rows on inbox_items for select using (user_id = auth.uid());
+create policy achievements_own_rows on achievements for select using (user_id = auth.uid());
 
 revoke insert, update, delete on action_batches from anon, authenticated;
+revoke insert, update, delete on
+  profiles,
+  external_accounts,
+  action_credentials,
+  goals,
+  goal_aliases,
+  messages,
+  tasks,
+  activities,
+  reminders,
+  inbox_items,
+  achievements
+from anon, authenticated;
 
 create or replace function record_life_event_batch(
   p_user_id uuid,

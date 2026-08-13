@@ -11,7 +11,18 @@ export type ApiPrincipal = {
 function cookieToken(request: Request): string | null {
   const cookie = request.headers.get("cookie") ?? "";
   const match = cookie.match(/(?:^|;\s*)life_os_access_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]!) : null;
+  if (match) return decodeURIComponent(match[1]!);
+  const chunks = cookie.split(/;\s*/).map((item) => item.split(/=(.*)/s).slice(0, 2) as [string,string])
+    .filter(([name]) => /^sb-.*-auth-token(?:\.\d+)?$/.test(name))
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (!chunks.length) return null;
+  try {
+    let value = decodeURIComponent(chunks.map(([, part]) => part).join(""));
+    if (value.startsWith("base64-")) value = Buffer.from(value.slice(7), "base64url").toString("utf8");
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed) && typeof parsed[0] === "string") return parsed[0];
+    return typeof parsed?.access_token === "string" ? parsed.access_token : null;
+  } catch { return null; }
 }
 
 export async function resolveSessionPrincipal(

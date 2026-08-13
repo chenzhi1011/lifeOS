@@ -29,4 +29,11 @@ describe("tree recipe", () => {
     expect(after.lifeAreas).toEqual(before.lifeAreas);
     expect(after.longGoals).toContainEqual(expect.objectContaining({ entityId: "new-goal", parentEntityId: "work" }));
   });
+
+  it("replaces a completed short-term branch with its harvested fruit", () => {
+    const result = recipe();
+
+    expect(result.shortGoals).toContainEqual(expect.objectContaining({ entityId: "job-change" }));
+    expect(result.shortGoals).not.toContainEqual(expect.objectContaining({ entityId: "portfolio-launch" }));
+  });
 });

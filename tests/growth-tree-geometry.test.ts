@@ -78,6 +78,12 @@ type LayerFactory = (
       goalId: string | null;
     }
   >;
+  stats: {
+    totalLeaves: number;
+    decorativeLeaves: number;
+    activityLeaves: number;
+    maxRadialSegments: number;
+  };
   dispose: () => void;
 };
 
@@ -250,5 +256,22 @@ describe("growth tree geometry", () => {
       expect(dispose).toHaveBeenCalledOnce();
     }
     expect(layer.group.children).toHaveLength(0);
+  });
+
+  it("caps decorative and selectable activity leaves at 1500 in total", () => {
+    const createLayer = layerFactory();
+    expect(createLayer).toBeTypeOf("function");
+    if (!createLayer) return;
+    const manyLeaves = Array.from({ length: 250 }, (_, index) => ({
+      ...viewModel.semanticLeaves[0]!,
+      activityId: `activity-${String(index).padStart(3, "0")}`
+    }));
+
+    const layer = createLayer({ ...viewModel, semanticLeaves: manyLeaves });
+
+    expect(layer.stats.activityLeaves).toBe(100);
+    expect(layer.stats.decorativeLeaves).toBeLessThanOrEqual(1400);
+    expect(layer.stats.totalLeaves).toBeLessThanOrEqual(1500);
+    layer.dispose();
   });
 });
