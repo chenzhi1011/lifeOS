@@ -18,6 +18,7 @@
 10. 当前系统只有项目负责人一名用户且数据可丢弃；不保留、清洗、回填或迁移旧数据，直接按最终模型重建数据库。
 11. Task 与 Reminder 是独立产品数据：现在先提供稳定的查询边界，将来 Todo 页面或自建 AI 助手都通过同一后端读取。
 12. AI 只负责把自然语言转换成结构化命令，不拥有数据库规则，也不直接访问数据库；当前 Custom GPT 和未来自建 AI 助手可以互换。
+13. 第一版视觉固定为低饱和、暖光的卡通治愈风；只使用纯色基础材质和柔和光照，不使用贴图、PBR 参数或自定义 Shader。
 
 ## 业务模型
 
@@ -144,11 +145,41 @@ TreeRecipe 是业务与几何之间唯一契约，采用 EZ-Tree 风格参数：
 ## 几何与交互
 
 - 枝干由语义骨架的三次贝塞尔曲线生成 `TubeGeometry`，替代当前直线 `CylinderGeometry`。
+- 场景 Mesh 使用纯色 `MeshLambertMaterial`；天空渐变使用透明 WebGL 画布下方的 CSS `linear-gradient`，不使用天空贴图或 ShaderMaterial。
 - 根、life area、long goal、short goal 都保留 `entityType` 和 `entityId`；life area 的 entityId 就是稳定枚举值。
 - Activity 叶片使用 `InstancedMesh` 或可单独拾取的实例映射。
 - Raycaster 仍只检测 `selectable`。
 - Hover、selected、related 的颜色优先级保持现有行为。
 - 详情面板增加领域详情，并保留目标详情和果实面板。
+
+## 卡通治愈色板
+
+色板使用语义名称集中定义，Three.js 场景和 React UI 都从同一个 `HEALING_PALETTE` 读取，不允许组件内散落新的十六进制颜色。
+
+| 语义 | 颜色 | 用途 |
+|---|---|---|
+| 天空顶部 | `#9DCDF2` | CSS 天空渐变上端 |
+| 天空地平线 | `#FFE0B5` | CSS 天空渐变下端 |
+| 太阳 | `#FFF1C7` | 可见太阳圆面及暖色主光 |
+| 默认雾 | `#DDE8D5` | 场景纵深雾；`#F3DFC4` 留作未来黄昏状态 |
+| 主草地 | `#91B873` | 前景主要草坡 |
+| 浅草地 | `#B8CE8F` | 远处或受光草面 |
+| 土地 | `#C99D72` | 裸土、坡面和树根周围 |
+| 树干主体 | `#9B6848` | 主干与枝干基础色 |
+| 树干亮面 | `#C48B62` | TubeGeometry 朝向主光的顶点色 |
+| 成熟叶 | `#6FAF67` | 稳定叶片 |
+| 嫩叶 | `#A7D97B` | 新 Activity 和高近期活跃反馈 |
+| 休眠叶 | `#C6A56D` | 低近期活跃状态，不表示永久退化 |
+| 成就果实 | `#F29A78` / `#F5C56A` | 按 Achievement ID 稳定分配 |
+| 云朵 | `#FFF8E8` | 纯色低模云 |
+| UI 背景 | `#FFF8EA` | 面板、卡片和浮层 |
+| UI 文字 | `#59483A` | 正文和标题，替代低对比度白字 |
+
+- 树干亮面通过几何顶点色与 Lambert 光照形成，不增加木纹或法线贴图。
+- 叶色只在成熟叶、嫩叶、休眠叶三种语义色之间按状态混合，不再任意调整 HSL 饱和度。
+- 两种果实颜色由 Achievement ID 的稳定哈希决定，同一成果刷新后不换色。
+- Hover、selected、related 通过亮度、描边或轮廓表示，不能覆盖实体的基础类别色。
+- 第一版没有昼夜、天气或季节主题切换；`#F3DFC4` 仅预留，不进入默认渲染。
 
 ## 生命周期与季节表现
 
@@ -170,6 +201,8 @@ TreeRecipe 是业务与几何之间唯一契约，采用 EZ-Tree 风格参数：
 - 增量迁移与新旧 schema 并行运行；当前阶段采用空库重建。
 - 接入 `@dgreenheck/ez-tree` 运行时依赖。
 - GLB 树模型。
+- 图片贴图、PBR 木纹/草地、normal/roughness/metalness map、自定义 ShaderMaterial。
+- 昼夜、天气和多套季节主题。
 - 用户自选或新增人生领域。
 - Ability 概念及其兼容层。
 - 继续支持旧的非事务单事件写入 API。
@@ -194,3 +227,5 @@ TreeRecipe 是业务与几何之间唯一契约，采用 EZ-Tree 风格参数：
 13. 网页 Session 与 Action Token 写入经过同一个应用服务；替换 AI 客户端不需要改数据库写入规则。
 14. 旧 `/api/actions/life-event` 文件、OpenAPI 路径和非事务 repository 写入函数全部不存在。
 15. 空数据库应用最终 `supabase/schema.sql` 后，所有表、约束、RLS 和 RPC 一次创建成功；最终 schema 中不存在 Ability 或可空 `goals.life_area`。
+16. 场景和 UI 只使用 `HEALING_PALETTE` 中的固定语义色；默认雾为 `#DDE8D5`，UI 正文为 `#59483A`，不存在白色正文。
+17. Three.js 业务场景不使用纹理贴图、`MeshStandardMaterial` 或 `ShaderMaterial`；天空仍呈现从柔和蓝到奶油暖黄的渐变。

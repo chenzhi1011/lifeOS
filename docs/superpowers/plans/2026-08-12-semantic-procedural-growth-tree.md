@@ -63,6 +63,8 @@ Three.js 曲线枝干、叶片和交互对象
 - 不设计可空过渡字段、`NOT VALID` 约束、新旧 schema 共存或维护窗口迁移。
 - 不使用静态 GLB 树模型。
 - 不安装 `@dgreenheck/ez-tree`。
+- 不使用图片贴图、`MeshStandardMaterial`、PBR 参数、normal/roughness/metalness map 或自定义 Shader。
+- 不制作昼夜、天气或多套季节主题；第一版只使用一套卡通治愈色板。
 - 不播放成长动画。
 - 不把未完成 Todo 放在树上。
 - 不保留 Ability 表、类型、事件或兼容层。
@@ -200,7 +202,19 @@ Three.js 曲线枝干、叶片和交互对象
 
 **负责人验收问题：** 是否接受装饰叶不对应数据库记录？
 
-### 修改 9：控制性能和资源释放
+### 修改 9：用固定纯色色板建立卡通治愈风
+
+**现在是什么：** 场景中的天空、叶片、山体、草地和石头颜色分散在多个 Three.js 文件里，并使用 `MeshStandardMaterial`。颜色很难统一，后续调整容易出现某些对象仍保留旧的高饱和或灰暗颜色。
+
+**为什么要改：** 第一版重点是建立稳定、舒服且容易调整的整体视觉，不需要先处理木纹、草地纹理或真实物理材质。颜色必须有唯一来源，UI 也要与场景共享同一种暖色气质。
+
+**准备怎么改：** 新建 `HEALING_PALETTE`，集中保存天空、雾、土地、树干、叶片、果实、云和 UI 色。场景 Mesh 使用纯色 `MeshLambertMaterial`；透明 WebGL 画布下方使用 CSS 渐变天空。树干亮面使用顶点色，叶色只在成熟、嫩叶、休眠三色之间变化。
+
+**改完后的用户体验：** 整体呈现低饱和、暖光、柔和的卡通治愈风；UI 不再使用看不清的白色正文。
+
+**负责人验收问题：** 是否确认默认雾使用 `#DDE8D5`，而 `#F3DFC4` 只作为未来黄昏状态预留？
+
+### 修改 10：控制性能和资源释放
 
 **现在是什么：** 数据增长后，每片叶、每根枝都可能成为独立 WebGL 对象；反复刷新还可能遗漏资源释放。
 
@@ -212,7 +226,7 @@ Three.js 曲线枝干、叶片和交互对象
 
 **负责人验收问题：** 是否接受在极大数据量时压缩装饰细节，而不是无限增加叶片？
 
-### 修改 10：为未来 Todo 与 Reminder 前端建立独立读取能力
+### 修改 11：为未来 Todo 与 Reminder 前端建立独立读取能力
 
 **现在是什么：** 未完成 Task 只在 AI context 中以 `openTasks` 的形式出现，Reminder 没有面向前端的独立读取 API。成长树读取逻辑主要关注已完成活动和近期装饰，并不适合直接承担 Todo 列表。
 
@@ -224,7 +238,7 @@ Three.js 曲线枝干、叶片和交互对象
 
 **负责人验收问题：** 是否接受本阶段先建设可靠的读 API 和契约测试，暂不制作 Todo 列表 UI？
 
-### 修改 11：直接按最终模型重建数据库
+### 修改 12：直接按最终模型重建数据库
 
 **现在是什么：** 当前数据库仍包含 Ability 等旧结构，但系统只有项目负责人一个用户，数据量很少且允许全部删除。
 
@@ -692,6 +706,7 @@ Task/Reminder 的列表读取使用参数化 repository 查询，不需要为纯
 | `app/api/life-events/route.ts` | 网页 Session 的结构化事件写入适配器 |
 | `app/api/tasks/route.ts` | Todo 查询 API |
 | `app/api/reminders/route.ts` | Reminder 查询 API |
+| `src/theme/healing-palette.ts` | 场景与 UI 共用的唯一卡通治愈语义色板 |
 | `src/domain/growth-metrics.ts` | 把 DashboardData 归一化为有界成长指标 |
 | `src/domain/tree-recipe.ts` | 把成长指标转换为 EZ-Tree 风格参数，不包含 Three.js |
 | `src/domain/semantic-tree-skeleton.ts` | 生成携带业务 ID 的稳定曲线骨架和叶片锚点 |
@@ -701,6 +716,7 @@ Task/Reminder 的列表读取使用参数化 repository 查询，不需要为纯
 | `tests/tree-recipe.test.ts` | 阶段阈值、参数范围、稳定性测试 |
 | `tests/semantic-tree-skeleton.test.ts` | 局部增长和不重排测试 |
 | `tests/growth-tree-semantic-geometry.test.ts` | 曲线几何、身份和资源释放测试 |
+| `tests/healing-palette.test.ts` | 锁定全部色值、材质限制和稳定果实配色 |
 
 ### 修改文件
 
@@ -710,8 +726,12 @@ Task/Reminder 的列表读取使用参数化 repository 查询，不需要为纯
 | `supabase/tests/growth_tree_domain.sql` | 验证数据库拒绝非法写入 |
 | `src/domain/tree-visualization.ts` | 从直接计算坐标改为组合 metrics、recipe、skeleton |
 | `src/components/RealisticGrowthTree.tsx` | 使用新的语义几何层，同时保留选择映射 |
-| `src/components/GrowthTreeScene.tsx` | 更新生成生命周期、季节材质和 readiness 统计 |
-| `src/components/growth-tree/scene-config.ts` | 集中维护树形范围、颜色与性能预算 |
+| `src/components/GrowthTreeScene.tsx` | 使用透明画布、CSS 渐变天空、柔和光照并更新 readiness 统计 |
+| `src/components/growth-tree/GrowthEnvironment.ts` | 把山、湖、草地、土地、云和雾切换为治愈色板纯色材质 |
+| `src/components/growth-tree/VitalityElements.ts` | 把水滴、小生物和花草切换为纯色 Lambert 材质 |
+| `src/components/growth-tree/scene-config.ts` | 只维护树形范围与性能预算，颜色统一移入 healing-palette |
+| `app/dashboard/page.tsx`、`src/components/GrowthTreeDashboard.tsx`、`src/components/TreeDetailPanel.tsx`、`src/components/AchievementDrawer.tsx` | 注入共享 CSS 变量并统一 UI 背景、正文颜色 |
+| `app/globals.css` | 设置天空渐变以及 UI 背景、文字的语义 CSS 变量 |
 | `src/actions/repository.ts` | 停止生产环境的非事务多表写入 |
 | `src/domain/types.ts` | 删除 Ability 类型，并为所有 Goal 增加受约束的 lifeArea 类型 |
 | `src/domain/life-event-schema.ts` | 删除 Ability 事件，并要求长期/短期 Goal 明确选择人生领域 |
@@ -1157,7 +1177,7 @@ export type TreeRecipe = {
   lifeAreas: BranchRecipe[];
   longGoals: BranchRecipe[];
   shortGoals: BranchRecipe[];
-  canopy: { retention: number; saturation: number; youngLeafRatio: number };
+  canopy: { retention: number; vitality: number; youngLeafRatio: number };
 };
 ```
 
@@ -1323,18 +1343,50 @@ git add src/domain/tree-visualization.ts src/components/TreeDetailPanel.tsx test
 git commit -m "refactor: project growth data through semantic recipes"
 ```
 
-### Task 8：用自然曲线枝干替换直线圆柱
+### Task 8：建立卡通治愈色板并用自然曲线枝干替换直线圆柱
 
 **Files:**
+- Create: `src/theme/healing-palette.ts`
 - Create: `src/components/growth-tree-semantic-geometry.ts`
 - Modify: `src/components/RealisticGrowthTree.tsx`
 - Modify: `src/components/growth-tree-geometry.ts`
+- Modify: `src/components/GrowthTreeScene.tsx`
+- Modify: `src/components/growth-tree/GrowthEnvironment.ts`
+- Modify: `src/components/growth-tree/VitalityElements.ts`
+- Modify: `src/components/growth-tree/scene-config.ts`
+- Modify: `src/components/GrowthTreeDashboard.tsx`
+- Modify: `src/components/TreeDetailPanel.tsx`
+- Modify: `src/components/AchievementDrawer.tsx`
+- Modify: `app/dashboard/page.tsx`
+- Modify: `app/globals.css`
+- Create: `tests/healing-palette.test.ts`
 - Create: `tests/growth-tree-semantic-geometry.test.ts`
 - Modify: `tests/growth-tree-geometry.test.ts`
 
-- [ ] **Step 1：写曲线几何和身份测试**
+- [ ] **Step 1：写色板、材质限制、曲线几何和身份测试**
+
+色板测试精确锁定全部十六进制值，并扫描业务场景文件，禁止出现 `MeshStandardMaterial`、`ShaderMaterial` 和纹理加载器。天空必须由 CSS 渐变提供；UI 背景和文字分别为 `#FFF8EA`、`#59483A`。
 
 ```ts
+expect(HEALING_PALETTE).toMatchObject({
+  skyTop: "#9DCDF2",
+  skyHorizon: "#FFE0B5",
+  sun: "#FFF1C7",
+  fog: "#DDE8D5",
+  grass: "#91B873",
+  grassLight: "#B8CE8F",
+  soil: "#C99D72",
+  trunk: "#9B6848",
+  trunkLight: "#C48B62",
+  matureLeaf: "#6FAF67",
+  youngLeaf: "#A7D97B",
+  dormantLeaf: "#C6A56D",
+  fruit: ["#F29A78", "#F5C56A"],
+  cloud: "#FFF8E8",
+  uiBackground: "#FFF8EA",
+  uiText: "#59483A"
+});
+expect(sceneSource).not.toMatch(/MeshStandardMaterial|ShaderMaterial|TextureLoader/);
 expect(mesh.geometry).toBeInstanceOf(THREE.TubeGeometry);
 expect(mesh.userData.entityType).toBe("life_area");
 expect(mesh.userData.entityId).toBe("health");
@@ -1345,11 +1397,59 @@ expect(layer.entityByUuid.get(mesh.uuid)?.entityId).toBe("health");
 
 - [ ] **Step 2：运行测试确认失败**
 
-Run: `npm test -- tests/growth-tree-semantic-geometry.test.ts tests/growth-tree-geometry.test.ts`
+Run: `npm test -- tests/healing-palette.test.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-tree-geometry.test.ts`
 
-Expected: FAIL，因为当前仍是 `CylinderGeometry`。
+Expected: FAIL，因为色板文件尚不存在，当前场景仍使用分散颜色和 `MeshStandardMaterial`，枝干仍是 `CylinderGeometry`。
 
-- [ ] **Step 3：实现曲线枝干工厂**
+- [ ] **Step 3：建立唯一治愈色板并替换基础场景材质**
+
+```ts
+export const HEALING_PALETTE = {
+  skyTop: "#9DCDF2",
+  skyHorizon: "#FFE0B5",
+  sun: "#FFF1C7",
+  fog: "#DDE8D5",
+  futureWarmFog: "#F3DFC4",
+  grass: "#91B873",
+  grassLight: "#B8CE8F",
+  soil: "#C99D72",
+  trunk: "#9B6848",
+  trunkLight: "#C48B62",
+  matureLeaf: "#6FAF67",
+  youngLeaf: "#A7D97B",
+  dormantLeaf: "#C6A56D",
+  fruit: ["#F29A78", "#F5C56A"],
+  cloud: "#FFF8E8",
+  uiBackground: "#FFF8EA",
+  uiText: "#59483A"
+} as const;
+
+export const HEALING_CSS_VARS = {
+  "--healing-sky-top": HEALING_PALETTE.skyTop,
+  "--healing-sky-horizon": HEALING_PALETTE.skyHorizon,
+  "--healing-ui-background": HEALING_PALETTE.uiBackground,
+  "--healing-ui-text": HEALING_PALETTE.uiText
+} as const;
+```
+
+`GROWTH_SCENE_CONFIG` 删除 colors；`GrowthEnvironment`、`VitalityElements` 和树几何统一改用 `MeshLambertMaterial`。`GrowthTreeScene` 使用 `WebGLRenderer({ alpha: true })`、透明 clear color、`scene.background = null` 和 `new THREE.Fog(HEALING_PALETTE.fog, 14, 38)`。主方向光使用太阳色。
+
+`app/globals.css` 设置画布容器：
+
+```css
+.growth-scene-sky {
+  color: var(--healing-ui-text);
+  background: linear-gradient(
+    to bottom,
+    var(--healing-sky-top) 0%,
+    var(--healing-sky-horizon) 100%
+  );
+}
+```
+
+Dashboard 根节点注入 `HEALING_CSS_VARS`。`GrowthTreeDashboard`、`TreeDetailPanel` 和 `AchievementDrawer` 的面板背景改用 `var(--healing-ui-background)`，正文改用 `var(--healing-ui-text)`；删除正文 `text-white`，状态轮廓仍可使用透明度。
+
+- [ ] **Step 4：实现曲线枝干工厂和树干亮面**
 
 ```ts
 const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
@@ -1360,25 +1460,39 @@ const geometry = new THREE.TubeGeometry(
   branch.radialSegments,
   false
 );
+
+const base = new THREE.Color(HEALING_PALETTE.trunk);
+const light = new THREE.Color(HEALING_PALETTE.trunkLight);
+const colors: number[] = [];
+for (let index = 0; index < geometry.attributes.normal.count; index += 1) {
+  const normal = new THREE.Vector3().fromBufferAttribute(
+    geometry.attributes.normal,
+    index
+  );
+  const amount = Math.max(0, normal.dot(TRUNK_LIGHT_DIRECTION));
+  const color = base.clone().lerp(light, amount * 0.65);
+  colors.push(color.r, color.g, color.b);
+}
+geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
 ```
 
-第一版允许 TubeGeometry 沿线半径一致；视觉上的父粗子细由不同语义枝的半径体现。不要在本任务引入自定义 shader taper，以控制风险。
+枝干使用 `MeshLambertMaterial({ vertexColors: true })`。第一版允许 TubeGeometry 沿线半径一致；视觉上的父粗子细由不同语义枝的半径体现，不引入自定义 shader taper。
 
-- [ ] **Step 4：重建 RealisticGrowthTreeLayer**
+- [ ] **Step 5：重建 RealisticGrowthTreeLayer**
 
 遍历 semantic branches 创建 Mesh，遍历 visible leaves 创建叶片。继续填充 `selectable` 和 `entityByUuid`，基础装饰叶不进入业务映射。
 
-- [ ] **Step 5：运行几何、交互和资源测试**
+- [ ] **Step 6：运行色板、几何、交互和资源测试**
 
-Run: `npm test -- tests/growth-tree-semantic-geometry.test.ts tests/growth-tree-geometry.test.ts tests/tree-interaction.test.ts tests/realistic-growth-tree-contract.test.ts`
+Run: `npm test -- tests/healing-palette.test.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-tree-geometry.test.ts tests/tree-interaction.test.ts tests/realistic-growth-tree-contract.test.ts tests/growth-environment-contract.test.ts`
 
 Expected: PASS。
 
-- [ ] **Step 6：提交曲线几何**
+- [ ] **Step 7：提交色板和曲线几何**
 
 ```bash
-git add src/components/growth-tree-semantic-geometry.ts src/components/RealisticGrowthTree.tsx src/components/growth-tree-geometry.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-tree-geometry.test.ts
-git commit -m "feat: render semantic curved tree geometry"
+git add src/theme/healing-palette.ts src/components/growth-tree-semantic-geometry.ts src/components/RealisticGrowthTree.tsx src/components/growth-tree-geometry.ts src/components/GrowthTreeScene.tsx src/components/growth-tree/GrowthEnvironment.ts src/components/growth-tree/VitalityElements.ts src/components/growth-tree/scene-config.ts src/components/GrowthTreeDashboard.tsx src/components/TreeDetailPanel.tsx src/components/AchievementDrawer.tsx app/dashboard/page.tsx app/globals.css tests/healing-palette.test.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-tree-geometry.test.ts
+git commit -m "feat: render healing-style semantic tree scene"
 ```
 
 ### Task 9：实现轻度季节变化与数据少时的完整树冠
@@ -1387,17 +1501,18 @@ git commit -m "feat: render semantic curved tree geometry"
 - Modify: `src/components/growth-tree-semantic-geometry.ts`
 - Modify: `src/components/GrowthTreeScene.tsx`
 - Modify: `src/components/growth-tree/scene-config.ts`
+- Test: `tests/healing-palette.test.ts`
 - Test: `tests/growth-tree-semantic-geometry.test.ts`
 - Test: `tests/growth-environment-contract.test.ts`
 
 - [ ] **Step 1：写近期状态视觉测试**
 
-高活跃 recipe 必须比低活跃显示更多叶片，且叶色饱和度更高；两者的 branch controlPoints 必须完全相同。
+高活跃 recipe 必须比低活跃显示更多叶片，并拥有更高 `vitality`；两者的 branch controlPoints 必须完全相同。叶色只能由成熟、嫩叶、休眠三个固定语义色计算，不能调用 HSL 饱和度调整。
 
 ```ts
 expect(high.branches).toEqual(low.branches);
 expect(high.visibleLeaves.length).toBeGreaterThan(low.visibleLeaves.length);
-expect(high.recipe.canopy.saturation).toBeGreaterThan(low.recipe.canopy.saturation);
+expect(high.recipe.canopy.vitality).toBeGreaterThan(low.recipe.canopy.vitality);
 ```
 
 - [ ] **Step 2：运行测试确认失败**
@@ -1410,28 +1525,43 @@ Expected: 新季节断言 FAIL。
 
 每个阶段性末端枝生成固定 seed 的基础叶锚点，使数据少时仍有完整树冠。这些叶片只代表树的生命形态，不代表 Activity，不可点击。Activity 叶使用更亮颜色并继续可点击。
 
-- [ ] **Step 4：映射季节颜色**
+- [ ] **Step 4：在固定三色之间映射近期状态**
 
 ```ts
-const baseLeaf = new THREE.Color(0x5c9847);
-const mutedLeaf = new THREE.Color(0x718665);
-const leafColor = mutedLeaf.clone().lerp(baseLeaf, recipe.canopy.saturation);
+const mature = new THREE.Color(HEALING_PALETTE.matureLeaf);
+const young = new THREE.Color(HEALING_PALETTE.youngLeaf);
+const dormant = new THREE.Color(HEALING_PALETTE.dormantLeaf);
+
+const leafColor = leaf.isYoung
+  ? young
+  : dormant.clone().lerp(mature, recipe.canopy.vitality);
 ```
 
-最低保留率 0.45；不允许近期低活跃把树变成裸树。
+最低保留率 0.45；不允许近期低活跃把树变成裸树。这里的线性混色只连接已批准的语义色，不调用 `offsetHSL` 或动态提高饱和度。
 
-- [ ] **Step 5：更新场景 readiness 统计**
+- [ ] **Step 5：稳定分配成就果实颜色**
+
+```ts
+export function achievementFruitColor(achievementId: string): string {
+  const index = seedFromId(achievementId, "fruit-color") < 0.5 ? 0 : 1;
+  return HEALING_PALETTE.fruit[index];
+}
+```
+
+相同 Achievement ID 在刷新、排序变化或其他成果新增后仍使用同一颜色。果实只允许 `#F29A78` 和 `#F5C56A`。
+
+- [ ] **Step 6：更新场景 readiness 统计**
 
 将 `data-scene-objects.tree` 改成语义枝数量，将 `leaves` 分为 decorative 和 activity，方便浏览器验收准确判断。
 
-- [ ] **Step 6：运行测试并提交**
+- [ ] **Step 7：运行测试并提交**
 
-Run: `npm test -- tests/growth-tree-semantic-geometry.test.ts tests/growth-environment-contract.test.ts`
+Run: `npm test -- tests/healing-palette.test.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-environment-contract.test.ts`
 
 Expected: PASS。
 
 ```bash
-git add src/components/growth-tree-semantic-geometry.ts src/components/GrowthTreeScene.tsx src/components/growth-tree/scene-config.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-environment-contract.test.ts
+git add src/theme/healing-palette.ts src/components/growth-tree-semantic-geometry.ts src/components/GrowthTreeScene.tsx src/components/growth-tree/scene-config.ts tests/healing-palette.test.ts tests/growth-tree-semantic-geometry.test.ts tests/growth-environment-contract.test.ts
 git commit -m "feat: add data-driven seasonal canopy"
 ```
 
@@ -1481,12 +1611,14 @@ git commit -m "perf: bound semantic tree rendering cost"
 
 **Files:**
 - Modify: `tests/growth-tree-dashboard.test.tsx`
+- Modify: `tests/growth-environment-contract.test.ts`
+- Modify: `tests/healing-palette.test.ts`
 - Modify: `docs/code-reading-guide.md`
 - Modify: `README.md`
 
 - [ ] **Step 1：补充用户视角的组件测试**
 
-覆盖：空用户也显示七根固定领域主树杈；选择领域打开领域汇总；选择长期/短期 Goal 打开正确详情；选择 Activity 叶显示关联 Goal；果实面板仍只展示短期成果；未完成 Todo 不成为树对象。
+覆盖：空用户也显示七根固定领域主树杈；选择领域打开领域汇总；选择长期/短期 Goal 打开正确详情；选择 Activity 叶显示关联 Goal；果实面板仍只展示短期成果；未完成 Todo 不成为树对象；UI 背景/正文使用治愈色板；业务场景不存在 `MeshStandardMaterial`、纹理或 ShaderMaterial。
 
 - [ ] **Step 2：运行全部快速测试**
 
@@ -1515,6 +1647,11 @@ Run: `npm run dev`
 - 树位于画面中间偏左；
 - 山和湖仍有前后层次；
 - 树冠明显比当前版本丰富；
+- 天空从顶部 `#9DCDF2` 过渡到地平线 `#FFE0B5`，没有明显色带；
+- 草地、土地、树干和叶片均为柔和纯色，没有写实纹理或塑料高光；
+- 默认雾为 `#DDE8D5`，远景仍能看清山湖层次；
+- 面板背景接近 `#FFF8EA`，正文为 `#59483A`，没有白色正文看不清的问题；
+- 成熟叶、嫩叶、休眠叶容易区分但不刺眼，果实只出现珊瑚粉和暖金黄；
 - 七个领域、Goal 和 Activity 点击对象正确；
 - 旋转和缩放不产生明显卡顿；
 - 移动端没有面板遮住整棵树；
@@ -1530,6 +1667,7 @@ aggregation.ts
 → tree-recipe.ts
 → semantic-tree-skeleton.ts
 → tree-visualization.ts
+→ healing-palette.ts
 → RealisticGrowthTree.tsx
 → GrowthTreeScene.tsx
 ```
@@ -1537,7 +1675,7 @@ aggregation.ts
 - [ ] **Step 7：提交验收与文档**
 
 ```bash
-git add tests/growth-tree-dashboard.test.tsx docs/code-reading-guide.md README.md
+git add tests/growth-tree-dashboard.test.tsx tests/growth-environment-contract.test.ts tests/healing-palette.test.ts docs/code-reading-guide.md README.md
 git commit -m "docs: document semantic tree generation"
 ```
 
@@ -1565,6 +1703,8 @@ git commit -m "docs: document semantic tree generation"
 | 前期反馈太弱或后期失控 | 新用户看不到变化，或成熟树无限增大 | 使用 `1-e^(-points/35)` 负指数饱和曲线，并把永久几何锁定在阶段快照 |
 | 低活跃惩罚感过强 | 用户回来看到秃树 | 永久骨架不退化，叶片最低保留 45% |
 | 树好看但不可解释 | 用户不知道哪根枝是什么 | 每根语义枝保留实体 ID，点击打开现有详情 |
+| 色彩再次失控 | 各组件继续写自己的十六进制颜色 | `HEALING_PALETTE` 作为唯一语义色源，契约测试扫描场景材质和 UI 正文 |
+| 纯色画面仍显得塑料 | 保留强高光或 StandardMaterial | 统一 Lambert 材质、柔和环境光与方向光，禁止 PBR/纹理/自定义 Shader |
 | 误删错误数据库 | 重建命令指向了错误 Supabase 项目 | 删除前只读展示项目标识和目标表清单，并再次取得明确批准 |
 | schema 与代码短暂不匹配 | 重建后旧应用继续请求 Ability 字段 | 所有代码和空库测试先完成，再连续执行重建与新版部署 |
 | 删除 Ability 遗漏依赖 | 构建或 RPC 仍读取 abilities/ability_id | 删除前用全仓 `rg` 清单审计，类型、SQL、OpenAPI 和测试同一任务收口 |
