@@ -21,4 +21,6 @@ export const GROWTH_SCENE_CONFIG = {
   }
 } as const;
 
+export { LIFE_AREA_BRANCH_PLACEMENTS } from "@/src/domain/tree-recipe";
+
 export type GrowthSceneAsset = keyof typeof GROWTH_SCENE_CONFIG.models;
