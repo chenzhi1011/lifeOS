@@ -15,8 +15,9 @@ function lerp(min: number, max: number, amount: number) { return min + (max - mi
 function locked(stage: GrowthStage) { return maturityFromPoints(GROWTH_STAGE_THRESHOLDS[stage]); }
 function branch(entityType: BranchRecipe["entityType"], entityId: string, parentEntityId: string, stage: GrowthStage, start: number, azimuth: number): BranchRecipe {
   const maturity = locked(stage);
+  const isLifeArea = entityType === "life_area";
   return { entityType, entityId, parentEntityId, stage, start, azimuth, elevation: 22 + seedFromId(entityId, "elevation") * 24,
-    length: lerp(.8, 2.6, maturity), radius: lerp(.07, .28, maturity), gnarliness: .12 + seedFromId(entityId, "gnarliness") * .3,
+    length: lerp(isLifeArea ? 1.65 : .8, isLifeArea ? 3.05 : 2.6, maturity), radius: lerp(isLifeArea ? .12 : .07, .28, maturity), gnarliness: .12 + seedFromId(entityId, "gnarliness") * .3,
     childSlots: 3 + stage * 2 };
 }
 export function buildTreeRecipe(data: DashboardData, metrics: GrowthMetrics): TreeRecipe {

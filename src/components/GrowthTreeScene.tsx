@@ -169,7 +169,7 @@ export function GrowthTreeScene({
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = GROWTH_SCENE_CONFIG.performance.shadows;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();

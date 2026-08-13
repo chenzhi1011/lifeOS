@@ -21,18 +21,27 @@ export function createSemanticLeafMesh(leaf: SemanticLeaf){ const shape=new THRE
 
 export function createDecorativeCanopy(branches: SemanticBranch[], recipe: TreeRecipe) {
   const candidates = branches.filter((branch) => branch.entityType !== "root");
-  const perBranch = Math.max(4, Math.round(5 + recipe.canopy.retention * 9));
+  const perBranch = Math.max(28, Math.round(28 + recipe.canopy.retention * 26));
   const count = Math.min(1400, candidates.length * perBranch);
-  const geometry = new THREE.SphereGeometry(.16, 5, 4); geometry.scale(.7, 1.25, .45);
-  const color = new THREE.Color(HEALING_PALETTE.dormantLeaf).lerp(new THREE.Color(HEALING_PALETTE.matureLeaf), recipe.canopy.vitality);
+  const geometry = new THREE.SphereGeometry(.22, 5, 4); geometry.scale(.7, 1.25, .45);
+  const color = new THREE.Color(HEALING_PALETTE.dormantLeaf).lerp(new THREE.Color(HEALING_PALETTE.matureLeaf), .68 + recipe.canopy.vitality * .32);
   const material = new THREE.MeshLambertMaterial({ color, flatShading: true });
   const mesh = new THREE.InstancedMesh(geometry, material, count); mesh.name = "decorative-canopy"; mesh.userData.decorative = true; mesh.raycast = () => undefined;
   const transform = new THREE.Object3D(); let index = 0;
   for (const branch of candidates) for (let slot = 0; slot < perBranch && index < count; slot += 1) {
-    const end = branch.controlPoints[3]; const id = `${branch.entityId}-${slot}`;
-    transform.position.set(end.x + (seedFromId(id,"x")-.5)*1.05, end.y + (seedFromId(id,"y")-.25)*.72, end.z + (seedFromId(id,"z")-.5)*1.05);
+    const id = `${branch.entityId}-${slot}`;
+    const curve = new THREE.CubicBezierCurve3(...branch.controlPoints.map(point) as [THREE.Vector3,THREE.Vector3,THREE.Vector3,THREE.Vector3]);
+    const anchor = curve.getPoint(.55 + seedFromId(id,"along") * .45);
+    transform.position.set(anchor.x + (seedFromId(id,"x")-.5)*1.6, anchor.y + (seedFromId(id,"y")-.28)*1.05, anchor.z + (seedFromId(id,"z")-.5)*1.6);
     transform.rotation.set(seedFromId(id,"rx")*.6, seedFromId(id,"ry")*Math.PI*2, (seedFromId(id,"rz")-.5)*.8);
-    transform.scale.setScalar(.8 + seedFromId(id,"scale")*.55); transform.updateMatrix(); mesh.setMatrixAt(index++, transform.matrix);
+    transform.scale.setScalar(.82 + seedFromId(id,"scale")*.62); transform.updateMatrix(); mesh.setMatrixAt(index, transform.matrix);
+    const leafColor = seedFromId(id,"young") < recipe.canopy.youngLeafRatio
+      ? new THREE.Color(HEALING_PALETTE.youngLeaf)
+      : color;
+    mesh.setColorAt(index, leafColor);
+    index += 1;
   }
-  mesh.instanceMatrix.needsUpdate = true; return mesh;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return mesh;
 }
