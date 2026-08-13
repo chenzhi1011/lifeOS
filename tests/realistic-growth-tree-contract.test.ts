@@ -25,8 +25,8 @@ describe("RealisticGrowthTree renderer contract", () => {
     expect(sceneSource).toContain("forceContextLoss");
     expect(sceneSource).not.toContain("preserveDrawingBuffer");
     expect(treeSource).toContain("createRealisticGrowthTreeLayer");
-    expect(treeSource).toContain("createWoodSegmentMesh");
-    expect(treeSource).toContain("createActivityLeafMesh");
+    expect(treeSource).toContain("createSemanticBranchMesh");
+    expect(treeSource).toContain("createSemanticLeafMesh");
     expect(treeSource).not.toContain("WebGLRenderer");
     expect(treeSource).not.toContain("THREE.Scene");
     expect(treeSource).not.toContain("PerspectiveCamera");

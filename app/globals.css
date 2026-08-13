@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+.growth-scene-sky {
+  background: linear-gradient(to bottom, var(--healing-sky-top, #9DCDF2) 0%, var(--healing-sky-horizon, #FFE0B5) 100%);
+}
+
 :root {
   color-scheme: light;
   background: #f4efe6;

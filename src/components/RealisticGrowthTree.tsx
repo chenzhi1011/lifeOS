@@ -4,9 +4,9 @@ import type {
   TreeEntityType
 } from "@/src/domain/tree-visualization";
 import {
-  createActivityLeafMesh,
-  createWoodSegmentMesh
-} from "./growth-tree-geometry";
+  createSemanticBranchMesh,
+  createSemanticLeafMesh
+} from "./growth-tree-semantic-geometry";
 
 export type TreeSelectionTarget = {
   kind: "wood" | "leaf";
@@ -69,15 +69,8 @@ export function createRealisticGrowthTreeLayer(
   const entityByUuid = new Map<string, TreeSelectionTarget>();
   const ownedGeometries = new Set<THREE.BufferGeometry>();
   const ownedMaterials = new Set<THREE.Material>();
-  const wood = [
-    viewModel.root,
-    ...viewModel.lifeAreaBranches,
-    ...viewModel.longGoalTwigs,
-    ...viewModel.shortGoalBranches
-  ];
-
-  for (const segment of wood) {
-    const mesh = createWoodSegmentMesh(segment);
+  for (const segment of viewModel.branches) {
+    const mesh = createSemanticBranchMesh(segment);
     const target: TreeSelectionTarget = {
       kind: "wood",
       entityType: segment.entityType,
@@ -95,8 +88,8 @@ export function createRealisticGrowthTreeLayer(
     rememberOwnedMesh(mesh, ownedGeometries, ownedMaterials);
   }
 
-  for (const leaf of viewModel.activityLeaves) {
-    const mesh = createActivityLeafMesh(leaf);
+  for (const leaf of viewModel.semanticLeaves.filter((item) => item.visible)) {
+    const mesh = createSemanticLeafMesh(leaf);
     const target: TreeSelectionTarget = {
       kind: "leaf",
       entityType: "activity",

@@ -32,6 +32,7 @@ import {
   type VitalityElementsLayer
 } from "./growth-tree/VitalityElements";
 import { GROWTH_SCENE_CONFIG } from "./growth-tree/scene-config";
+import { HEALING_PALETTE } from "@/src/theme/healing-palette";
 
 type GrowthTreeSceneProps = {
   viewModel: GrowthTreeViewModel;
@@ -59,11 +60,11 @@ function pointerFromEvent(
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
-function meshMaterial(object: THREE.Object3D): THREE.MeshStandardMaterial | null {
+function meshMaterial(object: THREE.Object3D): THREE.MeshLambertMaterial | null {
   if (!(object instanceof THREE.Mesh)) {
     return null;
   }
-  return object.material instanceof THREE.MeshStandardMaterial
+  return object.material instanceof THREE.MeshLambertMaterial
     ? object.material
     : null;
 }
@@ -101,9 +102,9 @@ function updateLayerMaterials(
       target.goalId === selection.entityId;
     const baseColor =
       target.kind === "leaf"
-        ? GROWTH_SCENE_CONFIG.colors.leaf
+        ? new THREE.Color(HEALING_PALETTE.youngLeaf).getHex()
         : (material.userData.baseColor as number);
-    const leafHighlight = GROWTH_SCENE_CONFIG.colors.leafHighlight;
+    const leafHighlight = new THREE.Color(HEALING_PALETTE.matureLeaf).getHex();
     const color = resolveTreeMaterialColor(
       {
         baseColor,
@@ -165,14 +166,15 @@ export function GrowthTreeScene({
       return;
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setClearColor(0xa9d9e5, 1);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = GROWTH_SCENE_CONFIG.performance.shadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xa9d9e5);
+    scene.background = null;
+    scene.fog = new THREE.Fog(HEALING_PALETTE.fog, 14, 38);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
     camera.position.set(0.7, 3.7, 10.8);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -182,7 +184,7 @@ export function GrowthTreeScene({
     controls.maxDistance = 12;
 
     scene.add(new THREE.HemisphereLight(0xdff6ff, 0x5e8f39, 2.15));
-    const sun = new THREE.DirectionalLight(0xfff0b5, 4.8);
+    const sun = new THREE.DirectionalLight(HEALING_PALETTE.sun, 4.8);
     sun.position.set(-5.8, 9, 4.5);
     sun.castShadow = true;
     scene.add(sun);
@@ -213,7 +215,6 @@ export function GrowthTreeScene({
       }
     });
     runtime.environment = environment;
-    scene.fog = environment.fog;
     scene.add(environment.group);
     let pointerGesture: PointerGestureState | null = null;
 
@@ -440,7 +441,7 @@ export function GrowthTreeScene({
   }, [selection, viewModel]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#a9d9e5] text-[#17351d]">
+    <div className="growth-scene-sky relative min-h-screen overflow-hidden text-[var(--healing-ui-text)]">
       <div
         className="absolute inset-0"
         data-testid="realistic-growth-tree-canvas"

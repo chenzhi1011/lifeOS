@@ -16,6 +16,7 @@ import type {
 import { AchievementDrawer } from "./AchievementDrawer";
 import { GrowthTreeScene } from "./GrowthTreeScene";
 import { TreeDetailPanel } from "./TreeDetailPanel";
+import { HEALING_CSS_VARS } from "@/src/theme/healing-palette";
 
 type GrowthTreeDashboardProps = {
   viewModel: GrowthTreeViewModel;
@@ -60,7 +61,7 @@ export function GrowthTreeDashboard({
     viewModel.diagnostics.length === 0;
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#9edcff] text-[#18321e]">
+    <main className="relative min-h-screen overflow-hidden text-[var(--healing-ui-text)]" style={HEALING_CSS_VARS as React.CSSProperties}>
       <GrowthTreeScene
         onClearSelection={onClearSelection}
         onSelectLeaf={onSelectLeaf}
