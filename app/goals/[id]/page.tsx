@@ -2,7 +2,9 @@ import Link from "next/link";
 import { Heatmap } from "@/src/components/Heatmap";
 import { Timeline } from "@/src/components/Timeline";
 import { normalizeDashboardUserId } from "@/src/dashboard/user-id";
-import { readGoalDetail } from "@/src/db/lifeos-read";
+import { queryGoalDetail } from "@/src/application/dashboard-queries";
+import { resolveSessionPrincipal, type ApiPrincipal } from "@/src/auth/api-principal";
+import { headers } from "next/headers";
 
 type GoalPageProps = {
   params: Promise<{ id: string }>;
@@ -48,13 +50,15 @@ export default async function GoalPage({ params, searchParams }: GoalPageProps) 
   const { id } = await params;
   const resolvedSearchParams = await searchParams;
   const rawUserId = getSearchValue(resolvedSearchParams.userId);
-  const userId = normalizeDashboardUserId(rawUserId);
-  if (!userId) {
+  const session = await resolveSessionPrincipal(new Request("http://life-os.local", { headers: await headers() }));
+  const demoUserId = process.env.NODE_ENV !== "production" ? normalizeDashboardUserId(rawUserId) : null;
+  const principal: ApiPrincipal | null = session ?? (demoUserId ? { userId: demoUserId, actorType: "session" } : null);
+  if (!principal) {
     return <GoalUserGate goalId={id} attemptedUserId={rawUserId} />;
   }
 
-  const dashboardHref = `/dashboard?userId=${encodeURIComponent(userId)}`;
-  const data = await readGoalDetail(id, userId);
+  const dashboardHref = session ? "/dashboard" : `/dashboard?userId=${encodeURIComponent(principal.userId)}`;
+  const data = await queryGoalDetail(principal, id);
 
   if (!data.goal) {
     return (

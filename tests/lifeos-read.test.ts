@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  createServiceSupabaseClient: vi.fn()
+  createServiceSupabaseClient: vi.fn(),
+  resolveSessionPrincipal: vi.fn()
 }));
 
 vi.mock("@/src/db/supabase", () => ({
   createServiceSupabaseClient: mocks.createServiceSupabaseClient
+}));
+vi.mock("@/src/auth/api-principal", () => ({
+  resolveSessionPrincipal: mocks.resolveSessionPrincipal
 }));
 
 import { GET as dashboardGet } from "@/app/api/dashboard/route";
@@ -156,6 +160,7 @@ function successResponses(): Record<string, TableResponse> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.resolveSessionPrincipal.mockResolvedValue({ userId, actorType: "session" });
 });
 
 describe("readDashboardData", () => {

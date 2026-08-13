@@ -14,6 +14,8 @@ const { readDashboardDataMock } = vi.hoisted(() => ({
 vi.mock("@/src/db/lifeos-read", () => ({
   readDashboardData: readDashboardDataMock
 }));
+vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers()) }));
+vi.mock("@/src/auth/api-principal", () => ({ resolveSessionPrincipal: vi.fn().mockResolvedValue(null) }));
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
