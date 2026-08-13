@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   matchOpenTask,
   normalizeIntentTitle,
-  resolveAbilityReference,
   resolveGoalReference,
-  type ActionAbilityContext,
   type ActionGoalAliasContext,
   type ActionGoalContext,
   type ActionTaskContext
@@ -15,32 +13,26 @@ const goals: ActionGoalContext[] = [
     id: "goal-aws",
     title: "AWS",
     goalType: "long_term",
-    abilityId: "ability-frontend",
+    lifeArea: "work",
     status: "active"
   },
   {
     id: "goal-muscle",
     title: "增肌",
     goalType: "long_term",
-    abilityId: "ability-health",
+    lifeArea: "health",
     status: "active"
   },
   {
     id: "goal-paused",
     title: "暂停目标",
     goalType: "short_term",
-    abilityId: null,
+    lifeArea: "growth",
     status: "paused"
   }
 ];
 
 const aliases: ActionGoalAliasContext[] = [{ goalId: "goal-aws", alias: "云计算" }];
-
-const abilities: ActionAbilityContext[] = [
-  { id: "ability-frontend", title: "前端能力", status: "active" },
-  { id: "ability-health", title: "健康能力", status: "active" },
-  { id: "ability-archived", title: "旧能力", status: "archived" }
-];
 
 describe("normalizeIntentTitle", () => {
   it("removes conversational prefixes, punctuation, whitespace, and a trailing 了", () => {
@@ -181,14 +173,14 @@ describe("resolveGoalReference", () => {
             id: "goal-family",
             title: "家庭",
             goalType: "short_term",
-            abilityId: null,
+            lifeArea: "relationships",
             status: "active"
           },
           {
             id: "goal-chores",
             title: "家务系统",
             goalType: "long_term",
-            abilityId: "ability-health",
+            lifeArea: "life",
             status: "active"
           }
         ],
@@ -211,7 +203,7 @@ describe("resolveGoalReference", () => {
             id: "goal-aws-2",
             title: "aws",
             goalType: "long_term",
-            abilityId: "ability-frontend",
+            lifeArea: "work",
             status: "active"
           }
         ],
@@ -237,67 +229,6 @@ describe("resolveGoalReference", () => {
     ).toEqual({
       kind: "inbox",
       reason: "multiple active goals match: 云计算"
-    });
-  });
-});
-
-describe("resolveAbilityReference", () => {
-  it("resolves an active ability by id", () => {
-    expect(
-      resolveAbilityReference({ id: "ability-health" }, abilities)
-    ).toEqual({ kind: "resolved", abilityId: "ability-health" });
-  });
-
-  it("resolves an active ability by normalized title", () => {
-    expect(
-      resolveAbilityReference({ title: " 前端 能力 " }, abilities)
-    ).toEqual({ kind: "resolved", abilityId: "ability-frontend" });
-  });
-
-  it("deduplicates id and title matches for the same persisted ability", () => {
-    expect(
-      resolveAbilityReference(
-        { id: "ability-frontend", title: "前端能力" },
-        abilities
-      )
-    ).toEqual({ kind: "resolved", abilityId: "ability-frontend" });
-  });
-
-  it("routes conflicting id and title matches to inbox", () => {
-    expect(
-      resolveAbilityReference(
-        { id: "ability-health", title: "前端能力" },
-        abilities
-      )
-    ).toEqual({
-      kind: "inbox",
-      reason: "multiple active abilities match: 前端能力"
-    });
-  });
-
-  it("does not use aliases or archived abilities", () => {
-    expect(resolveAbilityReference({ title: "旧能力" }, abilities)).toEqual({
-      kind: "inbox",
-      reason: "ability does not exist: 旧能力"
-    });
-    expect(resolveAbilityReference({ title: "云计算" }, abilities)).toEqual({
-      kind: "inbox",
-      reason: "ability does not exist: 云计算"
-    });
-  });
-
-  it("routes ambiguous normalized titles to inbox", () => {
-    expect(
-      resolveAbilityReference(
-        { title: "前端能力" },
-        [
-          ...abilities,
-          { id: "ability-frontend-2", title: "前端 能力", status: "active" }
-        ]
-      )
-    ).toEqual({
-      kind: "inbox",
-      reason: "multiple active abilities match: 前端能力"
     });
   });
 });

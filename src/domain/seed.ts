@@ -1,4 +1,4 @@
-import type { Ability, Activity, Achievement, Goal, GoalAlias, LifeOSState, Profile } from "./types";
+import type { Activity, Achievement, Goal, GoalAlias, LifeOSState, Profile } from "./types";
 
 const now = "2026-07-25T09:00:00+09:00";
 const userId = "demo-user";
@@ -13,12 +13,6 @@ const profiles: Profile[] = [
   }
 ];
 
-const abilities: Ability[] = [
-  { id: "ability-frontend", userId, title: "前端能力", status: "active", createdAt: now, archivedAt: null },
-  { id: "ability-health", userId, title: "健康能力", status: "active", createdAt: now, archivedAt: null },
-  { id: "ability-investing", userId, title: "投资能力", status: "active", createdAt: now, archivedAt: null }
-];
-
 const goals: Goal[] = [
   {
     id: "aws",
@@ -27,7 +21,7 @@ const goals: Goal[] = [
     category: "职业",
     parentGoalId: null,
     goalType: "long_term",
-    abilityId: "ability-frontend",
+    lifeArea: "work",
     metricType: "duration",
     status: "active",
     dueAt: null,
@@ -41,7 +35,7 @@ const goals: Goal[] = [
     category: "职业",
     parentGoalId: null,
     goalType: "long_term",
-    abilityId: "ability-frontend",
+    lifeArea: "growth",
     metricType: "duration",
     status: "active",
     dueAt: null,
@@ -55,7 +49,7 @@ const goals: Goal[] = [
     category: "健康",
     parentGoalId: null,
     goalType: "long_term",
-    abilityId: "ability-health",
+    lifeArea: "health",
     metricType: "count",
     status: "active",
     dueAt: null,
@@ -69,7 +63,7 @@ const goals: Goal[] = [
     category: "职业",
     parentGoalId: null,
     goalType: "short_term",
-    abilityId: null,
+    lifeArea: "work",
     metricType: "milestone",
     status: "active",
     dueAt: "2026-12-31T23:59:59+09:00",
@@ -83,7 +77,7 @@ const goals: Goal[] = [
     category: "职业",
     parentGoalId: null,
     goalType: "short_term",
-    abilityId: null,
+    lifeArea: "growth",
     metricType: "milestone",
     status: "completed",
     dueAt: "2026-07-20T23:59:59+09:00",
@@ -127,7 +121,6 @@ export function createInitialState(): LifeOSState {
     currentUserId: userId,
     profiles: [...profiles],
     messages: [],
-    abilities: [...abilities],
     goals: [...goals],
     goalAliases: [...goalAliases],
     tasks: [],

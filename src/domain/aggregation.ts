@@ -1,5 +1,4 @@
 import type {
-  Ability,
   Activity,
   Achievement,
   Goal,
@@ -25,7 +24,6 @@ export type HeatmapPoint = {
 };
 
 export type DashboardData = {
-  abilities: Ability[];
   goals: Goal[];
   goalStats: GoalGrowthStat[];
   allActivities: Activity[];
@@ -120,9 +118,6 @@ export function buildDashboardData(
   asOf: Date = new Date()
 ): DashboardData {
   const window = utcThirtyDayWindow(asOf);
-  const abilities = state.abilities.filter(
-    (ability) => ability.userId === userId && ability.status === "active"
-  );
   const goals = state.goals.filter((goal) => goal.userId === userId);
   const activities = state.activities.filter((activity) => activity.userId === userId);
   const recentActivities = activities
@@ -158,7 +153,6 @@ export function buildDashboardData(
   );
 
   return {
-    abilities,
     goals,
     goalStats: buildStatsForGoals(userId, goals, activities),
     allActivities: activities,

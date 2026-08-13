@@ -36,7 +36,6 @@ const actionContext = {
   timezone: "Asia/Tokyo",
   defaultReminderTime: "09:00",
   currentTime: "2026-07-28 09:00:00 Asia/Tokyo",
-  abilities: [],
   goals: [],
   aliases: [],
   openTasks: []

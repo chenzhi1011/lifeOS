@@ -71,7 +71,7 @@ export function createRealisticGrowthTreeLayer(
   const ownedMaterials = new Set<THREE.Material>();
   const wood = [
     viewModel.root,
-    ...viewModel.abilityBranches,
+    ...viewModel.lifeAreaBranches,
     ...viewModel.longGoalTwigs,
     ...viewModel.shortGoalBranches
   ];

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const parseEnvelopeSchema = z
   .object({
-    type: z.enum(["task", "activity", "goal", "ability", "reminder", "inbox"]),
+    type: z.enum(["task", "activity", "goal", "reminder", "inbox"]),
     confidence: z.number()
   })
   .passthrough();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LIFE_AREA_IDS } from "@/src/domain/life-areas";
 
 const textField = z.string().trim().min(1).max(500);
 const dateField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -22,28 +23,37 @@ const goalReferenceSchema = z
     }
   });
 
-export const abilityReferenceSchema = z
-  .object({
-    id: uuidField.optional(),
-    title: textField.optional()
-  })
-  .strict()
-  .superRefine((ability, ctx) => {
-    if ((!ability.id && !ability.title) || (ability.id && ability.title)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "ability reference requires exactly one of id or title"
-      });
-    }
-  });
-
 const metricSchema = z
   .object({
     type: z.enum(["duration", "count", "milestone"]),
     value: z.number().positive().max(100_000),
     unit: z.enum(["minute", "hour", "count"])
   })
-  .strict();
+  .strict()
+  .superRefine((metric, ctx) => {
+    const unitIsValid =
+      (metric.type === "duration" && ["minute", "hour"].includes(metric.unit)) ||
+      (["count", "milestone"].includes(metric.type) && metric.unit === "count");
+    if (!unitIsValid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `invalid unit ${metric.unit} for ${metric.type}`,
+        path: ["unit"]
+      });
+    }
+  });
+
+const reminderSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("default") }).strict(),
+  z.object({ mode: z.literal("none") }).strict(),
+  z
+    .object({
+      mode: z.literal("custom"),
+      remindAt: z.string().datetime({ offset: true }),
+      repeatRule: z.enum(["none", "daily", "weekly"]).default("none")
+    })
+    .strict()
+]);
 
 const taskMatchSchema = z
   .object({
@@ -66,6 +76,7 @@ const taskBatchInputSchema = z
     localDate: dateField,
     explicitDueAt: z.string().datetime({ offset: true }).optional(),
     priority: z.enum(["low", "normal", "high"]).default("normal"),
+    reminder: reminderSchema.optional(),
     metric: metricSchema.optional(),
     goal: goalReferenceSchema.optional()
   })
@@ -106,33 +117,9 @@ const goalBatchInputSchema = z
     goalType: z.enum(["long_term", "short_term"]),
     title: textField,
     category: textField,
-    ability: abilityReferenceSchema.optional(),
+    lifeArea: z.enum(LIFE_AREA_IDS),
     metricType: z.enum(["duration", "count", "milestone"]).default("count"),
     aliases: z.array(textField).max(12).default([])
-  })
-  .strict()
-  .superRefine((goal, ctx) => {
-    if (goal.goalType === "long_term" && !goal.ability) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "long_term goal requires ability",
-        path: ["ability"]
-      });
-    }
-    if (goal.goalType === "short_term" && goal.ability) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "short_term goal forbids ability",
-        path: ["ability"]
-      });
-    }
-  });
-
-const abilityBatchInputSchema = z
-  .object({
-    ...commonEventFields,
-    type: z.literal("ability"),
-    title: textField
   })
   .strict();
 
@@ -142,7 +129,7 @@ const inboxBatchInputSchema = z
     type: z.literal("inbox"),
     reason: textField,
     suggestedTypes: z
-      .array(z.enum(["task", "activity", "goal", "ability", "inbox"]))
+      .array(z.enum(["task", "activity", "goal", "inbox"]))
       .min(1)
       .max(5),
     resolution: z.literal("dismiss").optional()
@@ -153,7 +140,6 @@ const lifeEventBatchInputSchema = z.union([
   taskBatchInputSchema,
   activityBatchInputSchema,
   goalBatchInputSchema,
-  abilityBatchInputSchema,
   inboxBatchInputSchema
 ]);
 
@@ -177,7 +163,6 @@ export const lifeEventBatchPayloadSchema = z
   });
 
 export type GoalReferenceInput = z.infer<typeof goalReferenceSchema>;
-export type AbilityReferenceInput = z.infer<typeof abilityReferenceSchema>;
 export type LifeEventBatchPayload = z.infer<typeof lifeEventBatchPayloadSchema>;
 export type LifeEventBatchInput = z.infer<typeof lifeEventBatchInputSchema>;
 export type TaskBatchInput = z.infer<typeof taskBatchInputSchema>;

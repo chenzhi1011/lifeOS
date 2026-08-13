@@ -37,7 +37,7 @@ export const localProvider: AIProvider = {
           messages: [
             {
               role: "system",
-              content: "Return only valid Life OS JSON. Types: task, activity, goal, ability, reminder, inbox. Every task needs path one_off or goal; one_off forbids goal and goal path requires goal. Long-term goals require one ability reference; short-term goals forbid ability."
+              content: "Return only valid Life OS JSON. Types: task, activity, goal, reminder, inbox. Every task needs path one_off or goal; one_off forbids goal and goal path requires goal. Every new goal requires goalType and one lifeArea: work, growth, health, life, finance, relationships, or entertainment."
             },
             { role: "user", content: input.text }
           ],

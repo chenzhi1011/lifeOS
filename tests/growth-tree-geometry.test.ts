@@ -41,12 +41,12 @@ const viewModel: GrowthTreeViewModel = {
     entityId: "root",
     label: "人生"
   },
-  abilityBranches: [
+  lifeAreaBranches: [
     {
       ...segment,
-      entityType: "ability",
-      entityId: "ability-a",
-      label: "前端能力"
+      entityType: "life_area",
+      entityId: "growth",
+      label: "成长"
     }
   ],
   longGoalTwigs: [segment],

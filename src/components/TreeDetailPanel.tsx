@@ -16,7 +16,7 @@ function selectedWood(
 ): TreeWood | null {
   const wood = [
     viewModel.root,
-    ...viewModel.abilityBranches,
+    ...viewModel.lifeAreaBranches,
     ...viewModel.longGoalTwigs,
     ...viewModel.shortGoalBranches
   ];
@@ -31,7 +31,7 @@ function selectedWood(
 
 const entityLabels: Record<TreeWood["entityType"], string> = {
   root: "成长树",
-  ability: "长期能力",
+  life_area: "生活领域",
   long_goal: "长期目标",
   short_goal: "短期目标"
 };

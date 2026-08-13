@@ -68,17 +68,6 @@ function createQueryClient(responses: Record<string, TableResponse>) {
 
 function successResponses(): Record<string, TableResponse> {
   return {
-    abilities: {
-      data: [{
-        id: "ability-1",
-        user_id: userId,
-        title: "前端能力",
-        status: "active",
-        created_at: "2026-07-01T00:00:00.000Z",
-        archived_at: null
-      }],
-      error: null
-    },
     goals: {
       data: [
         {
@@ -88,27 +77,13 @@ function successResponses(): Record<string, TableResponse> {
           category: "职业",
           parent_goal_id: null,
           goal_type: "long_term",
-          ability_id: "ability-1",
+          life_area: "work",
           metric_type: "duration",
           status: "active",
           due_at: null,
           completed_at: null,
           created_at: "2026-07-01T00:00:00.000Z"
         },
-        {
-          id: "legacy-goal",
-          user_id: userId,
-          title: "Legacy",
-          category: "legacy",
-          parent_goal_id: null,
-          goal_type: null,
-          ability_id: null,
-          metric_type: "count",
-          status: "active",
-          due_at: null,
-          completed_at: null,
-          created_at: "2026-06-01T00:00:00.000Z"
-        }
       ],
       error: null
     },
@@ -191,7 +166,6 @@ describe("readDashboardData", () => {
     const data = await readDashboardData(userId, asOf);
 
     for (const table of [
-      "abilities",
       "goals",
       "activities",
       "tasks",
@@ -219,20 +193,14 @@ describe("readDashboardData", () => {
       method: "gte",
       args: ["completed_at", "2026-07-03T00:00:00.000Z"]
     });
-    expect(data.abilities[0]).toMatchObject({
-      id: "ability-1",
-      userId,
-      archivedAt: null
-    });
     expect(data.goals).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "goal-1",
         goalType: "long_term",
-        abilityId: "ability-1",
+        lifeArea: "work",
         dueAt: null,
         completedAt: null
       }),
-      expect.objectContaining({ id: "legacy-goal", goalType: null })
     ]));
     expect(data.allActivities[0]).toMatchObject({
       id: "activity-1",

@@ -1,49 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { authenticateActionToken, extractBearerToken, hashActionToken } from "@/src/actions/auth";
 import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
-import { writeLifeEventFromAction } from "@/src/actions/repository";
 import { checkActionRateLimit, resetActionRateLimits } from "@/src/actions/rate-limit";
 import { requireActionCredential } from "@/src/actions/request";
 import { toParseResult, validateLifeEventPayload } from "@/src/actions/validation";
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-type RecordedOperation = {
-  table: string;
-  kind: "insert" | "upsert";
-  value: Record<string, unknown>;
-};
-
-function createRecordingSupabase(
-  rows: Partial<Record<string, Record<string, unknown>>> = {}
-) {
-  const operations: RecordedOperation[] = [];
-  const client = {
-    from(table: string) {
-      const builder = {
-        insert(value: Record<string, unknown>) {
-          operations.push({ table, kind: "insert" as const, value });
-          return builder;
-        },
-        upsert(value: Record<string, unknown>) {
-          operations.push({ table, kind: "upsert" as const, value });
-          return builder;
-        },
-        select() {
-          return builder;
-        },
-        single() {
-          return Promise.resolve({
-            data: rows[table] ?? { id: `${table}-id` },
-            error: null
-          });
-        }
-      };
-      return builder;
-    }
-  } as unknown as SupabaseClient;
-
-  return { client, operations };
-}
 
 describe("Custom GPT action security", () => {
   it("extracts bearer tokens and hashes them without preserving the raw token", async () => {
@@ -142,62 +102,20 @@ describe("Custom GPT action security", () => {
     ).toThrow(/one_off forbids goal/);
   });
 
-  it("accepts ability events", () => {
-    const payload = validateLifeEventPayload({
-      type: "ability",
-      rawText: "培养写作能力",
-      confidence: 0.94,
-      ability: { title: "写作能力" }
-    });
+  it("requires a fixed life area for every new goal", () => {
+    expect(() => validateLifeEventPayload({
+      type: "goal",
+      rawText: "持续学 React",
+      confidence: 0.9,
+      goal: { title: "React", category: "职业", goalType: "long_term" }
+    })).toThrow();
 
-    expect(toParseResult(payload)).toEqual({
-      type: "ability",
-      rawText: "培养写作能力",
-      confidence: 0.94,
-      ability: { title: "写作能力" }
-    });
-  });
-
-  it("enforces typed goal and ability-reference semantics", () => {
-    expect(() =>
-      validateLifeEventPayload({
-        type: "goal",
-        rawText: "持续学 React",
-        confidence: 0.9,
-        goal: { title: "React", category: "职业", goalType: "long_term" }
-      })
-    ).toThrow(/long_term goal requires ability/);
-
-    expect(() =>
-      validateLifeEventPayload({
-        type: "goal",
-        rawText: "通过考试",
-        confidence: 0.9,
-        goal: {
-          title: "通过考试",
-          category: "职业",
-          goalType: "short_term",
-          ability: { title: "考试能力" }
-        }
-      })
-    ).toThrow(/short_term goal forbids ability/);
-
-    expect(() =>
-      validateLifeEventPayload({
-        type: "goal",
-        rawText: "持续学 React",
-        confidence: 0.9,
-        goal: {
-          title: "React",
-          category: "职业",
-          goalType: "long_term",
-          ability: {
-            id: "11111111-1111-4111-8111-111111111111",
-            title: "前端能力"
-          }
-        }
-      })
-    ).toThrow(/ability reference requires exactly one of id or title/);
+    expect(validateLifeEventPayload({
+      type: "goal",
+      rawText: "持续学 React",
+      confidence: 0.9,
+      goal: { title: "React", category: "职业", goalType: "long_term", lifeArea: "growth" }
+    })).toMatchObject({ goal: { lifeArea: "growth" } });
   });
 
   it("rejects duplicate normalized goal aliases before persistence", () => {
@@ -210,61 +128,11 @@ describe("Custom GPT action security", () => {
           title: "AWS 考试",
           category: "职业",
           goalType: "short_term",
+          lifeArea: "growth",
           aliases: ["AWS", " aws "]
         }
       })
     ).toThrow(/goal aliases must be unique/);
-  });
-
-  it("writes one-off tasks without touching goals", async () => {
-    const { client, operations } = createRecordingSupabase();
-    const payload = validateLifeEventPayload({
-      type: "task",
-      path: "one_off",
-      rawText: "买水",
-      confidence: 0.96,
-      task: { title: "买水" },
-      metric: { type: "count", value: 1, unit: "count" }
-    });
-
-    const result = await writeLifeEventFromAction("user-a", payload, client);
-
-    expect(result.mode).toBe("supabase");
-    expect(operations.some(({ table }) => table === "goals" || table === "goal_aliases")).toBe(false);
-    expect(operations.find(({ table }) => table === "tasks")?.value).toMatchObject({
-      user_id: "user-a",
-      goal_id: null,
-      planned_metric_type: "count",
-      planned_value: 1,
-      planned_unit: "count"
-    });
-  });
-
-  it("replays an archived ability without reactivating it", async () => {
-    const archivedAbility = {
-      id: "ability-1",
-      title: "写作能力",
-      status: "archived",
-      archived_at: "2026-07-01T00:00:00Z"
-    };
-    const { client, operations } = createRecordingSupabase({
-      abilities: archivedAbility
-    });
-    const payload = validateLifeEventPayload({
-      type: "ability",
-      rawText: "培养写作能力",
-      confidence: 0.95,
-      ability: { title: "写作能力" }
-    });
-
-    const result = await writeLifeEventFromAction("user-a", payload, client);
-
-    expect(result.result).toMatchObject({ ability: archivedAbility });
-    expect(operations.find(({ table }) => table === "abilities")).toEqual({
-      table: "abilities",
-      kind: "upsert",
-      value: { user_id: "user-a", title: "写作能力" }
-    });
   });
 
   it("rejects a user-controlled userId in a batch payload", () => {

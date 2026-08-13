@@ -10,11 +10,11 @@ describe("growth tree interaction", () => {
     expect(
       selectTreeWood(
         { entityType: "long_goal", entityId: "goal-a", leafId: "activity-a" },
-        { entityType: "ability", entityId: "ability-a" }
+        { entityType: "life_area", entityId: "growth" }
       )
     ).toEqual({
-      entityType: "ability",
-      entityId: "ability-a",
+      entityType: "life_area",
+      entityId: "growth",
       leafId: null
     });
   });
@@ -38,10 +38,10 @@ describe("growth tree interaction", () => {
     });
     expect(
       selectTreeLeaf(
-        { entityType: "ability", entityId: "ability-a", leafId: null },
+        { entityType: "life_area", entityId: "growth", leafId: null },
         { activityId: "activity-a", goalId: "goal-a" }
       )
-    ).toEqual({ entityType: "ability", entityId: "ability-a", leafId: null });
+    ).toEqual({ entityType: "life_area", entityId: "growth", leafId: null });
   });
 
   it("clears entity and leaf identity", () => {

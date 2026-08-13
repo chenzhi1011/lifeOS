@@ -1,9 +1,10 @@
-export type IntentType = "task" | "activity" | "goal" | "ability" | "reminder" | "inbox";
+import type { LifeAreaId } from "./life-areas";
+
+export type IntentType = "task" | "activity" | "goal" | "reminder" | "inbox";
 export type MetricType = "duration" | "count" | "milestone";
 export type TaskStatus = "open" | "completed" | "cancelled";
 export type RecordStatus = "processed" | "inbox" | "failed";
 export type GoalStatus = "active" | "paused" | "completed";
-export type AbilityStatus = "active" | "archived";
 export type GoalType = "long_term" | "short_term";
 
 export type Profile = {
@@ -28,23 +29,14 @@ export type Message = {
   createdAt: string;
 };
 
-export type Ability = {
-  id: string;
-  userId: string;
-  title: string;
-  status: AbilityStatus;
-  createdAt: string;
-  archivedAt: string | null;
-};
-
 export type Goal = {
   id: string;
   userId: string;
   title: string;
   category: string;
   parentGoalId: string | null;
-  goalType: GoalType | null;
-  abilityId: string | null;
+  goalType: GoalType;
+  lifeArea: LifeAreaId;
   metricType: MetricType;
   status: GoalStatus;
   dueAt: string | null;
@@ -125,11 +117,6 @@ export type Achievement = {
   createdAt: string;
 };
 
-export type AbilityReference = {
-  id?: string;
-  title?: string;
-};
-
 type LifeEventCommonFields = {
   confidence: number;
   rawText?: string;
@@ -142,13 +129,14 @@ export type LifeEventGoalReference = {
   category: string;
   parentTitle?: string;
   goalType?: GoalType;
-  ability?: AbilityReference;
+  lifeArea?: LifeAreaId;
   metricType?: MetricType;
   aliases?: string[];
 };
 
-type LifeEventGoalInput = Omit<LifeEventGoalReference, "goalType"> & {
+type LifeEventGoalInput = Omit<LifeEventGoalReference, "goalType" | "lifeArea"> & {
   goalType: GoalType;
+  lifeArea: LifeAreaId;
 };
 
 type LifeEventMetric = {
@@ -178,10 +166,6 @@ export type LifeEventParseResult =
       date?: string;
     })
   | (LifeEventCommonFields & {
-      type: "ability";
-      ability: { title: string };
-    })
-  | (LifeEventCommonFields & {
       type: "goal";
       goal: LifeEventGoalInput;
     })
@@ -209,7 +193,6 @@ export type LifeOSState = {
   currentUserId: string;
   profiles: Profile[];
   messages: Message[];
-  abilities: Ability[];
   goals: Goal[];
   goalAliases: GoalAlias[];
   tasks: Task[];

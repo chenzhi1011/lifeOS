@@ -66,7 +66,8 @@ describe("validateLifeEventBatchPayload", () => {
           goalType: "short_term",
           confidence: 0.97,
           title: "增肌",
-          category: "健康"
+          category: "健康",
+          lifeArea: "health"
         },
         {
           type: "task",
@@ -80,6 +81,7 @@ describe("validateLifeEventBatchPayload", () => {
 
     expect(payload.events[0]).toMatchObject({
       type: "goal",
+      lifeArea: "health",
       metricType: "count",
       aliases: []
     });
@@ -118,106 +120,105 @@ describe("validateLifeEventBatchPayload", () => {
     ).toThrow(message);
   });
 
-  it("accepts an ability followed by a typed long-term goal", () => {
+  it("accepts long-term and short-term goals with fixed life areas", () => {
     const parsed = validateLifeEventBatchPayload({
-      idempotencyKey: "ability-goal",
-      rawText: "培养前端能力并学习架构",
+      idempotencyKey: "fixed-area-goals",
+      rawText: "学习架构并通过考试",
       events: [
-        { type: "ability", title: "前端能力", confidence: 0.99 },
         {
           type: "goal",
           goalType: "long_term",
           title: "学习架构",
           category: "职业",
-          ability: { title: "前端能力" },
+          lifeArea: "growth",
           metricType: "duration",
           aliases: [],
+          confidence: 0.98
+        },
+        {
+          type: "goal",
+          goalType: "short_term",
+          title: "通过考试",
+          category: "职业",
+          lifeArea: "work",
           confidence: 0.98
         }
       ]
     });
 
-    expect(parsed.events.map((event) => event.type)).toEqual([
-      "ability",
-      "goal"
-    ]);
+    expect(parsed.events.map((event) => event.type)).toEqual(["goal", "goal"]);
   });
 
-  it.each([
-    [
-      {
-        type: "goal",
-        goalType: "long_term",
-        title: "学习架构",
-        category: "职业",
-        confidence: 0.98
-      },
-      "long_term goal requires ability"
-    ],
-    [
-      {
-        type: "goal",
-        goalType: "short_term",
-        title: "通过考试",
-        category: "职业",
-        ability: { title: "前端能力" },
-        confidence: 0.98
-      },
-      "short_term goal forbids ability"
-    ]
-  ])("rejects an inconsistent typed goal: %o", (event, message) => {
+  it.each([undefined, "unknown", "健康"])('rejects invalid lifeArea %o', (lifeArea) => {
     expect(() =>
       validateLifeEventBatchPayload({
         idempotencyKey: "typed-goal",
         rawText: "测试目标",
-        events: [event]
-      })
-    ).toThrow(message);
-  });
-
-  it.each([
-    {},
-    { title: "   " },
-    { id: "not-a-uuid" }
-  ])("rejects an invalid ability reference: %o", (ability) => {
-    expect(() =>
-      validateLifeEventBatchPayload({
-        idempotencyKey: "invalid-ability-reference",
-        rawText: "学习架构",
-        events: [
-          {
-            type: "goal",
-            goalType: "long_term",
-            title: "学习架构",
-            category: "职业",
-            ability,
-            confidence: 0.98
-          }
-        ]
+        events: [{
+          type: "goal",
+          goalType: "long_term",
+          title: "学习架构",
+          category: "职业",
+          lifeArea,
+          confidence: 0.98
+        }]
       })
     ).toThrow();
   });
 
-  it("rejects an ability reference that supplies both id and title", () => {
+  it("rejects the removed ability event", () => {
     expect(() =>
       validateLifeEventBatchPayload({
-        idempotencyKey: "conflicting-ability-reference",
-        rawText: "学习架构",
+        idempotencyKey: "removed-ability",
+        rawText: "创建能力",
+        events: [{ type: "ability", title: "前端能力", confidence: 0.98 }]
+      })
+    ).toThrow();
+  });
+
+  it.each([
+    { type: "duration", value: 1, unit: "count" },
+    { type: "count", value: 1, unit: "hour" },
+    { type: "milestone", value: 1, unit: "minute" }
+  ])("rejects an incompatible metric unit: %o", (metric) => {
+    expect(() =>
+      validateLifeEventBatchPayload({
+        idempotencyKey: "invalid-metric-unit",
+        rawText: "记录指标",
         events: [
           {
-            type: "goal",
-            goalType: "long_term",
-            title: "学习架构",
-            category: "职业",
-            ability: {
-              id: "44444444-4444-4444-8444-444444444444",
-              title: "前端能力"
-            },
+            type: "activity",
+            summary: "记录指标",
+            occurredOn: "2026-08-13",
+            metric,
             confidence: 0.98
           }
         ]
       })
-    ).toThrow("ability reference requires exactly one of id or title");
+    ).toThrow(/invalid unit/);
+  });
+
+  it("supports default, none, and custom reminder modes", () => {
+    const payload = validateLifeEventBatchPayload({
+      idempotencyKey: "reminder-modes",
+      rawText: "创建三个任务",
+      events: [
+        { ...validTask(1), reminder: { mode: "default" } },
+        { ...validTask(2), reminder: { mode: "none" } },
+        {
+          ...validTask(3),
+          reminder: {
+            mode: "custom",
+            remindAt: "2026-08-13T08:00:00+09:00",
+            repeatRule: "weekly"
+          }
+        }
+      ]
+    });
+
+    expect(payload.events.map((event) =>
+      event.type === "task" ? event.reminder?.mode ?? "default" : null
+    )).toEqual(["default", "none", "custom"]);
   });
 
   it("requires all three planned metric fields by accepting only a complete metric", () => {

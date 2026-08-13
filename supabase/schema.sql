@@ -624,23 +624,25 @@ begin
         )
         returning id into v_task_id;
 
-        insert into reminders (
-          user_id,
-          task_id,
-          message_id,
-          remind_at,
-          repeat_rule,
-          status
-        )
-        values (
-          p_user_id,
-          v_task_id,
-          v_message_id,
-          (v_event->>'remindAt')::timestamptz,
-          'none',
-          'scheduled'
-        )
-        returning id into v_reminder_id;
+        if nullif(v_event->>'remindAt', '') is not null then
+          insert into reminders (
+            user_id,
+            task_id,
+            message_id,
+            remind_at,
+            repeat_rule,
+            status
+          )
+          values (
+            p_user_id,
+            v_task_id,
+            v_message_id,
+            (v_event->>'remindAt')::timestamptz,
+            coalesce(nullif(v_event->>'repeatRule', ''), 'none'),
+            'scheduled'
+          )
+          returning id into v_reminder_id;
+        end if;
       else
         if v_goal_id is null then
           raise exception 'activity requires a goal at event index %', v_event_index;

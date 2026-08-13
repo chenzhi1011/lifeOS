@@ -4,12 +4,9 @@ import type {
 } from "./batch-validation";
 import {
   matchOpenTask,
-  resolveAbilityReference,
   resolveGoalReference,
-  type ActionAbilityContext,
   type ActionGoalAliasContext,
   type ActionGoalContext,
-  type ActionSameBatchAbilityContext,
   type ActionSameBatchGoalContext,
   type ActionTaskContext
 } from "./batch-resolution";
@@ -28,7 +25,8 @@ export type PreparedEvent =
       goalId: string | null;
       goalTitle?: string;
       dueAt: string;
-      remindAt: string;
+      remindAt: string | null;
+      repeatRule: "none" | "daily" | "weekly" | null;
       priority: "low" | "normal" | "high";
       plannedMetricType: "duration" | "count" | "milestone" | null;
       plannedValue: number | null;
@@ -46,22 +44,17 @@ export type PreparedEvent =
       occurredOn: string;
     })
   | (PreparedBase & {
-      kind: "ability";
-      title: string;
-    })
-  | (PreparedBase & {
       kind: "goal";
       title: string;
       category: string;
       goalType: "long_term" | "short_term";
-      abilityId: string | null;
-      abilityTitle?: string;
+      lifeArea: import("@/src/domain/life-areas").LifeAreaId;
       metricType: "duration" | "count" | "milestone";
       aliases: string[];
     })
   | (PreparedBase & {
       kind: "inbox";
-      suggestedType: "task" | "activity" | "goal" | "ability" | "inbox";
+      suggestedType: "task" | "activity" | "goal" | "inbox";
       reason: string;
       suggestedEvent: LifeEventBatchInput;
       resolution?: "dismiss";
@@ -70,7 +63,6 @@ export type PreparedEvent =
 export interface BatchPreparationContext {
   timezone: string;
   defaultReminderTime: string;
-  abilities: ActionAbilityContext[];
   goals: ActionGoalContext[];
   aliases: ActionGoalAliasContext[];
   openTasks: ActionTaskContext[];
@@ -175,7 +167,18 @@ function prepareTaskWithGoal(
     goalId,
     ...(goalTitle ? { goalTitle } : {}),
     dueAt: taskTime.dueAt,
-    remindAt: taskTime.remindAt,
+    remindAt:
+      event.reminder?.mode === "none"
+        ? null
+        : event.reminder?.mode === "custom"
+          ? event.reminder.remindAt
+          : taskTime.remindAt,
+    repeatRule:
+      event.reminder?.mode === "none"
+        ? null
+        : event.reminder?.mode === "custom"
+          ? event.reminder.repeatRule
+          : "none",
     priority: event.priority,
     plannedMetricType: event.metric?.type ?? null,
     plannedValue: event.metric?.value ?? null,
@@ -256,46 +259,16 @@ function prepareActivity(
 }
 
 function prepareGoal(
-  event: Extract<LifeEventBatchInput, { type: "goal" }>,
-  context: BatchPreparationContext,
-  priorAbilities: ActionSameBatchAbilityContext[]
+  event: Extract<LifeEventBatchInput, { type: "goal" }>
 ): PreparedEvent {
-  let abilityId: string | null = null;
-  let abilityTitle: string | undefined;
-  if (event.goalType === "long_term" && event.ability) {
-    const abilityResolution = resolveAbilityReference(
-      event.ability,
-      context.abilities,
-      priorAbilities
-    );
-    if (abilityResolution.kind === "resolved") {
-      abilityId = abilityResolution.abilityId;
-    } else if (abilityResolution.kind === "same_batch") {
-      abilityTitle = abilityResolution.abilityTitle;
-    } else {
-      return prepareInbox(event, abilityResolution.reason);
-    }
-  }
-
   return {
     kind: "goal",
     title: event.title.trim(),
     category: event.category.trim(),
     goalType: event.goalType,
-    abilityId,
-    ...(abilityTitle ? { abilityTitle } : {}),
+    lifeArea: event.lifeArea,
     metricType: event.metricType,
     aliases: event.aliases.map((alias) => alias.trim()),
-    ...preparedBase(event)
-  };
-}
-
-function prepareAbility(
-  event: Extract<LifeEventBatchInput, { type: "ability" }>
-): Extract<PreparedEvent, { kind: "ability" }> {
-  return {
-    kind: "ability",
-    title: event.title.trim(),
     ...preparedBase(event)
   };
 }
@@ -317,7 +290,6 @@ export async function prepareLifeEventBatch(
   now = new Date()
 ): Promise<PreparedBatch> {
   const priorGoals: ActionSameBatchGoalContext[] = [];
-  const priorAbilities: ActionSameBatchAbilityContext[] = [];
   const events: PreparedEvent[] = [];
 
   for (const [eventIndex, event] of payload.events.entries()) {
@@ -329,11 +301,7 @@ export async function prepareLifeEventBatch(
         events.push(prepareActivity(event, context, priorGoals));
         break;
       case "goal": {
-        const preparedGoal = prepareGoal(
-          event,
-          context,
-          priorAbilities
-        );
+        const preparedGoal = prepareGoal(event);
         events.push(preparedGoal);
         if (preparedGoal.kind === "goal") {
           priorGoals.push({
@@ -342,15 +310,6 @@ export async function prepareLifeEventBatch(
             aliases: preparedGoal.aliases
           });
         }
-        break;
-      }
-      case "ability": {
-        const preparedAbility = prepareAbility(event);
-        events.push(preparedAbility);
-        priorAbilities.push({
-          key: `batch-ability-${eventIndex}`,
-          title: preparedAbility.title
-        });
         break;
       }
       case "inbox":

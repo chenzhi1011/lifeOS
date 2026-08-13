@@ -51,7 +51,7 @@ const emptySelection: GrowthTreeSelection = {
 
 const viewModel: GrowthTreeViewModel = {
   root: { ...segment, entityType: "root", entityId: "root", label: "人生" },
-  abilityBranches: [],
+  lifeAreaBranches: [],
   longGoalTwigs: [segment],
   shortGoalBranches: [],
   activityLeaves: [

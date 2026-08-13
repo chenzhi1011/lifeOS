@@ -32,7 +32,6 @@ describe("dashboard user gate", () => {
 
   it("projects database rows on the server before rendering the client dashboard", async () => {
     const data: DashboardData = {
-      abilities: [],
       goals: [],
       goalStats: [],
       allActivities: [],

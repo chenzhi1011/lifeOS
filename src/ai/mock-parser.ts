@@ -44,7 +44,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
         title,
         category: "职业",
         goalType: "long_term",
-        ability: { title: "前端能力" },
+        lifeArea: /AI|大模型/i.test(normalized) ? "growth" : "work",
         metricType: "duration",
         aliases: title === "AWS DevOps" ? ["AWS", "DevOps", "Terraform"] : [title]
       }

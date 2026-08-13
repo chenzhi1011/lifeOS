@@ -31,7 +31,7 @@ vi.mock("@/src/components/GrowthTreeScene", () => ({
     onClearSelection
   }: SceneAdapterProps) => (
     <div data-selection={selection.entityId ?? "none"} data-testid="realistic-growth-tree-canvas">
-      <button onClick={() => onSelectWood(viewModel.abilityBranches[0]!)}>选择能力</button>
+      <button onClick={() => onSelectWood(viewModel.lifeAreaBranches[0]!)}>选择领域</button>
       <button onClick={() => onSelectWood(viewModel.longGoalTwigs[0]!)}>选择长期目标</button>
       <button onClick={() => onSelectWood(viewModel.shortGoalBranches[0]!)}>选择短期目标</button>
       <button onClick={() => onSelectLeaf(viewModel.activityLeaves[0]!)}>选择叶片</button>
@@ -84,7 +84,7 @@ function viewModel(): GrowthTreeViewModel {
   const recentActivity = activity();
   return {
     root: wood("root", "root", "人生"),
-    abilityBranches: [wood("ability", "ability-a", "前端能力")],
+    lifeAreaBranches: [wood("life_area", "growth", "成长")],
     longGoalTwigs: [
       wood("long_goal", "long-goal", "坚持学习", {
         totalValue: 24,
@@ -187,8 +187,8 @@ describe("GrowthTreeDashboard", () => {
   it("lifts scene selections into one HTML detail panel", () => {
     render(<GrowthTreeDashboard viewModel={viewModel()} achievements={[]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "选择能力" }));
-    expect(screen.getByRole("complementary", { name: "成长详情" }).textContent).toContain("前端能力");
+    fireEvent.click(screen.getByRole("button", { name: "选择领域" }));
+    expect(screen.getByRole("complementary", { name: "成长详情" }).textContent).toContain("成长");
 
     fireEvent.click(screen.getByRole("button", { name: "选择长期目标" }));
     expect(screen.getByRole("complementary", { name: "成长详情" }).textContent).toContain("坚持学习");
@@ -206,36 +206,36 @@ describe("GrowthTreeDashboard", () => {
 
   it("shows diagnostics above the still-available canvas instead of an empty prompt", () => {
     const model = viewModel();
-    model.abilityBranches = [];
+    model.lifeAreaBranches = [];
     model.longGoalTwigs = [];
     model.shortGoalBranches = [];
     model.activityLeaves = [];
     model.diagnostics = [
-      { code: "untyped_goal", entityId: "legacy-goal", message: "Goal has no goal type." }
+      { code: "invalid_activity_value", entityId: "bad-activity", message: "Activity is invalid." }
     ];
 
     render(<GrowthTreeDashboard viewModel={model} achievements={[]} />);
 
     expect(screen.getByTestId("realistic-growth-tree-canvas")).toBeTruthy();
-    expect(screen.getByRole("status", { name: "数据待确认" }).textContent).toContain("legacy-goal");
-    expect(screen.queryByText("创建第一个能力或目标")).toBeNull();
+    expect(screen.getByRole("status", { name: "数据待确认" }).textContent).toContain("bad-activity");
+    expect(screen.queryByText("创建第一个目标")).toBeNull();
   });
 
   it("shows a creation guide only for genuinely empty growth data", () => {
     const model = viewModel();
-    model.abilityBranches = [];
+    model.lifeAreaBranches = [];
     model.longGoalTwigs = [];
     model.shortGoalBranches = [];
     model.activityLeaves = [];
 
     render(<GrowthTreeDashboard viewModel={model} achievements={[]} />);
 
-    expect(screen.getByText("创建第一个能力或目标")).toBeTruthy();
+    expect(screen.getByText("创建第一个目标")).toBeTruthy();
   });
 
   it("does not show the empty guide when vitality elements are present", () => {
     const model = viewModel();
-    model.abilityBranches = [];
+    model.lifeAreaBranches = [];
     model.longGoalTwigs = [];
     model.shortGoalBranches = [];
     model.activityLeaves = [];

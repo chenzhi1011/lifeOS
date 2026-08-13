@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "migrate:growth-model": "tsx scripts/migrate-growth-model.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "bash scripts/test-batch-rpc.sh",

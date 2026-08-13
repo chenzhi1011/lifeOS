@@ -1,6 +1,5 @@
 import { createInitialState } from "./seed";
 import type {
-  Ability,
   Activity,
   Goal,
   GoalAlias,
@@ -22,7 +21,6 @@ import {
 
 type ApplyResult = {
   message: Message;
-  ability?: Ability;
   goal?: Goal;
   activity?: Activity;
   task?: Task;
@@ -63,40 +61,11 @@ type GoalResolutionPlan = {
 export function createLifeOSStore(initialState: LifeOSState) {
   const state = initialState;
 
-  function resolveAbility(userId: string, reference: NonNullable<LifeEventGoalReference["ability"]>): Ability {
-    const candidates = state.abilities.filter(
-      (ability) =>
-        ability.userId === userId &&
-        ability.status === "active" &&
-        ((reference.id !== undefined && ability.id === reference.id) ||
-          (reference.title !== undefined &&
-            normalizedTitle(ability.title) === normalizedTitle(reference.title)))
-    );
-
-    if (candidates.length > 1) {
-      throw new DomainResolutionError(
-        "ambiguous_ability",
-        `multiple active abilities match: ${reference.title ?? reference.id}`
-      );
-    }
-    if (!candidates[0]) {
-      throw new DomainResolutionError(
-        "missing_ability",
-        `ability does not exist: ${reference.title ?? reference.id}`
-      );
-    }
-    return candidates[0];
-  }
-
   function resolveGoal(userId: string, parsed: GoalBearingParseResult): GoalResolutionPlan | undefined {
     if (!parsed.goal) {
       return undefined;
     }
 
-    const abilityReference = parsed.goal.ability;
-    const ability = abilityReference
-      ? resolveAbility(userId, abilityReference)
-      : undefined;
     const requestedTitle = normalizedTitle(parsed.goal.title);
     const activeGoalIds = new Set(
       state.goals
@@ -189,12 +158,9 @@ export function createLifeOSStore(initialState: LifeOSState) {
     const existing = candidates[0];
     if (existing) {
       if (parsed.goal.goalType) {
-        const expectedAbilityId = parsed.goal.goalType === "long_term"
-          ? ability?.id ?? null
-          : null;
         if (
           existing.goalType !== parsed.goal.goalType ||
-          existing.abilityId !== expectedAbilityId ||
+          (parsed.goal.lifeArea !== undefined && existing.lifeArea !== parsed.goal.lifeArea) ||
           existing.category !== parsed.goal.category ||
           existing.metricType !== (parsed.goal.metricType ?? defaultMetric(parsed.type)) ||
           existing.parentGoalId !== (parent?.id ?? null)
@@ -226,7 +192,7 @@ export function createLifeOSStore(initialState: LifeOSState) {
       category: parsed.goal.category,
       parentGoalId: parent?.id ?? null,
       goalType: parsed.goal.goalType,
-      abilityId: parsed.goal.goalType === "long_term" ? ability?.id ?? null : null,
+      lifeArea: parsed.goal.lifeArea!,
       metricType: parsed.goal.metricType ?? defaultMetric(parsed.type),
       status: "active",
       dueAt: null,
@@ -284,22 +250,9 @@ export function createLifeOSStore(initialState: LifeOSState) {
   function applyParseResult(userId: string, source: Message["source"], rawText: string, input: unknown): ApplyResult {
     const parsed = lifeEventParseResultSchema.parse(input) as LifeEventParseResult;
 
-    const existingAbility = parsed.type === "ability"
-      ? state.abilities.filter(
-          (ability) =>
-            ability.userId === userId &&
-            normalizedTitle(ability.title) === normalizedTitle(parsed.ability.title)
-        )
-      : [];
     let goalPlan: GoalResolutionPlan | undefined;
     try {
-      if (existingAbility.length > 1) {
-        throw new DomainResolutionError(
-          "ambiguous_ability",
-          `multiple abilities match: ${parsed.type === "ability" ? parsed.ability.title : ""}`
-        );
-      }
-      goalPlan = parsed.type === "inbox" || parsed.type === "ability" ||
+      goalPlan = parsed.type === "inbox" ||
         (parsed.type === "task" && parsed.path === "one_off")
         ? undefined
         : resolveGoal(userId, parsed);
@@ -352,24 +305,6 @@ export function createLifeOSStore(initialState: LifeOSState) {
       };
       state.inboxItems.unshift(inboxItem);
       return { message, inboxItem };
-    }
-
-    if (parsed.type === "ability") {
-      const existing = existingAbility[0];
-      if (existing) {
-        return { message, ability: existing };
-      }
-
-      const ability: Ability = {
-        id: id("ability"),
-        userId,
-        title: parsed.ability.title,
-        status: "active",
-        createdAt: nowIso(),
-        archivedAt: null
-      };
-      state.abilities.unshift(ability);
-      return { message, ability };
     }
 
     if (parsed.type === "goal") {

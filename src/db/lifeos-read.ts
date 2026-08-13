@@ -6,7 +6,6 @@ import {
 import { isSupabaseAuthUserId } from "@/src/dashboard/user-id";
 import { lifeOSStore } from "@/src/domain/store";
 import type {
-  Ability,
   Activity,
   Achievement,
   Goal,
@@ -14,6 +13,7 @@ import type {
   LifeOSState,
   Task
 } from "@/src/domain/types";
+import { isLifeAreaId } from "@/src/domain/life-areas";
 import { createServiceSupabaseClient } from "./supabase";
 
 function emptyState(userId: string): LifeOSState {
@@ -21,7 +21,6 @@ function emptyState(userId: string): LifeOSState {
     currentUserId: userId,
     profiles: [],
     messages: [],
-    abilities: [],
     goals: [],
     goalAliases: [],
     tasks: [],
@@ -46,7 +45,6 @@ async function readSupabaseState(
   }
 
   const [
-    abilitiesResult,
     goalsResult,
     activitiesResult,
     tasksResult,
@@ -54,14 +52,8 @@ async function readSupabaseState(
     inboxResult
   ] = await Promise.all([
     supabase
-      .from("abilities")
-      .select("id,user_id,title,status,created_at,archived_at")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .order("created_at"),
-    supabase
       .from("goals")
-      .select("id,user_id,title,category,parent_goal_id,goal_type,ability_id,metric_type,status,due_at,completed_at,created_at")
+      .select("id,user_id,title,category,parent_goal_id,goal_type,life_area,metric_type,status,due_at,completed_at,created_at")
       .eq("user_id", userId),
     supabase
       .from("activities")
@@ -89,7 +81,6 @@ async function readSupabaseState(
   ]);
 
   const readError =
-    abilitiesResult.error ??
     goalsResult.error ??
     activitiesResult.error ??
     tasksResult.error ??
@@ -100,31 +91,29 @@ async function readSupabaseState(
   }
 
   const state = emptyState(userId);
-  state.abilities = (abilitiesResult.data ?? []).map(
-    (ability): Ability => ({
-      id: ability.id,
-      userId: ability.user_id,
-      title: ability.title,
-      status: ability.status,
-      createdAt: ability.created_at,
-      archivedAt: ability.archived_at ?? null
-    })
-  );
   state.goals = (goalsResult.data ?? []).map(
-    (goal): Goal => ({
-      id: goal.id,
-      userId: goal.user_id,
-      title: goal.title,
-      category: goal.category,
-      parentGoalId: goal.parent_goal_id ?? null,
-      goalType: goal.goal_type ?? null,
-      abilityId: goal.ability_id ?? null,
-      metricType: goal.metric_type,
-      status: goal.status,
-      dueAt: goal.due_at ?? null,
-      completedAt: goal.completed_at ?? null,
-      createdAt: goal.created_at
-    })
+    (goal): Goal => {
+      if (!isLifeAreaId(goal.life_area)) {
+        throw new Error(`invalid life_area for goal ${goal.id}`);
+      }
+      if (goal.goal_type !== "long_term" && goal.goal_type !== "short_term") {
+        throw new Error(`invalid goal_type for goal ${goal.id}`);
+      }
+      return {
+        id: goal.id,
+        userId: goal.user_id,
+        title: goal.title,
+        category: goal.category,
+        parentGoalId: goal.parent_goal_id ?? null,
+        goalType: goal.goal_type,
+        lifeArea: goal.life_area,
+        metricType: goal.metric_type,
+        status: goal.status,
+        dueAt: goal.due_at ?? null,
+        completedAt: goal.completed_at ?? null,
+        createdAt: goal.created_at
+      };
+    }
   );
   state.activities = (activitiesResult.data ?? []).map(
     (activity): Activity => ({

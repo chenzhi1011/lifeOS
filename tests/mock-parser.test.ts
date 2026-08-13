@@ -108,6 +108,6 @@ describe("parseWithMockRules", () => {
     expect(result).toMatchObject({ type: "task", path: "one_off" });
     const request = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     expect(request.messages[0].content).toMatch(/one_off.*goal/);
-    expect(request.messages[0].content).toMatch(/ability/);
+    expect(request.messages[0].content).toMatch(/lifeArea.*work.*growth.*health/);
   });
 });

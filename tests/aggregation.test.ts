@@ -80,7 +80,7 @@ describe("dashboard aggregation", () => {
 
     const data = buildDashboardData(state, "demo-user", asOf);
 
-    expect(data.abilities).toEqual(state.abilities);
+    expect("abilities" in data).toBe(false);
     expect(data.allActivities).toEqual(state.activities);
     expect(data.recentCompletedOneOffTasks.map((task) => task.id)).toEqual([
       "at-window-start"

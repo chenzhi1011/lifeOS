@@ -1,24 +1,10 @@
-import type {
-  AbilityReferenceInput,
-  GoalReferenceInput
-} from "./batch-validation";
-
-export interface ActionAbilityContext {
-  id: string;
-  title: string;
-  status: "active" | "archived";
-}
-
-export interface ActionSameBatchAbilityContext {
-  key: string;
-  title: string;
-}
+import type { GoalReferenceInput } from "./batch-validation";
 
 export interface ActionGoalContext {
   id: string;
   title: string;
   goalType: "long_term" | "short_term" | null;
-  abilityId: string | null;
+  lifeArea: import("@/src/domain/life-areas").LifeAreaId;
   status: "active" | "paused" | "completed";
 }
 
@@ -45,11 +31,6 @@ export type GoalResolution =
   | { kind: "resolved"; goalId: string }
   | { kind: "same_batch"; goalTitle: string }
   | { kind: "unassigned" }
-  | { kind: "inbox"; reason: string };
-
-export type AbilityResolution =
-  | { kind: "resolved"; abilityId: string }
-  | { kind: "same_batch"; abilityTitle: string }
   | { kind: "inbox"; reason: string };
 
 export interface TaskMatchInput {
@@ -162,69 +143,6 @@ export function resolveGoalReference(
   }
 
   return unresolvedGoal(eventType);
-}
-
-export function resolveAbilityReference(
-  reference: AbilityReferenceInput,
-  abilities: ActionAbilityContext[],
-  sameBatchAbilities: ActionSameBatchAbilityContext[] = []
-): AbilityResolution {
-  const activeAbilities = abilities.filter(
-    (ability) => ability.status === "active"
-  );
-  const candidates = new Map<
-    string,
-    | { kind: "resolved"; abilityId: string }
-    | { kind: "same_batch"; abilityTitle: string }
-  >();
-
-  if (reference.id) {
-    const byId = activeAbilities.find((ability) => ability.id === reference.id);
-    if (byId) {
-      candidates.set(`ability:${byId.id}`, {
-        kind: "resolved",
-        abilityId: byId.id
-      });
-    }
-  }
-
-  if (reference.title) {
-    const normalizedTitle = normalizeIntentTitle(reference.title);
-    for (const ability of activeAbilities) {
-      if (normalizeIntentTitle(ability.title) === normalizedTitle) {
-        candidates.set(`ability:${ability.id}`, {
-          kind: "resolved",
-          abilityId: ability.id
-        });
-      }
-    }
-
-    for (const ability of sameBatchAbilities) {
-      if (normalizeIntentTitle(ability.title) === normalizedTitle) {
-        candidates.set(`same-batch:${ability.key}`, {
-          kind: "same_batch",
-          abilityTitle: ability.title
-        });
-      }
-    }
-  }
-
-  if (candidates.size > 1) {
-    return {
-      kind: "inbox",
-      reason: `multiple active abilities match: ${reference.title ?? reference.id}`
-    };
-  }
-
-  const [candidate] = candidates.values();
-  if (candidate) {
-    return candidate;
-  }
-
-  return {
-    kind: "inbox",
-    reason: `ability does not exist: ${reference.title ?? reference.id}`
-  };
 }
 
 export function matchOpenTask(

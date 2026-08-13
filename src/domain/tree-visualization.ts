@@ -2,6 +2,7 @@ import type { DashboardData } from "./aggregation";
 import { seedFromId } from "./stable-seed";
 import type { Activity, GoalStatus } from "./types";
 import { buildVitalityElements, type VitalityElement } from "./vitality";
+import { LIFE_AREAS } from "./life-areas";
 
 export type SceneVector = {
   x: number;
@@ -11,7 +12,7 @@ export type SceneVector = {
 
 export type TreeEntityType =
   | "root"
-  | "ability"
+  | "life_area"
   | "long_goal"
   | "short_goal";
 
@@ -39,18 +40,14 @@ export type ActivityLeaf = {
 };
 
 export type TreeDiagnostic = {
-  code:
-    | "untyped_goal"
-    | "missing_ability"
-    | "invalid_ability"
-    | "invalid_activity_value";
+  code: "invalid_activity_value";
   entityId: string;
   message: string;
 };
 
 export type GrowthTreeViewModel = {
   root: TreeWood;
-  abilityBranches: TreeWood[];
+  lifeAreaBranches: TreeWood[];
   longGoalTwigs: TreeWood[];
   shortGoalBranches: TreeWood[];
   activityLeaves: ActivityLeaf[];
@@ -176,36 +173,30 @@ export function buildGrowthTreeViewModel(
     activityCount: allActivities.length,
     recentActivities
   };
-  const activeAbilities = data.abilities
-    .filter((ability) => ability.status === "active")
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const activeAbilityIds = new Set(activeAbilities.map((ability) => ability.id));
-  const abilityBranches = activeAbilities.map((ability): TreeWood => {
-    const abilityGoals = data.goals.filter(
-      (goal) => goal.goalType === "long_term" && goal.abilityId === ability.id
-    );
-    const goalIds = new Set(abilityGoals.map((goal) => goal.id));
+  const lifeAreaBranches = LIFE_AREAS.map((area): TreeWood => {
+    const areaGoals = data.goals.filter((goal) => goal.lifeArea === area.id);
+    const goalIds = new Set(areaGoals.map((goal) => goal.id));
     const historical = allActivities.filter((activity) => goalIds.has(activity.goalId));
-    const angle = seedFromId(ability.id, "ability-angle") * Math.PI * 2;
+    const angle = (-70 + area.slot * 50) * Math.PI / 180;
     const start = interpolate(
       root.start,
       root.end,
-      0.46 + seedFromId(ability.id, "ability-start") * 0.2
+      0.38 + (area.slot % 4) * 0.1
     );
-    const length = 2.1 + seedFromId(ability.id, "ability-length") * 0.65;
+    const length = 1.7 + Math.min(0.65, Math.log1p(activityTotal(historical)) * 0.08);
     return {
-      entityType: "ability",
-      entityId: ability.id,
-      label: ability.title,
+      entityType: "life_area",
+      entityId: area.id,
+      label: area.label,
       start,
       end: vector(
         start.x + Math.cos(angle) * length,
-        start.y + 1.35 + seedFromId(ability.id, "ability-height") * 0.55,
+        start.y + 1.15 + area.slot * 0.04,
         start.z + Math.sin(angle) * length * 0.72
       ),
       thickness: thicknessFromTotal(0.19, activityTotal(historical)),
       status: "active",
-      category: "ability",
+      category: area.label,
       totalValue: activityTotal(historical),
       activityCount: historical.length,
       recentActivities: recentActivities.filter((activity) =>
@@ -213,61 +204,16 @@ export function buildGrowthTreeViewModel(
       )
     };
   });
-  const abilityWoodById = new Map(
-    abilityBranches.map((branch) => [branch.entityId, branch])
+  const lifeAreaWoodById = new Map(
+    lifeAreaBranches.map((branch) => [branch.entityId, branch])
   );
-  const longGoals: DashboardData["goals"] = [];
-  const shortGoals: DashboardData["goals"] = [];
-
-  for (const goal of [...data.goals].sort((left, right) => left.id.localeCompare(right.id))) {
-    if (goal.goalType === null) {
-      diagnostics.push({
-        code: "untyped_goal",
-        entityId: goal.id,
-        message: `Goal ${goal.id} has no goal type.`
-      });
-      continue;
-    }
-    if (goal.goalType === "long_term") {
-      if (goal.abilityId === null) {
-        diagnostics.push({
-          code: "missing_ability",
-          entityId: goal.id,
-          message: `Long-term goal ${goal.id} has no ability.`
-        });
-        continue;
-      }
-      if (!activeAbilityIds.has(goal.abilityId)) {
-        diagnostics.push({
-          code: "invalid_ability",
-          entityId: goal.id,
-          message: `Long-term goal ${goal.id} references an unavailable ability.`
-        });
-        continue;
-      }
-      longGoals.push(goal);
-      continue;
-    }
-    if (goal.abilityId !== null) {
-      diagnostics.push({
-        code: "invalid_ability",
-        entityId: goal.id,
-        message: `Short-term goal ${goal.id} must not reference an ability.`
-      });
-      continue;
-    }
-    if (goal.status !== "completed") {
-      shortGoals.push(goal);
-    }
-  }
-
-  const orderedLongGoals = abilityBranches.flatMap((branch) =>
-    longGoals
-      .filter((goal) => goal.abilityId === branch.entityId)
+  const orderedLongGoals = lifeAreaBranches.flatMap((branch) =>
+    data.goals
+      .filter((goal) => goal.goalType === "long_term" && goal.lifeArea === branch.entityId)
       .sort((left, right) => left.id.localeCompare(right.id))
   );
   const longGoalTwigs = orderedLongGoals.map((goal) => {
-    const parent = abilityWoodById.get(goal.abilityId!)!;
+    const parent = lifeAreaWoodById.get(goal.lifeArea)!;
     const start = interpolate(
       parent.start,
       parent.end,
@@ -288,11 +234,15 @@ export function buildGrowthTreeViewModel(
       recentActivities
     );
   });
-  const shortGoalBranches = shortGoals.map((goal) => {
+  const shortGoalBranches = data.goals
+    .filter((goal) => goal.goalType === "short_term" && goal.status !== "completed")
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((goal) => {
+    const parent = lifeAreaWoodById.get(goal.lifeArea)!;
     const start = interpolate(
-      root.start,
-      root.end,
-      0.38 + seedFromId(goal.id, "short-start") * 0.34
+      parent.start,
+      parent.end,
+      0.45 + seedFromId(goal.id, "short-start") * 0.38
     );
     const angle = seedFromId(goal.id, "short-angle") * Math.PI * 2;
     const length = 1.35 + seedFromId(goal.id, "short-length") * 0.55;
@@ -340,7 +290,7 @@ export function buildGrowthTreeViewModel(
 
   return {
     root,
-    abilityBranches,
+    lifeAreaBranches,
     longGoalTwigs,
     shortGoalBranches,
     activityLeaves,

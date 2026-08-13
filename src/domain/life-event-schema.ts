@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LIFE_AREA_IDS } from "./life-areas";
 
 const textField = z.string().trim().min(1).max(500);
 const optionalTextField = textField.optional();
@@ -7,31 +8,14 @@ const intentTypeField = z.enum([
   "task",
   "activity",
   "goal",
-  "ability",
   "reminder",
   "inbox"
 ]);
-
-export const abilityReferenceSchema = z
-  .object({
-    id: z.string().uuid().optional(),
-    title: optionalTextField
-  })
-  .strict()
-  .superRefine((ability, ctx) => {
-    if ((!ability.id && !ability.title) || (ability.id && ability.title)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "ability reference requires exactly one of id or title"
-      });
-    }
-  });
 
 const goalFields = {
   title: textField,
   category: textField,
   parentTitle: optionalTextField,
-  ability: abilityReferenceSchema.optional(),
   metricType: z.enum(["duration", "count", "milestone"]).optional(),
   aliases: z.array(textField).max(12).optional()
 };
@@ -39,32 +23,10 @@ const goalFields = {
 function validateGoalShape(
   goal: {
     goalType?: "long_term" | "short_term";
-    ability?: unknown;
     aliases?: string[];
   },
   ctx: z.RefinementCtx
 ) {
-  if (goal.goalType === "long_term" && !goal.ability) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "long_term goal requires ability",
-      path: ["ability"]
-    });
-  }
-  if (goal.goalType === "short_term" && goal.ability) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "short_term goal forbids ability",
-      path: ["ability"]
-    });
-  }
-  if (!goal.goalType && goal.ability) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "ability reference requires a typed goal",
-      path: ["ability"]
-    });
-  }
   const normalizedAliases = (goal.aliases ?? []).map((alias) =>
     alias.trim().toLowerCase()
   );
@@ -88,7 +50,8 @@ export const goalReferenceSchema = z
 const goalInputSchema = z
   .object({
     ...goalFields,
-    goalType: z.enum(["long_term", "short_term"])
+    goalType: z.enum(["long_term", "short_term"]),
+    lifeArea: z.enum(LIFE_AREA_IDS)
   })
   .strict()
   .superRefine(validateGoalShape);
@@ -99,7 +62,15 @@ export const lifeEventMetricSchema = z
     value: z.number().positive().max(100_000),
     unit: z.enum(["minute", "hour", "count"])
   })
-  .strict();
+  .strict()
+  .superRefine((metric, ctx) => {
+    const valid = metric.type === "duration"
+      ? metric.unit === "minute" || metric.unit === "hour"
+      : metric.unit === "count";
+    if (!valid) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid unit for metric type", path: ["unit"] });
+    }
+  });
 
 const taskSchema = z
   .object({
@@ -172,14 +143,6 @@ const goalEventSchema = z
   })
   .strict();
 
-const abilityEventSchema = z
-  .object({
-    ...commonFields,
-    type: z.literal("ability"),
-    ability: z.object({ title: textField }).strict()
-  })
-  .strict();
-
 const reminderEventSchema = z
   .object({
     ...commonFields,
@@ -202,7 +165,6 @@ export const lifeEventParseResultSchema = z.union([
   taskEventSchema,
   activityEventSchema,
   goalEventSchema,
-  abilityEventSchema,
   reminderEventSchema,
   inboxEventSchema
 ]);

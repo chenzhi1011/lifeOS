@@ -1,8 +1,6 @@
 export type DomainResolutionCode =
   | "missing_goal"
   | "ambiguous_goal"
-  | "missing_ability"
-  | "ambiguous_ability"
   | "identity_conflict";
 
 export class DomainResolutionError extends Error {
@@ -25,8 +23,6 @@ export function isRecoverableResolutionError(
   switch (error.code) {
     case "missing_goal":
     case "ambiguous_goal":
-    case "missing_ability":
-    case "ambiguous_ability":
       return true;
     case "identity_conflict":
       return false;
