@@ -41,17 +41,6 @@ create table action_batches (
   unique (user_id, id)
 );
 
-create table abilities (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references profiles(user_id) on delete cascade,
-  title text not null,
-  status text not null default 'active' check (status in ('active', 'archived')),
-  created_at timestamptz not null default now(),
-  archived_at timestamptz,
-  unique (user_id, id),
-  unique (user_id, title)
-);
-
 create table goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
@@ -59,7 +48,17 @@ create table goals (
   category text not null,
   parent_goal_id uuid,
   goal_type text not null check (goal_type in ('long_term', 'short_term')),
-  ability_id uuid,
+  life_area text not null check (
+    life_area in (
+      'work',
+      'growth',
+      'health',
+      'life',
+      'finance',
+      'relationships',
+      'entertainment'
+    )
+  ),
   due_at timestamptz,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   status text not null default 'active' check (status in ('active', 'paused', 'completed')),
@@ -67,16 +66,10 @@ create table goals (
   completed_at timestamptz,
   unique (user_id, id),
   unique (user_id, title),
-  constraint goals_ability_shape_check check (
-    (goal_type = 'long_term' and ability_id is not null)
-    or (goal_type = 'short_term' and ability_id is null)
-  ),
   constraint goals_completed_at_check check (
     status <> 'completed' or completed_at is not null
   ),
-  foreign key (user_id, parent_goal_id) references goals(user_id, id),
-  constraint goals_ability_fk foreign key (user_id, ability_id)
-    references abilities(user_id, id)
+  foreign key (user_id, parent_goal_id) references goals(user_id, id)
 );
 
 create table goal_aliases (
@@ -97,7 +90,7 @@ create table messages (
   batch_id uuid,
   event_index integer,
   raw_text text not null,
-  intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'ability', 'reminder', 'inbox')),
+  intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'inbox')),
   confidence numeric not null check (confidence >= 0 and confidence <= 1),
   parsed_json jsonb not null,
   status text not null check (status in ('processed', 'inbox', 'failed')),
@@ -133,6 +126,11 @@ create table tasks (
       and planned_unit in ('minute', 'hour', 'count')
     )
   ),
+  constraint tasks_planned_metric_unit_check check (
+    planned_metric_type is null
+    or (planned_metric_type = 'duration' and planned_unit in ('minute', 'hour'))
+    or (planned_metric_type in ('count', 'milestone') and planned_unit = 'count')
+  ),
   foreign key (user_id, goal_id) references goals(user_id, id),
   foreign key (user_id, message_id) references messages(user_id, id)
 );
@@ -150,6 +148,11 @@ create table activities (
   occurred_on date not null,
   created_at timestamptz not null default now(),
   unique (user_id, id),
+  constraint activities_value_positive_check check (value > 0),
+  constraint activities_metric_unit_check check (
+    (metric_type = 'duration' and unit in ('minute', 'hour'))
+    or (metric_type in ('count', 'milestone') and unit = 'count')
+  ),
   foreign key (user_id, goal_id) references goals(user_id, id),
   foreign key (user_id, task_id) references tasks(user_id, id),
   foreign key (user_id, message_id) references messages(user_id, id)
@@ -173,7 +176,7 @@ create table inbox_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   message_id uuid not null,
-  suggested_type text not null check (suggested_type in ('task', 'activity', 'goal', 'ability', 'reminder', 'inbox')),
+  suggested_type text not null check (suggested_type in ('task', 'activity', 'goal', 'inbox')),
   suggested_json jsonb not null,
   reason text not null,
   status text not null default 'pending' check (status in ('pending', 'resolved', 'dismissed')),
@@ -212,7 +215,8 @@ begin
   where user_id = new.user_id
     and id = new.short_goal_id
     and goal_type = 'short_term'
-    and ability_id is null
+    and status = 'completed'
+    and completed_at is not null
   for share;
 
   if not found then
@@ -235,14 +239,15 @@ as $function$
 begin
   if (
     new.goal_type is distinct from 'short_term'
-    or new.ability_id is not null
+    or new.status is distinct from 'completed'
+    or new.completed_at is null
   ) and exists (
     select 1
     from achievements
     where user_id = new.user_id
       and short_goal_id = new.id
   ) then
-    raise exception 'a goal referenced by an achievement must remain short_term without an ability';
+    raise exception 'a goal referenced by an achievement must remain completed short_term';
   end if;
 
   return new;
@@ -250,7 +255,7 @@ end
 $function$;
 
 create trigger goals_achievement_shape_guard
-before update of goal_type, ability_id on goals
+before update of goal_type, status, completed_at on goals
 for each row execute function enforce_goal_achievement_shape();
 
 create index idx_messages_user_created on messages (user_id, created_at desc);
@@ -258,7 +263,6 @@ create unique index idx_messages_batch_event on messages (batch_id, event_index)
 create index idx_action_credentials_hash_status on action_credentials (token_hash, status);
 create index idx_action_credentials_user_status on action_credentials (user_id, status);
 create index idx_action_batches_user_created on action_batches (user_id, created_at desc);
-create index idx_abilities_user_status on abilities (user_id, status);
 create index idx_goals_user_parent on goals (user_id, parent_goal_id);
 create index idx_goal_aliases_user_alias on goal_aliases (user_id, alias);
 create unique index uq_goal_aliases_user_normalized_alias
@@ -300,7 +304,6 @@ alter table profiles enable row level security;
 alter table external_accounts enable row level security;
 alter table action_credentials enable row level security;
 alter table action_batches enable row level security;
-alter table abilities enable row level security;
 alter table goals enable row level security;
 alter table goal_aliases enable row level security;
 alter table messages enable row level security;
@@ -314,7 +317,6 @@ create policy profiles_own_rows on profiles using (user_id = auth.uid()) with ch
 create policy external_accounts_own_rows on external_accounts using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy action_credentials_own_rows on action_credentials using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy action_batches_own_rows on action_batches for select using (user_id = auth.uid());
-create policy abilities_own_rows on abilities using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goals_own_rows on goals using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy goal_aliases_own_rows on goal_aliases using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy messages_own_rows on messages using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -346,8 +348,6 @@ declare
   v_ordinal bigint;
   v_event_index integer;
   v_kind text;
-  v_ability_id uuid;
-  v_ability_match_count integer;
   v_goal_id uuid;
   v_goal_match_count integer;
   v_existing_goal goals%rowtype;
@@ -415,8 +415,6 @@ begin
   loop
     v_event_index := (v_ordinal - 1)::integer;
     v_kind := v_event->>'kind';
-    v_ability_id := null;
-    v_ability_match_count := 0;
     v_goal_id := null;
     v_goal_match_count := 0;
     v_parent_goal_id := null;
@@ -430,7 +428,7 @@ begin
 
     if jsonb_typeof(v_event) is distinct from 'object'
        or v_kind is null
-       or v_kind not in ('ability', 'goal', 'task', 'activity', 'inbox') then
+       or v_kind not in ('goal', 'task', 'activity', 'inbox') then
       raise exception 'unsupported event kind at index %', v_event_index;
     end if;
 
@@ -461,22 +459,7 @@ begin
     )
     returning id into v_message_id;
 
-    if v_kind = 'ability' then
-      insert into abilities (
-        user_id,
-        title,
-        status
-      )
-      values (
-        p_user_id,
-        v_event->>'title',
-        'active'
-      )
-      on conflict (user_id, title) do update
-      set title = excluded.title
-      returning id into v_ability_id;
-
-    elsif v_kind = 'goal' then
+    if v_kind = 'goal' then
       v_parent_goal_id := nullif(v_event->>'parentGoalId', '')::uuid;
 
       if v_parent_goal_id is not null
@@ -489,55 +472,17 @@ begin
         raise exception 'parent goal does not belong to user at event index %', v_event_index;
       end if;
 
-      if nullif(v_event->>'abilityId', '') is not null
-         and nullif(btrim(v_event->>'abilityTitle'), '') is not null then
-        raise exception 'goal ability reference must use abilityId or abilityTitle, not both, at event index %', v_event_index;
-      end if;
-
-      if nullif(v_event->>'abilityId', '') is not null then
-        select id into v_ability_id
-        from abilities
-        where user_id = p_user_id
-          and id = nullif(v_event->>'abilityId', '')::uuid
-          and status = 'active';
-
-        if v_ability_id is null then
-          raise exception 'ability does not belong to user or is not active at event index %', v_event_index;
-        end if;
-      elsif nullif(btrim(v_event->>'abilityTitle'), '') is not null then
-        select
-          count(*),
-          (array_agg(id order by created_at, id))[1]
-        into v_ability_match_count, v_ability_id
-        from abilities
-        where user_id = p_user_id
-          and status = 'active'
-          and regexp_replace(
-            lower(btrim(title)),
-            '[[:space:][:punct:]]+',
-            '',
-            'g'
-          ) = regexp_replace(
-            lower(btrim(v_event->>'abilityTitle')),
-            '[[:space:][:punct:]]+',
-            '',
-            'g'
-          );
-
-        if v_ability_match_count = 0 then
-          raise exception 'active abilityTitle does not exist at event index %', v_event_index;
-        elsif v_ability_match_count > 1 then
-          raise exception 'abilityTitle is ambiguous at event index %', v_event_index;
-        end if;
-      end if;
-
-      if v_event->>'goalType' = 'long_term' and v_ability_id is null then
-        raise exception 'long_term goal requires an ability at event index %', v_event_index;
-      elsif v_event->>'goalType' = 'short_term' and v_ability_id is not null then
-        raise exception 'short_term goal forbids an ability at event index %', v_event_index;
-      elsif v_event->>'goalType' is null
+      if v_event->>'goalType' is null
          or v_event->>'goalType' not in ('long_term', 'short_term') then
         raise exception 'unsupported goalType at event index %', v_event_index;
+      end if;
+
+      if v_event->>'lifeArea' is null
+         or v_event->>'lifeArea' not in (
+           'work', 'growth', 'health', 'life',
+           'finance', 'relationships', 'entertainment'
+         ) then
+        raise exception 'unsupported lifeArea at event index %', v_event_index;
       end if;
 
       insert into goals (
@@ -546,7 +491,7 @@ begin
         category,
         parent_goal_id,
         goal_type,
-        ability_id,
+        life_area,
         metric_type,
         status
       )
@@ -556,11 +501,7 @@ begin
         v_event->>'category',
         v_parent_goal_id,
         v_event->>'goalType',
-        case
-          when nullif(v_event->>'abilityId', '') is not null
-            then nullif(v_event->>'abilityId', '')::uuid
-          else v_ability_id
-        end,
+        v_event->>'lifeArea',
         v_event->>'metricType',
         'active'
       )
@@ -574,7 +515,7 @@ begin
           and title = v_event->>'title';
 
         if v_existing_goal.goal_type is distinct from v_event->>'goalType'
-           or v_existing_goal.ability_id is distinct from v_ability_id
+           or v_existing_goal.life_area is distinct from v_event->>'lifeArea'
            or v_existing_goal.category is distinct from v_event->>'category'
            or v_existing_goal.metric_type is distinct from v_event->>'metricType'
            or v_existing_goal.parent_goal_id is distinct from v_parent_goal_id then
@@ -804,7 +745,6 @@ begin
           'eventIndex', v_event_index,
           'kind', v_kind,
           'messageId', v_message_id,
-          'abilityId', v_ability_id,
           'goalId', v_goal_id,
           'taskId', v_task_id,
           'activityId', v_activity_id,
@@ -1053,332 +993,3 @@ $function$;
 
 revoke execute on function public.complete_growth_goal(uuid, uuid, text, text, text) from public, anon, authenticated;
 grant execute on function complete_growth_goal(uuid, uuid, text, text, text) to service_role;
-
-create or replace function apply_growth_model_mapping(
-  p_mapping jsonb,
-  p_expected_snapshot jsonb
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $function$
-declare
-  v_user_id uuid;
-  v_actual_profile_ids uuid[];
-  v_actual_goal_ids uuid[];
-  v_actual_task_ids uuid[];
-  v_actual_activity_ids uuid[];
-  v_actual_achievement_ids uuid[];
-  v_expected_profile_ids uuid[];
-  v_expected_goal_ids uuid[];
-  v_expected_task_ids uuid[];
-  v_expected_activity_ids uuid[];
-  v_expected_achievement_ids uuid[];
-  v_mapping_goal_ids uuid[];
-  v_mapping_task_ids uuid[];
-  v_mapping_activity_ids uuid[];
-  v_mapping_achievement_ids uuid[];
-  v_expected_profile_count integer;
-  v_expected_goal_count integer;
-  v_expected_task_count integer;
-  v_expected_activity_count integer;
-  v_expected_achievement_count integer;
-begin
-  if jsonb_typeof(p_mapping) is distinct from 'object'
-     or jsonb_typeof(p_expected_snapshot) is distinct from 'object' then
-    raise exception 'mapping and expected snapshot must be JSON objects';
-  end if;
-
-  if nullif(p_mapping->>'userId', '') is null then
-    raise exception 'mapping userId must be a UUID';
-  end if;
-  begin
-    v_user_id := (p_mapping->>'userId')::uuid;
-  exception when others then
-    raise exception 'mapping userId must be a UUID';
-  end;
-
-  if jsonb_typeof(p_mapping->'goals') is distinct from 'array'
-     or jsonb_typeof(p_mapping->'taskOverrides') is distinct from 'array'
-     or jsonb_typeof(p_mapping->'activityOverrides') is distinct from 'array'
-     or jsonb_typeof(p_mapping->'achievementOverrides') is distinct from 'array'
-     or jsonb_typeof(p_expected_snapshot->'expectedProfileIds') is distinct from 'array'
-     or jsonb_typeof(p_expected_snapshot->'expectedGoalIds') is distinct from 'array'
-     or jsonb_typeof(p_expected_snapshot->'expectedTaskIds') is distinct from 'array'
-     or jsonb_typeof(p_expected_snapshot->'expectedActivityIds') is distinct from 'array'
-     or jsonb_typeof(p_expected_snapshot->'expectedAchievementIds') is distinct from 'array'
-     or jsonb_typeof(p_expected_snapshot->'counts') is distinct from 'object' then
-    raise exception 'mapping and expected snapshot arrays are required';
-  end if;
-
-  if jsonb_typeof(p_expected_snapshot#>'{counts,profiles}') is distinct from 'number'
-     or jsonb_typeof(p_expected_snapshot#>'{counts,goals}') is distinct from 'number'
-     or jsonb_typeof(p_expected_snapshot#>'{counts,tasks}') is distinct from 'number'
-     or jsonb_typeof(p_expected_snapshot#>'{counts,activities}') is distinct from 'number'
-     or jsonb_typeof(p_expected_snapshot#>'{counts,achievements}') is distinct from 'number' then
-    raise exception 'expected snapshot counts must be nonnegative integers';
-  end if;
-  begin
-    v_expected_profile_count := (p_expected_snapshot#>>'{counts,profiles}')::integer;
-    v_expected_goal_count := (p_expected_snapshot#>>'{counts,goals}')::integer;
-    v_expected_task_count := (p_expected_snapshot#>>'{counts,tasks}')::integer;
-    v_expected_activity_count := (p_expected_snapshot#>>'{counts,activities}')::integer;
-    v_expected_achievement_count := (p_expected_snapshot#>>'{counts,achievements}')::integer;
-  exception when others then
-    raise exception 'expected snapshot counts must be nonnegative integers';
-  end;
-  if v_expected_profile_count < 0
-     or v_expected_goal_count < 0
-     or v_expected_task_count < 0
-     or v_expected_activity_count < 0
-     or v_expected_achievement_count < 0 then
-    raise exception 'expected snapshot counts must be nonnegative integers';
-  end if;
-
-  perform 1 from profiles where user_id = v_user_id for update;
-  if not found then
-    raise exception 'snapshot mismatch: profile is absent';
-  end if;
-  perform 1 from goals where user_id = v_user_id for update;
-  perform 1 from tasks where user_id = v_user_id for update;
-  perform 1 from activities where user_id = v_user_id for update;
-  perform 1 from achievements where user_id = v_user_id for update;
-
-  select array[user_id] into v_actual_profile_ids
-  from profiles where user_id = v_user_id;
-  select coalesce(array_agg(id order by id), array[]::uuid[])
-    into v_actual_goal_ids from goals where user_id = v_user_id;
-  select coalesce(array_agg(id order by id), array[]::uuid[])
-    into v_actual_task_ids from tasks where user_id = v_user_id;
-  select coalesce(array_agg(id order by id), array[]::uuid[])
-    into v_actual_activity_ids from activities where user_id = v_user_id;
-  select coalesce(array_agg(id order by id), array[]::uuid[])
-    into v_actual_achievement_ids from achievements where user_id = v_user_id;
-
-  begin
-    select coalesce(array_agg(value::uuid order by value::uuid), array[]::uuid[])
-      into v_expected_profile_ids
-      from jsonb_array_elements_text(p_expected_snapshot->'expectedProfileIds') expected(value);
-    select coalesce(array_agg(value::uuid order by value::uuid), array[]::uuid[])
-      into v_expected_goal_ids
-      from jsonb_array_elements_text(p_expected_snapshot->'expectedGoalIds') expected(value);
-    select coalesce(array_agg(value::uuid order by value::uuid), array[]::uuid[])
-      into v_expected_task_ids
-      from jsonb_array_elements_text(p_expected_snapshot->'expectedTaskIds') expected(value);
-    select coalesce(array_agg(value::uuid order by value::uuid), array[]::uuid[])
-      into v_expected_activity_ids
-      from jsonb_array_elements_text(p_expected_snapshot->'expectedActivityIds') expected(value);
-    select coalesce(array_agg(value::uuid order by value::uuid), array[]::uuid[])
-      into v_expected_achievement_ids
-      from jsonb_array_elements_text(p_expected_snapshot->'expectedAchievementIds') expected(value);
-  exception when others then
-    raise exception 'expected snapshot IDs must be UUID arrays';
-  end;
-
-  if v_actual_profile_ids is distinct from v_expected_profile_ids
-     or v_actual_goal_ids is distinct from v_expected_goal_ids
-     or v_actual_task_ids is distinct from v_expected_task_ids
-     or v_actual_activity_ids is distinct from v_expected_activity_ids
-     or v_actual_achievement_ids is distinct from v_expected_achievement_ids
-     or cardinality(v_actual_profile_ids) is distinct from v_expected_profile_count
-     or cardinality(v_actual_goal_ids) is distinct from v_expected_goal_count
-     or cardinality(v_actual_task_ids) is distinct from v_expected_task_count
-     or cardinality(v_actual_activity_ids) is distinct from v_expected_activity_count
-     or cardinality(v_actual_achievement_ids) is distinct from v_expected_achievement_count then
-    raise exception 'snapshot mismatch: IDs or counts changed after dry-run';
-  end if;
-
-  begin
-    select coalesce(
-      array_agg((item->>'legacyGoalId')::uuid order by (item->>'legacyGoalId')::uuid),
-      array[]::uuid[]
-    ) into v_mapping_goal_ids from jsonb_array_elements(p_mapping->'goals') item;
-    select coalesce(
-      array_agg((item->>'taskId')::uuid order by (item->>'taskId')::uuid),
-      array[]::uuid[]
-    ) into v_mapping_task_ids from jsonb_array_elements(p_mapping->'taskOverrides') item;
-    select coalesce(
-      array_agg((item->>'activityId')::uuid order by (item->>'activityId')::uuid),
-      array[]::uuid[]
-    ) into v_mapping_activity_ids from jsonb_array_elements(p_mapping->'activityOverrides') item;
-    select coalesce(
-      array_agg((item->>'achievementId')::uuid order by (item->>'achievementId')::uuid),
-      array[]::uuid[]
-    ) into v_mapping_achievement_ids from jsonb_array_elements(p_mapping->'achievementOverrides') item;
-  exception when others then
-    raise exception 'mapping source IDs must be UUIDs';
-  end;
-
-  if v_mapping_goal_ids is distinct from v_actual_goal_ids then
-    raise exception 'mapping must completely cover goal IDs exactly once';
-  end if;
-  if v_mapping_task_ids is distinct from v_actual_task_ids then
-    raise exception 'mapping must completely cover task IDs exactly once';
-  end if;
-  if v_mapping_activity_ids is distinct from v_actual_activity_ids then
-    raise exception 'mapping must completely cover activity IDs exactly once';
-  end if;
-  if v_mapping_achievement_ids is distinct from v_actual_achievement_ids then
-    raise exception 'mapping must completely cover achievement IDs exactly once';
-  end if;
-
-  if exists (
-    select 1 from jsonb_array_elements(p_mapping->'goals') item
-    where jsonb_typeof(item) is distinct from 'object'
-       or item->>'goalType' is null
-       or item->>'goalType' not in ('long_term', 'short_term')
-       or (
-         item->>'goalType' = 'long_term'
-         and (
-           jsonb_typeof(item->'abilityTitle') is distinct from 'string'
-           or coalesce(length(btrim(item->>'abilityTitle')), 0) = 0
-         )
-       )
-       or (item->>'goalType' = 'short_term' and item ? 'abilityTitle')
-  ) then
-    raise exception 'mapping contains an invalid goal classification';
-  end if;
-  if exists (
-    select 1 from jsonb_array_elements(p_mapping->'taskOverrides') item
-    where jsonb_typeof(item) is distinct from 'object'
-       or jsonb_typeof(item->'target') is distinct from 'object'
-       or item->'target'->>'kind' is null
-       or item->'target'->>'kind' not in ('one_off', 'goal')
-       or (
-         item->'target'->>'kind' = 'one_off'
-         and item->'target' ? 'targetGoalId'
-       )
-       or (
-         item->'target'->>'kind' = 'goal'
-         and (
-           jsonb_typeof(item->'target'->'targetGoalId') is distinct from 'string'
-           or item->'target'->>'targetGoalId' is null
-         )
-       )
-  ) then
-    raise exception 'mapping contains an invalid task target';
-  end if;
-  if exists (
-    select 1 from jsonb_array_elements(p_mapping->'activityOverrides') item
-    where jsonb_typeof(item) is distinct from 'object'
-       or jsonb_typeof(item->'targetGoalId') is distinct from 'string'
-       or item->>'targetGoalId' is null
-  ) then
-    raise exception 'mapping contains an invalid activity target';
-  end if;
-  if exists (
-    select 1
-    from jsonb_array_elements(p_mapping->'achievementOverrides') achievement
-    where jsonb_typeof(achievement) is distinct from 'object'
-       or jsonb_typeof(achievement->'targetGoalId') is distinct from 'string'
-       or achievement->>'targetGoalId' is null
-       or not exists (
-      select 1 from jsonb_array_elements(p_mapping->'goals') goal
-      where goal->>'legacyGoalId' = achievement->>'targetGoalId'
-        and goal->>'goalType' = 'short_term'
-    )
-  ) then
-    raise exception 'mapping achievement targets must be short_term goals';
-  end if;
-
-  begin
-    perform (item->'target'->>'targetGoalId')::uuid
-    from jsonb_array_elements(p_mapping->'taskOverrides') item
-    where item->'target'->>'kind' = 'goal';
-    perform (item->>'targetGoalId')::uuid
-    from jsonb_array_elements(p_mapping->'activityOverrides') item;
-    perform (item->>'targetGoalId')::uuid
-    from jsonb_array_elements(p_mapping->'achievementOverrides') item;
-  exception when others then
-    raise exception 'mapping target IDs must be UUIDs';
-  end;
-
-  if exists (
-    select 1 from jsonb_array_elements(p_mapping->'taskOverrides') item
-    where item->'target'->>'kind' = 'goal'
-      and not ((item->'target'->>'targetGoalId')::uuid = any(v_actual_goal_ids))
-  ) then
-    raise exception 'mapping contains an invalid task target';
-  end if;
-  if exists (
-    select 1 from jsonb_array_elements(p_mapping->'activityOverrides') item
-    where not ((item->>'targetGoalId')::uuid = any(v_actual_goal_ids))
-  ) then
-    raise exception 'mapping contains an invalid activity target';
-  end if;
-
-  insert into abilities (user_id, title, status, archived_at)
-  select distinct v_user_id, btrim(item->>'abilityTitle'), 'active', null::timestamptz
-  from jsonb_array_elements(p_mapping->'goals') item
-  where item->>'goalType' = 'long_term'
-  on conflict (user_id, title) do update
-    set status = 'active', archived_at = null;
-
-  update goals goal
-  set goal_type = 'short_term', ability_id = null
-  from jsonb_array_elements(p_mapping->'goals') item
-  where goal.user_id = v_user_id
-    and goal.id = (item->>'legacyGoalId')::uuid
-    and item->>'goalType' = 'short_term';
-
-  update tasks task
-  set goal_id = case
-    when item->'target'->>'kind' = 'one_off' then null
-    else (item->'target'->>'targetGoalId')::uuid
-  end
-  from jsonb_array_elements(p_mapping->'taskOverrides') item
-  where task.user_id = v_user_id
-    and task.id = (item->>'taskId')::uuid;
-
-  update activities activity
-  set goal_id = (item->>'targetGoalId')::uuid
-  from jsonb_array_elements(p_mapping->'activityOverrides') item
-  where activity.user_id = v_user_id
-    and activity.id = (item->>'activityId')::uuid;
-
-  update achievements achievement
-  set short_goal_id = (item->>'targetGoalId')::uuid
-  from jsonb_array_elements(p_mapping->'achievementOverrides') item
-  where achievement.user_id = v_user_id
-    and achievement.id = (item->>'achievementId')::uuid;
-
-  update goals goal
-  set goal_type = 'long_term', ability_id = ability.id
-  from jsonb_array_elements(p_mapping->'goals') item
-  join abilities ability
-    on ability.user_id = v_user_id
-   and ability.title = btrim(item->>'abilityTitle')
-  where goal.user_id = v_user_id
-    and goal.id = (item->>'legacyGoalId')::uuid
-    and item->>'goalType' = 'long_term';
-
-  if exists (
-    select 1 from goals
-    where user_id = v_user_id
-      and (
-        goal_type is null
-        or goal_type not in ('long_term', 'short_term')
-        or (goal_type = 'long_term' and ability_id is null)
-        or (goal_type = 'short_term' and ability_id is not null)
-      )
-  ) then
-    raise exception 'mapped goal shape verification failed';
-  end if;
-
-  return jsonb_build_object(
-    'applied', true,
-    'counts', jsonb_build_object(
-      'profiles', cardinality(v_actual_profile_ids),
-      'goals', cardinality(v_actual_goal_ids),
-      'tasks', cardinality(v_actual_task_ids),
-      'activities', cardinality(v_actual_activity_ids),
-      'achievements', cardinality(v_actual_achievement_ids)
-    ),
-    'abilityCount', (select count(*) from abilities where user_id = v_user_id)
-  );
-end
-$function$;
-
-revoke execute on function public.apply_growth_model_mapping(jsonb, jsonb) from public, anon, authenticated;
-grant execute on function apply_growth_model_mapping(jsonb, jsonb) to service_role;

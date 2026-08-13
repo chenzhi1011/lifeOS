@@ -2,163 +2,68 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const schema = readFileSync("supabase/schema.sql", "utf8");
-const migration = readFileSync(
-  "supabase/migrations/202608010001_growth_tree_domain.sql",
-  "utf8"
-);
-const mappingMigration = readFileSync(
-  "supabase/migrations/202608010003_growth_model_mapping.sql",
-  "utf8"
-);
-const validationOperation = readFileSync(
-  "supabase/operations/validate_growth_tree_constraints.sql",
-  "utf8"
-);
 
-describe("growth tree domain schema", () => {
-  it.each([schema, migration])("defines explicit growth entities", (sql) => {
-    expect(sql).toMatch(/create table(?: if not exists)? abilities/i);
-    expect(sql).toContain("goal_type");
-    expect(sql).toContain("ability_id");
-    expect(sql).toContain("planned_metric_type");
-    expect(sql).toContain("short_goal_id");
-    expect(sql).toContain("idx_activities_user_task_unique");
-    expect(sql).toContain("ability");
+describe("final growth tree database schema", () => {
+  it("contains no Ability compatibility structure", () => {
+    expect(schema).not.toMatch(/create table(?: if not exists)? abilities/i);
+    expect(schema).not.toMatch(/ability_id/i);
+    expect(schema).not.toMatch(/\bability\b/i);
+    expect(schema).not.toMatch(/apply_growth_model_mapping/i);
   });
 
-  it("requires callers to classify every new goal explicitly", () => {
-    expect(schema).toMatch(/goal_type\s+text\s+not null/i);
-    expect(schema).not.toMatch(
-      /goal_type\s+text\s+not null\s+default\s+'short_term'/i
-    );
+  it("requires every goal to use one of the seven fixed life areas", () => {
+    expect(schema).toMatch(/life_area\s+text\s+not null/i);
+    for (const area of [
+      "work",
+      "growth",
+      "health",
+      "life",
+      "finance",
+      "relationships",
+      "entertainment"
+    ]) {
+      expect(schema).toContain(`'${area}'`);
+    }
+  });
+
+  it("uses immediately active metric constraints", () => {
+    expect(schema).not.toMatch(/not valid/i);
     expect(schema).toMatch(
-      /insert into goals\s*\([\s\S]*?goal_type[\s\S]*?ability_id[\s\S]*?v_event->>'goalType'[\s\S]*?nullif\(v_event->>'abilityId', ''\)::uuid/i
+      /activities_value_positive_check\s+check\s*\(\s*value\s*>\s*0\s*\)/i
     );
+    expect(schema).toMatch(/activities_metric_unit_check/i);
+    expect(schema).toMatch(/tasks_planned_metric_unit_check/i);
   });
 
-  it.each([schema, migration])(
-    "guards the achievement invariant from both write directions",
-    (sql) => {
-      expect(sql).toContain("enforce_achievement_short_goal");
-      expect(sql).toMatch(/for share/i);
-      expect(sql).toContain("enforce_goal_achievement_shape");
-      expect(sql).toMatch(
-        /before update of goal_type, ability_id on goals/i
+  it("keeps transactional write and completion functions service-role-only", () => {
+    for (const rpc of [
+      "record_life_event_batch",
+      "complete_growth_task",
+      "complete_growth_goal"
+    ]) {
+      expect(schema).toMatch(
+        new RegExp(`revoke execute on function public\\.${rpc}\\(`, "i")
       );
-      expect(sql).toMatch(
-        /from achievements[\s\S]*?short_goal_id = new\.id/i
+      expect(schema).toMatch(
+        new RegExp(`grant execute on function ${rpc}\\(`, "i")
       );
     }
-  );
-
-  it("fails migration with actionable duplicate-data diagnostics", () => {
-    expect(migration).toMatch(
-      /from achievements[\s\S]*?group by user_id, short_goal_id[\s\S]*?having count\(\*\) > 1/i
-    );
-    expect(migration).toMatch(
-      /from activities[\s\S]*?group by user_id, task_id[\s\S]*?having count\(\*\) > 1/i
-    );
-    expect(migration).toContain(
-      "manually deduplicate or map achievements before retrying migration"
-    );
-    expect(migration).toContain(
-      "manually deduplicate or map activities before retrying migration"
-    );
   });
 
-  it("replaces the migrated batch RPC with explicit goal classification", () => {
-    expect(migration).toMatch(
-      /create or replace function record_life_event_batch\s*\(/i
+  it("guards completed short-term achievements in both write directions", () => {
+    expect(schema).toMatch(
+      /enforce_achievement_short_goal[\s\S]*?goal_type = 'short_term'[\s\S]*?status = 'completed'[\s\S]*?completed_at is not null/i
     );
-    expect(migration).toMatch(
-      /create or replace function record_life_event_batch[\s\S]*?insert into goals\s*\([\s\S]*?goal_type[\s\S]*?ability_id[\s\S]*?v_event->>'goalType'[\s\S]*?nullif\(v_event->>'abilityId', ''\)::uuid/i
-    );
+    expect(schema).toMatch(/enforce_goal_achievement_shape/i);
+    expect(schema).toMatch(/before update of goal_type, status, completed_at on goals/i);
   });
 
-  it.each([schema, migration])(
-    "locks active explicit goals and rejects aliases owned by another goal",
-    (sql) => {
-      expect(sql).toMatch(
-        /select id into v_goal_id[\s\S]*?status = 'active'[\s\S]*?for no key update/i
-      );
-      expect(sql).toMatch(
-        /returning goal_id into v_alias_owner_goal_id/i
-      );
-      expect(sql).toMatch(
-        /v_alias_owner_goal_id is distinct from v_goal_id/i
-      );
-    }
-  );
-
-  it.each([schema, migration])(
-    "enforces normalized goal aliases in storage and batch intake",
-    (sql) => {
-      expect(sql).toMatch(
-        /create unique index(?: if not exists)? uq_goal_aliases_user_normalized_alias\s+on goal_aliases\s*\(\s*user_id\s*,\s*lower\(btrim\(alias\)\)\s*\)/i
-      );
-      expect(sql).toMatch(/v_alias\s*:=\s*lower\(btrim\(v_alias\)\)/i);
-      expect(sql).toMatch(/goal alias must not be empty/i);
-      expect(sql).toMatch(
-        /on conflict\s*\(\s*user_id\s*,\s*lower\(btrim\(alias\)\)\s*\)\s*do nothing/i
-      );
-      expect(sql).toMatch(
-        /where user_id = p_user_id\s+and lower\(btrim\(alias\)\) = v_alias/i
-      );
-    }
-  );
-
-  it("blocks migration until pre-existing normalized alias duplicates are cleaned up", () => {
-    expect(migration).toMatch(
-      /from goal_aliases[\s\S]*?group by user_id, lower\(btrim\(alias\)\)[\s\S]*?having count\(\*\) > 1/i
+  it("keeps normalized aliases and stable task/activity indexes", () => {
+    expect(schema).toMatch(
+      /uq_goal_aliases_user_normalized_alias[\s\S]*?lower\(btrim\(alias\)\)/i
     );
-    expect(migration).toMatch(/manually.*goal alias.*before retrying migration/i);
-  });
-
-  it.each([schema, mappingMigration])(
-    "guards the manual mapping RPC with complete expected snapshots and service-role-only execution",
-    (sql) => {
-      expect(sql).toMatch(
-        /create or replace function apply_growth_model_mapping\s*\(\s*p_mapping jsonb,\s*p_expected_snapshot jsonb/i
-      );
-      expect(sql).toContain("expectedGoalIds");
-      expect(sql).toContain("expectedTaskIds");
-      expect(sql).toContain("expectedActivityIds");
-      expect(sql).toContain("expectedAchievementIds");
-      expect(sql).toMatch(/for update/i);
-      expect(sql).toMatch(/raise exception 'snapshot mismatch/i);
-      expect(sql).toMatch(/item->>'goalType' is null/i);
-      expect(sql).toMatch(
-        /jsonb_typeof\(item->'target'\) is distinct from 'object'/i
-      );
-      expect(sql).toMatch(
-        /jsonb_typeof\(p_expected_snapshot#>'\{counts,profiles\}'\) is distinct from 'number'/i
-      );
-      expect(sql).toMatch(
-        /cardinality\(v_actual_goal_ids\) is distinct from v_expected_goal_count/i
-      );
-      expect(sql).toMatch(
-        /revoke execute on function public\.apply_growth_model_mapping\(jsonb, jsonb\) from public, anon, authenticated/i
-      );
-      expect(sql).toMatch(
-        /grant execute on function apply_growth_model_mapping\(jsonb, jsonb\) to service_role/i
-      );
-    }
-  );
-
-  it("keeps constraint validation as a separate explicit operation", () => {
-    const statements = validationOperation
-      .split(";")
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-
-    expect(statements).toEqual([
-      "alter table goals validate constraint goals_goal_type_required",
-      "alter table goals validate constraint goals_goal_type_check",
-      "alter table goals validate constraint goals_ability_shape_check",
-      "alter table goals validate constraint goals_completed_at_check",
-      "alter table goals validate constraint goals_ability_fk",
-      "alter table tasks validate constraint tasks_planned_metric_shape_check"
-    ]);
-    expect(mappingMigration).not.toMatch(/validate constraint/i);
+    expect(schema).toContain("idx_tasks_user_status_due");
+    expect(schema).toContain("idx_activities_user_task_unique");
+    expect(schema).toContain("idx_reminders_user_status_time");
   });
 });
