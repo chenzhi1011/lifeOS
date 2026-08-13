@@ -41,28 +41,25 @@ function geometryFor(type: VitalityElementType): THREE.BufferGeometry {
   return new THREE.ConeGeometry(0.09, 0.36, 5, 1);
 }
 
-function materialFor(type: VitalityElementType): THREE.MeshStandardMaterial {
+function materialFor(type: VitalityElementType): THREE.MeshLambertMaterial {
   if (type === "water") {
-    return new THREE.MeshStandardMaterial({
+    return new THREE.MeshLambertMaterial({
       color: 0xa8dfe2,
       emissive: 0x477f85,
       emissiveIntensity: 0.12,
-      roughness: 0.24,
       transparent: true,
       opacity: 0.9,
       flatShading: true
     });
   }
   if (type === "creature") {
-    return new THREE.MeshStandardMaterial({
+    return new THREE.MeshLambertMaterial({
       color: 0xe5c96d,
-      roughness: 0.78,
       flatShading: true
     });
   }
-  return new THREE.MeshStandardMaterial({
+  return new THREE.MeshLambertMaterial({
     color: 0x7cae55,
-    roughness: 0.9,
     flatShading: true
   });
 }
@@ -153,7 +150,7 @@ export function createVitalityElements(
       layer.mesh.instanceMatrix.needsUpdate = true;
       if (
         layer.type === "water" &&
-        layer.mesh.material instanceof THREE.MeshStandardMaterial
+        layer.mesh.material instanceof THREE.MeshLambertMaterial
       ) {
         layer.mesh.material.emissiveIntensity =
           0.11 + Math.sin(elapsedSeconds * 0.38) * 0.025;

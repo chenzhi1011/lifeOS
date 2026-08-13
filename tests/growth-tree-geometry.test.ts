@@ -35,7 +35,7 @@ const leaf: GrowthTreeLeaf = {
 };
 
 const viewModel: GrowthTreeViewModel = {
-  recipe: {} as GrowthTreeViewModel["recipe"],
+  recipe: { seed: 1, trunk: { height: 3, radius: .3, sections: 8 }, lifeAreas: [], longGoals: [], shortGoals: [], canopy: { retention: .6, vitality: .5, youngLeafRatio: .4 } },
   branches: [
     { entityType: "root", entityId: "root", parentEntityId: null, controlPoints: [{x:0,y:0,z:0},{x:0,y:1,z:0},{x:0,y:2,z:0},{x:0,y:3,z:0}], baseRadius:.3, tipRadius:.1, radialSegments:8 },
     { entityType: "life_area", entityId: "growth", parentEntityId: "root", controlPoints: [{x:0,y:1,z:0},{x:.2,y:1.4,z:0},{x:.5,y:2,z:0},{x:1,y:2.4,z:0}], baseRadius:.2, tipRadius:.06, radialSegments:8 },

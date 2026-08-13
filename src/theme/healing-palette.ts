@@ -6,3 +6,9 @@ export const HEALING_PALETTE = {
 } as const;
 export const HEALING_CSS_VARS = { "--healing-sky-top": HEALING_PALETTE.skyTop, "--healing-sky-horizon": HEALING_PALETTE.skyHorizon,
   "--healing-ui-background": HEALING_PALETTE.uiBackground, "--healing-ui-text": HEALING_PALETTE.uiText } as const;
+
+export function achievementFruitColor(achievementId: string): (typeof HEALING_PALETTE.fruit)[number] {
+  let hash = 0;
+  for (const character of achievementId) hash = Math.imul(31, hash) + character.charCodeAt(0) | 0;
+  return HEALING_PALETTE.fruit[(hash >>> 0) % 2]!;
+}

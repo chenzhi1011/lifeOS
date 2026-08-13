@@ -348,7 +348,13 @@ export function GrowthTreeScene({
           JSON.stringify({
             lake: scene.getObjectByName("growth-lake") ? 1 : 0,
             mountains: scene.getObjectByName("growth-mountain-layers") ? 1 : 0,
-            tree: runtime.layer.selectable.length,
+            tree: runtime.layer.stats.maxRadialSegments > 0
+              ? viewModel.branches.length
+              : 0,
+            leaves: {
+              decorative: runtime.layer.stats.decorativeLeaves,
+              activity: runtime.layer.stats.activityLeaves
+            },
             vitality: runtime.vitality.group.children.reduce(
               (count, object) =>
                 count +

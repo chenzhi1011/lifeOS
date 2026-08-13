@@ -72,7 +72,7 @@ export function GrowthTreeDashboard({
 
       <div className="absolute right-3 top-3 z-20 sm:right-5 sm:top-5">
         <button
-          className="rounded-full border border-[#315d3a]/25 bg-[#f8f7ed]/90 px-4 py-2.5 text-sm font-semibold text-[#18321e] shadow-lg backdrop-blur hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
+          className="rounded-full border border-[#315d3a]/25 bg-[var(--healing-ui-background)]/90 px-4 py-2.5 text-sm font-semibold text-[var(--healing-ui-text)] shadow-lg backdrop-blur hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
           onClick={() => setDrawerOpen(true)}
           ref={drawerTriggerRef}
           type="button"
@@ -99,7 +99,7 @@ export function GrowthTreeDashboard({
       ) : null}
 
       {trulyEmpty ? (
-        <section className="absolute bottom-5 left-1/2 z-20 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-[#315d3a]/20 bg-[#f8f7ed]/90 p-5 text-center text-[#18321e] shadow-xl backdrop-blur sm:bottom-8">
+        <section className="absolute bottom-5 left-1/2 z-20 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-[#315d3a]/20 bg-[var(--healing-ui-background)]/90 p-5 text-center text-[var(--healing-ui-text)] shadow-xl backdrop-blur sm:bottom-8">
           <h1 className="text-lg font-semibold">创建第一个目标</h1>
           <p className="mt-2 text-sm leading-6 text-[#526b57]">
             七个生活领域是固定主枝，目标会在所属领域继续生长。

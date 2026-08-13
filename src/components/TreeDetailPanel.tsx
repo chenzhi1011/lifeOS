@@ -57,7 +57,7 @@ export function TreeDetailPanel({
   return (
     <aside
       aria-label="成长详情"
-      className="absolute bottom-3 left-3 right-3 z-20 max-h-[46vh] overflow-y-auto rounded-2xl border border-[#315d3a]/20 bg-[#f8f7ed]/90 p-4 text-[#18321e] shadow-2xl backdrop-blur-md sm:bottom-5 sm:left-auto sm:right-5 sm:top-24 sm:max-h-none sm:w-[360px] sm:p-5"
+      className="absolute bottom-3 left-3 right-3 z-20 max-h-[46vh] overflow-y-auto rounded-2xl border border-[#315d3a]/20 bg-[var(--healing-ui-background)]/90 p-4 text-[var(--healing-ui-text)] shadow-2xl backdrop-blur-md sm:bottom-5 sm:left-auto sm:right-5 sm:top-24 sm:max-h-none sm:w-[360px] sm:p-5"
       data-testid="growth-tree-details"
     >
       <div className="flex items-start justify-between gap-3">

@@ -5,7 +5,8 @@ import type {
 } from "@/src/domain/tree-visualization";
 import {
   createSemanticBranchMesh,
-  createSemanticLeafMesh
+  createSemanticLeafMesh,
+  createDecorativeCanopy
 } from "./growth-tree-semantic-geometry";
 
 export type TreeSelectionTarget = {
@@ -20,6 +21,7 @@ export type RealisticGrowthTreeLayer = {
   group: THREE.Group;
   selectable: THREE.Object3D[];
   entityByUuid: Map<string, TreeSelectionTarget>;
+  stats: { totalLeaves: number; decorativeLeaves: number; activityLeaves: number; maxRadialSegments: number };
   dispose: () => void;
 };
 
@@ -69,6 +71,9 @@ export function createRealisticGrowthTreeLayer(
   const entityByUuid = new Map<string, TreeSelectionTarget>();
   const ownedGeometries = new Set<THREE.BufferGeometry>();
   const ownedMaterials = new Set<THREE.Material>();
+  const canopy = createDecorativeCanopy(viewModel.branches, viewModel.recipe);
+  group.add(canopy);
+  rememberOwnedMesh(canopy, ownedGeometries, ownedMaterials);
   for (const segment of viewModel.branches) {
     const mesh = createSemanticBranchMesh(segment);
     const target: TreeSelectionTarget = {
@@ -108,6 +113,12 @@ export function createRealisticGrowthTreeLayer(
     group,
     selectable,
     entityByUuid,
+    stats: {
+      totalLeaves: canopy.count + viewModel.semanticLeaves.filter((item) => item.visible).length,
+      decorativeLeaves: canopy.count,
+      activityLeaves: viewModel.semanticLeaves.filter((item) => item.visible).length,
+      maxRadialSegments: Math.max(0, ...viewModel.branches.map((item) => Math.min(10, item.radialSegments)))
+    },
     dispose() {
       if (disposed) {
         return;
@@ -119,6 +130,7 @@ export function createRealisticGrowthTreeLayer(
       for (const geometry of ownedGeometries) {
         geometry.dispose();
       }
+      canopy.dispose();
       for (const material of ownedMaterials) {
         material.dispose();
       }

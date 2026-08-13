@@ -4,6 +4,7 @@ import {
   GROWTH_SCENE_CONFIG,
   type GrowthSceneAsset
 } from "./scene-config";
+import { HEALING_PALETTE } from "@/src/theme/healing-palette";
 
 export type AssetLoadDiagnostic = {
   code: "asset_load_failed";
@@ -33,18 +34,6 @@ export type GrowthEnvironmentLoader = {
     onError: (error: unknown) => void
   ) => unknown;
 };
-
-function subduedColor(hex: number): THREE.Color {
-  const color = new THREE.Color(hex);
-  const hsl = { h: 0, s: 0, l: 0 };
-  color.getHSL(hsl);
-  color.setHSL(
-    hsl.h,
-    hsl.s * GROWTH_SCENE_CONFIG.backgroundSaturation,
-    hsl.l
-  );
-  return color;
-}
 
 function disposeMaterial(
   material: THREE.Material,
@@ -101,7 +90,7 @@ function disposeObjectResources(root: THREE.Object3D): void {
 
 export function createLake(): THREE.Mesh<
   THREE.PlaneGeometry,
-  THREE.MeshStandardMaterial
+  THREE.MeshLambertMaterial
 > {
   const geometry = new THREE.PlaneGeometry(13, 18, 18, 24);
   geometry.rotateX(-Math.PI / 2);
@@ -119,10 +108,8 @@ export function createLake(): THREE.Mesh<
   }
   geometry.computeVertexNormals();
 
-  const material = new THREE.MeshStandardMaterial({
-    color: subduedColor(GROWTH_SCENE_CONFIG.colors.lake),
-    roughness: 0.28,
-    metalness: 0.04,
+  const material = new THREE.MeshLambertMaterial({
+    color: "#7FAEB5",
     transparent: true,
     opacity: 0.92,
     flatShading: true
@@ -141,12 +128,11 @@ function createMountain(
   x: number,
   z: number,
   rotation: number
-): THREE.Mesh<THREE.ConeGeometry, THREE.MeshStandardMaterial> {
+): THREE.Mesh<THREE.ConeGeometry, THREE.MeshLambertMaterial> {
   const mountain = new THREE.Mesh(
     new THREE.ConeGeometry(radius, height, 6, 2),
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshLambertMaterial({
       color,
-      roughness: 0.98,
       flatShading: true
     })
   );
@@ -163,8 +149,8 @@ export function createMountainLayers(): THREE.Group {
   far.name = "mountains-far";
   const near = new THREE.Group();
   near.name = "mountains-near";
-  const farColor = subduedColor(GROWTH_SCENE_CONFIG.colors.mountainFar);
-  const nearColor = subduedColor(GROWTH_SCENE_CONFIG.colors.mountainNear);
+  const farColor = new THREE.Color("#9AA7B3");
+  const nearColor = new THREE.Color("#788795");
 
   [
     [-11, 5.8, 6.8, 0.1],
@@ -203,9 +189,8 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   }
   slopePositions.needsUpdate = true;
   slopeGeometry.computeVertexNormals();
-  const slopeMaterial = new THREE.MeshStandardMaterial({
-    color: 0x66834e,
-    roughness: 0.98,
+  const slopeMaterial = new THREE.MeshLambertMaterial({
+    color: HEALING_PALETTE.grass,
     flatShading: true
   });
   const slope = new THREE.Mesh(slopeGeometry, slopeMaterial);
@@ -216,9 +201,8 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
 
   const rocks = new THREE.Group();
   rocks.name = "growth-rocks-fallback";
-  const rockMaterial = new THREE.MeshStandardMaterial({
-    color: subduedColor(GROWTH_SCENE_CONFIG.colors.rock),
-    roughness: 0.96,
+  const rockMaterial = new THREE.MeshLambertMaterial({
+    color: HEALING_PALETTE.soil,
     flatShading: true
   });
   [
@@ -325,7 +309,7 @@ export function createGrowthEnvironment(
 
   return {
     group,
-    fog: new THREE.Fog(0xb8d5db, 14, 38),
+    fog: new THREE.Fog(HEALING_PALETTE.fog, 14, 38),
     update(elapsedSeconds) {
       for (let index = 0; index < lakePositions.count; index += 1) {
         const x = lakePositions.getX(index);

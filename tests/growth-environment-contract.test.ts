@@ -111,7 +111,7 @@ describe("growth tree environment contract", () => {
     expect(environment).not.toContain("background-image");
   });
 
-  it("creates a dynamic low-roughness lake and flat-shaded mountain layers", () => {
+  it("creates a dynamic Lambert lake and flat-shaded mountain layers", () => {
     const lake = createLake();
     const mountains = createMountainLayers();
     const mountainMeshes: THREE.Mesh[] = [];
@@ -124,12 +124,12 @@ describe("growth tree environment contract", () => {
     expect(attributeUsage(lake.geometry.attributes.position)).toBe(
       THREE.DynamicDrawUsage
     );
-    expect(lake.material.roughness).toBeLessThan(0.4);
+    expect(lake.material).toBeInstanceOf(THREE.MeshLambertMaterial);
     expect(mountainMeshes.length).toBeGreaterThan(2);
     expect(
       mountainMeshes.every(
         (mesh) =>
-          mesh.material instanceof THREE.MeshStandardMaterial &&
+          mesh.material instanceof THREE.MeshLambertMaterial &&
           mesh.material.flatShading
       )
     ).toBe(true);
@@ -262,15 +262,9 @@ describe("growth tree environment contract", () => {
     expect(environment.group.children).not.toContain(model);
   });
 
-  it("centralizes approved composition, palette, assets, and performance", () => {
+  it("centralizes approved composition, assets, and performance", () => {
     expect(config).toContain("treeOffsetX: -1.2");
-    expect(config).toContain("backgroundSaturation: 0.8");
-    expect(config).toContain("leaf:");
-    expect(config).toContain("leafHighlight:");
-    expect(config).toContain("lake:");
-    expect(config).toContain("mountainNear:");
-    expect(config).toContain("mountainFar:");
-    expect(config).toContain("rock:");
+    expect(config).not.toContain("colors:");
     expect(config).toContain("tree: null");
     expect(config).toContain("mountains: null");
     expect(config).toContain("rocks: null");

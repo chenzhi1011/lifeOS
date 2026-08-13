@@ -28,17 +28,13 @@ function woodColors(segment: GrowthTreeWoodSegment): {
 
 export function createWoodSegmentMesh(
   segment: GrowthTreeWoodSegment
-): THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial> {
+): THREE.Mesh<THREE.CylinderGeometry, THREE.MeshLambertMaterial> {
   const start = toVector3(segment.start);
   const end = toVector3(segment.end);
   const direction = end.clone().sub(start);
   const length = direction.length();
   const colors = woodColors(segment);
-  const material = new THREE.MeshStandardMaterial({
-    color: colors.base,
-    roughness: 0.88,
-    metalness: 0
-  });
+  const material = new THREE.MeshLambertMaterial({ color: colors.base });
   material.userData.baseColor = colors.base;
   material.userData.hoverColor = colors.hover;
   material.userData.selectedColor = colors.selected;
@@ -74,16 +70,14 @@ export function createWoodSegmentMesh(
 
 export function createActivityLeafMesh(
   leaf: GrowthTreeLeaf
-): THREE.Mesh<THREE.ShapeGeometry, THREE.MeshStandardMaterial> {
+): THREE.Mesh<THREE.ShapeGeometry, THREE.MeshLambertMaterial> {
   const shape = new THREE.Shape();
   shape.moveTo(0, -0.22);
   shape.bezierCurveTo(0.22, -0.12, 0.24, 0.14, 0, 0.3);
   shape.bezierCurveTo(-0.24, 0.14, -0.22, -0.12, 0, -0.22);
 
-  const material = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshLambertMaterial({
     color: 0x68b947,
-    roughness: 0.72,
-    metalness: 0,
     side: THREE.DoubleSide
   });
   material.userData.baseColor = 0x68b947;

@@ -93,7 +93,7 @@ export function AchievementDrawer({
       <aside
         aria-labelledby="achievement-drawer-title"
         aria-modal="true"
-        className="relative z-10 h-full w-full overflow-y-auto border-l border-[#315d3a]/20 bg-[#f8f7ed]/95 p-5 text-[#18321e] shadow-2xl sm:max-w-md sm:p-7"
+        className="relative z-10 h-full w-full overflow-y-auto border-l border-[#315d3a]/20 bg-[var(--healing-ui-background)]/95 p-5 text-[var(--healing-ui-text)] shadow-2xl sm:max-w-md sm:p-7"
         ref={dialogRef}
         role="dialog"
       >
