@@ -15,7 +15,9 @@
 7. 一次性 Todo 不显示为业务枝叶，只贡献水滴、小生物和花草。
 8. 未完成 Todo 只供未来 Todo 界面使用，不在树上显示。
 9. 短期目标完成后成为果实，并保存在果实面板。
-10. 忽略现存数据的清洗、回填与兼容；用户自行修正历史数据。
+10. 当前系统只有项目负责人一名用户且数据可丢弃；不保留、清洗、回填或迁移旧数据，直接按最终模型重建数据库。
+11. Task 与 Reminder 是独立产品数据：现在先提供稳定的查询边界，将来 Todo 页面或自建 AI 助手都通过同一后端读取。
+12. AI 只负责把自然语言转换成结构化命令，不拥有数据库规则，也不直接访问数据库；当前 Custom GPT 和未来自建 AI 助手可以互换。
 
 ## 业务模型
 
@@ -29,6 +31,8 @@
         └── 完成后形成果实
 
 一次性 Todo → 完成 → 近期生命力装饰
+
+未完成 Todo + Reminder → Todo 查询模型（不进入成长树）
 ```
 
 - 七个固定人生领域不是用户创建的数据行，而是代码和数据库约束共享的稳定枚举：`work`、`growth`、`health`、`life`、`finance`、`relationships`、`entertainment`。
@@ -38,6 +42,7 @@
 - `tasks.goal_id is null` 表示一次性 Todo；非空表示服务于某个目标。
 - `activities` 只记录目标相关的真实执行，必须关联 goal。
 - `achievements` 只记录完成的短期目标。
+- `reminders` 关联 Task，保存提醒时刻、重复规则和发送状态；它不参与成长点或树形计算。
 - Task 和 Activity 永远不提交、推断或修改人生领域；它们从 Goal 继承领域。
 - `category` 可以暂时保留为自由文本标签，但不参与树的归类和几何生成；未来确认无其他用途后可单独移除。
 
@@ -55,9 +60,28 @@
 - 完成一次性 Todo 时不创建 Activity。
 - 完成短期目标时事务性创建唯一 Achievement；数据库禁止未完成或长期 Goal 拥有 Achievement。
 - 所有生产写入通过事务 RPC，不能留下半套数据。
+- 未完成 Task 和待发送 Reminder 必须能够按认证用户独立查询，并支持游标分页；查询结果不能混入树的 ViewModel。
 - 无鉴权的 `/api/intake` 只供本地演示，生产环境关闭；它不属于数据库写入入口。
 
-本项目不执行旧数据自动映射和自动修复。用户先手工把现有 Goal 补齐 `life_area`；确认无代码依赖 Ability 后，再执行删除 `ability_id` 和 `abilities` 的迁移。
+`supabase/schema.sql` 直接描述最终数据库，不包含 Ability，也不包含过渡字段。开发与测试数据库从空库应用该 schema；当前远程数据库在明确确认删除后一次性重建。旧 Goal、Task、Activity 和 Reminder 均不做转换或保留，因此不存在 `life_area` 暂时可空、`NOT VALID` 约束、手工回填或维护窗口切换。
+
+## 前后端与 AI 边界
+
+```text
+网页表单（Supabase Session） ─┐
+                              ├→ HTTP 适配器 → 应用服务 → Repository / 事务 RPC → PostgreSQL
+AI 助手（Action Token） ─────┘
+
+自然语言 → AI 解析 → 结构化 LifeEventCommand
+```
+
+- 浏览器、Custom GPT、未来自建 AI 助手都只是客户端；任何客户端都不能复制“如何创建 Goal/Task/Activity”的业务规则。
+- 应用服务接受已经认证的 `principal` 和结构化命令，统一完成校验、幂等判断、归属检查与事务写入。
+- 浏览器使用 Supabase Session；AI 或自动化使用 Action Token。两种认证最终都转换成服务端 `principal.userId`，API 不接受客户端通过 query/body 指定其他用户。
+- 保留 `POST /api/actions/life-events` 作为 AI/自动化适配器；新增 `POST /api/life-events` 作为网页会话适配器。两者调用同一个应用服务。
+- 新增 `GET /api/tasks` 与 `GET /api/reminders`。将来开发 Todo 页面只消费这些稳定响应，不需要了解 Supabase 表结构。
+- React 页面和组件不得直接 import repository 或 Supabase service-role client；树、Todo 列表和 AI 接入通过应用查询或公开 API 契约解耦。
+- 删除旧 `POST /api/actions/life-event` 路由文件，不保留 410 兼容层；访问旧地址按不存在的路由返回 404。
 
 ## 生成管线
 
@@ -142,12 +166,14 @@ TreeRecipe 是业务与几何之间唯一契约，采用 EZ-Tree 风格参数：
 
 ## 不在本次范围
 
-- 自动修改或迁移现有生产数据。
+- 保留、转换或兼容现有数据库数据。
+- 增量迁移与新旧 schema 并行运行；当前阶段采用空库重建。
 - 接入 `@dgreenheck/ez-tree` 运行时依赖。
 - GLB 树模型。
 - 用户自选或新增人生领域。
 - Ability 概念及其兼容层。
 - 继续支持旧的非事务单事件写入 API。
+- 本阶段制作完整 Todo 列表与提醒 UI（本阶段只建立数据、应用服务和 API 边界）。
 - 树木成长动画。
 - 把未完成 Todo 显示在树上。
 
@@ -164,3 +190,7 @@ TreeRecipe 是业务与几何之间唯一契约，采用 EZ-Tree 风格参数：
 9. 每根领域枝、目标枝和 Activity 叶仍可点击并打开正确详情。
 10. 一次性 Todo、目标 Todo、短期完成和长期完成遵守数据库写入规则。
 11. 桌面和移动端保持当前山、湖、树的层次构图。
+12. 未完成 Task 和 scheduled Reminder 可通过独立分页 API 查询，但不会改变任何树枝、叶片或装饰。
+13. 网页 Session 与 Action Token 写入经过同一个应用服务；替换 AI 客户端不需要改数据库写入规则。
+14. 旧 `/api/actions/life-event` 文件、OpenAPI 路径和非事务 repository 写入函数全部不存在。
+15. 空数据库应用最终 `supabase/schema.sql` 后，所有表、约束、RLS 和 RPC 一次创建成功；最终 schema 中不存在 Ability 或可空 `goals.life_area`。
