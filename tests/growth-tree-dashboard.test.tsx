@@ -83,6 +83,9 @@ function wood(
 function viewModel(): GrowthTreeViewModel {
   const recentActivity = activity();
   return {
+    recipe: {} as GrowthTreeViewModel["recipe"],
+    branches: [],
+    semanticLeaves: [],
     root: wood("root", "root", "人生"),
     lifeAreaBranches: [wood("life_area", "growth", "成长")],
     longGoalTwigs: [

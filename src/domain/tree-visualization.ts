@@ -3,6 +3,9 @@ import { seedFromId } from "./stable-seed";
 import type { Activity, GoalStatus } from "./types";
 import { buildVitalityElements, type VitalityElement } from "./vitality";
 import { LIFE_AREAS } from "./life-areas";
+import { buildGrowthMetrics } from "./growth-metrics";
+import { buildTreeRecipe, type TreeRecipe } from "./tree-recipe";
+import { buildSemanticTreeSkeleton, type SemanticBranch, type SemanticLeaf } from "./semantic-tree-skeleton";
 
 export type SceneVector = {
   x: number;
@@ -46,6 +49,9 @@ export type TreeDiagnostic = {
 };
 
 export type GrowthTreeViewModel = {
+  recipe: TreeRecipe;
+  branches: SemanticBranch[];
+  semanticLeaves: SemanticLeaf[];
   root: TreeWood;
   lifeAreaBranches: TreeWood[];
   longGoalTwigs: TreeWood[];
@@ -147,6 +153,9 @@ export function buildGrowthTreeViewModel(
   if (!Number.isFinite(asOf.getTime())) {
     throw new Error("growth tree projection requires a valid asOf date");
   }
+  const metrics = buildGrowthMetrics(data, asOf);
+  const recipe = buildTreeRecipe(data, metrics);
+  const skeleton = buildSemanticTreeSkeleton(data, recipe, asOf);
   const invalidActivities = data.allActivities.filter(
     (activity) => !Number.isFinite(activity.value) || activity.value <= 0
   );
@@ -289,6 +298,9 @@ export function buildGrowthTreeViewModel(
   });
 
   return {
+    recipe,
+    branches: skeleton.branches,
+    semanticLeaves: skeleton.leaves,
     root,
     lifeAreaBranches,
     longGoalTwigs,

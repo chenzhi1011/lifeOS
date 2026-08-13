@@ -35,6 +35,9 @@ const leaf: GrowthTreeLeaf = {
 };
 
 const viewModel: GrowthTreeViewModel = {
+  recipe: {} as GrowthTreeViewModel["recipe"],
+  branches: [],
+  semanticLeaves: [],
   root: {
     ...segment,
     entityType: "root",

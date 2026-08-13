@@ -50,6 +50,9 @@ const emptySelection: GrowthTreeSelection = {
 };
 
 const viewModel: GrowthTreeViewModel = {
+  recipe: {} as GrowthTreeViewModel["recipe"],
+  branches: [],
+  semanticLeaves: [],
   root: { ...segment, entityType: "root", entityId: "root", label: "人生" },
   lifeAreaBranches: [],
   longGoalTwigs: [segment],

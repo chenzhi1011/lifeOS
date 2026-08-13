@@ -31,6 +31,9 @@ describe("buildGrowthTreeViewModel", () => {
   it("always projects exactly seven fixed life-area branches", () => {
     const model = buildGrowthTreeViewModel(fixture(), asOf);
     expect(model.root.label).toBe("人生");
+    expect(model.recipe.seed).toBeTypeOf("number");
+    expect(model.branches.filter((branch) => branch.entityType === "life_area")).toHaveLength(7);
+    expect(model.branches.find((branch) => branch.entityId === "long-active")?.parentEntityId).toBe("health");
     expect(model.lifeAreaBranches.map((branch) => branch.entityId)).toEqual(LIFE_AREA_IDS);
     expect(model.longGoalTwigs.map((twig) => twig.entityId)).toEqual(["long-completed", "long-active"]);
     expect(model.shortGoalBranches.map((branch) => branch.entityId)).toEqual(["short-active"]);
