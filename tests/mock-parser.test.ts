@@ -56,7 +56,7 @@ describe("parseWithMockRules", () => {
           type: "task",
           path: "one_off",
           confidence: 0.95,
-          goal: { title: "生活", category: "日常" },
+          goal: { title: "生活" },
           task: { title: "买水" }
         },
         "买水"

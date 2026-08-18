@@ -14,8 +14,6 @@ const intentTypeField = z.enum([
 
 const goalFields = {
   title: textField,
-  category: textField,
-  parentTitle: optionalTextField,
   metricType: z.enum(["duration", "count", "milestone"]).optional(),
   aliases: z.array(textField).max(12).optional()
 };
@@ -148,7 +146,7 @@ const reminderEventSchema = z
     ...commonFields,
     type: z.literal("reminder"),
     goal: goalReferenceSchema.optional(),
-    task: taskSchema.nullable().optional(),
+    task: taskSchema,
     reminder: reminderSchema,
     metric: lifeEventMetricSchema.optional()
   })

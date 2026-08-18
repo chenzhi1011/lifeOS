@@ -30,7 +30,7 @@ export type PreparedEvent =
       priority: "low" | "normal" | "high";
       plannedMetricType: "duration" | "count" | "milestone" | null;
       plannedValue: number | null;
-      plannedUnit: "minute" | "hour" | "count" | null;
+      plannedUnit: "minute" | "count" | null;
     })
   | (PreparedBase & {
       kind: "activity";
@@ -40,13 +40,12 @@ export type PreparedEvent =
       matchedTaskId: string | null;
       metricType: "duration" | "count" | "milestone";
       value: number;
-      unit: "minute" | "hour" | "count";
+      unit: "minute" | "count";
       occurredOn: string;
     })
   | (PreparedBase & {
       kind: "goal";
       title: string;
-      category: string;
       goalType: "long_term" | "short_term";
       lifeArea: import("@/src/domain/life-areas").LifeAreaId;
       metricType: "duration" | "count" | "milestone";
@@ -84,6 +83,25 @@ function preparedBase(event: LifeEventBatchInput): PreparedBase {
   };
 }
 
+function canonicalMetric(metric: { type: "duration" | "count" | "milestone"; value: number; unit: "minute" | "hour" | "count" } | undefined) {
+  if (!metric) return null;
+  if (metric.type === "duration" && metric.unit === "hour") {
+    return { type: metric.type, value: metric.value * 60, unit: "minute" as const };
+  }
+  return { type: metric.type, value: metric.value, unit: metric.unit as "minute" | "count" };
+}
+
+function resolvedMetricType(
+  goalId: string | null,
+  goalTitle: string | undefined,
+  context: BatchPreparationContext,
+  priorGoals: ActionSameBatchGoalContext[]
+) {
+  if (goalId) return context.goals.find((goal) => goal.id === goalId)?.metricType;
+  if (goalTitle) return priorGoals.find((goal) => goal.title === goalTitle)?.metricType;
+  return undefined;
+}
+
 function prepareInbox(
   event: LifeEventBatchInput,
   reason: string,
@@ -107,7 +125,7 @@ function prepareTask(
   now: Date
 ): PreparedEvent {
   if (event.path === "one_off") {
-    return prepareTaskWithGoal(event, null, undefined, context, now);
+    return prepareTaskWithGoal(event, null, undefined, undefined, context, now);
   }
 
   const goalResolution = resolveGoalReference(
@@ -133,13 +151,21 @@ function prepareTask(
     );
   }
 
-  return prepareTaskWithGoal(event, goalId, goalTitle, context, now);
+  return prepareTaskWithGoal(
+    event,
+    goalId,
+    goalTitle,
+    resolvedMetricType(goalId, goalTitle, context, priorGoals),
+    context,
+    now
+  );
 }
 
 function prepareTaskWithGoal(
   event: Extract<LifeEventBatchInput, { type: "task" }>,
   goalId: string | null,
   goalTitle: string | undefined,
+  goalMetricType: "duration" | "count" | "milestone" | undefined,
   context: BatchPreparationContext,
   now: Date
 ): PreparedEvent {
@@ -161,6 +187,11 @@ function prepareTaskWithGoal(
     return prepareInbox(event, taskTime.reason);
   }
 
+  const metric = canonicalMetric(event.metric);
+  if (metric && goalMetricType && metric.type !== goalMetricType) {
+    return prepareInbox(event, "task metric_type must match its goal metric_type");
+  }
+
   return {
     kind: "task",
     title: event.title.trim(),
@@ -180,9 +211,9 @@ function prepareTaskWithGoal(
           ? event.reminder.repeatRule
           : "none",
     priority: event.priority,
-    plannedMetricType: event.metric?.type ?? null,
-    plannedValue: event.metric?.value ?? null,
-    plannedUnit: event.metric?.unit ?? null,
+    plannedMetricType: metric?.type ?? null,
+    plannedValue: metric?.value ?? null,
+    plannedUnit: metric?.unit ?? null,
     ...preparedBase(event)
   };
 }
@@ -238,8 +269,19 @@ function prepareActivity(
     return prepareInbox(event, taskMatch.reason);
   }
 
-  const metric = event.metric ?? {
-    type: "count" as const,
+  const goalMetricType = resolvedMetricType(goalId, goalTitle, context, priorGoals);
+  if (!goalMetricType) {
+    return prepareInbox(event, "activity requires a goal with a metric_type");
+  }
+  const suppliedMetric = canonicalMetric(event.metric);
+  if (suppliedMetric && suppliedMetric.type !== goalMetricType) {
+    return prepareInbox(event, "activity metric_type must match its goal metric_type");
+  }
+  if (!suppliedMetric && goalMetricType === "duration") {
+    return prepareInbox(event, "duration activity requires an explicit duration metric");
+  }
+  const metric = suppliedMetric ?? {
+    type: goalMetricType,
     value: 1,
     unit: "count" as const
   };
@@ -264,7 +306,6 @@ function prepareGoal(
   return {
     kind: "goal",
     title: event.title.trim(),
-    category: event.category.trim(),
     goalType: event.goalType,
     lifeArea: event.lifeArea,
     metricType: event.metricType,
@@ -307,7 +348,8 @@ export async function prepareLifeEventBatch(
           priorGoals.push({
             key: `batch-goal-${eventIndex}`,
             title: preparedGoal.title,
-            aliases: preparedGoal.aliases
+            aliases: preparedGoal.aliases,
+            metricType: preparedGoal.metricType
           });
         }
         break;

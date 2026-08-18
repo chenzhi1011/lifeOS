@@ -33,8 +33,6 @@ export type Goal = {
   id: string;
   userId: string;
   title: string;
-  category: string;
-  parentGoalId: string | null;
   goalType: GoalType;
   lifeArea: LifeAreaId;
   metricType: MetricType;
@@ -56,14 +54,14 @@ export type Task = {
   id: string;
   userId: string;
   goalId: string | null;
-  messageId: string;
+  sourceMessageId: string | null;
   title: string;
   status: TaskStatus;
   dueAt: string | null;
   priority: "low" | "normal" | "high";
   plannedMetricType: MetricType | null;
   plannedValue: number | null;
-  plannedUnit: "minute" | "hour" | "count" | null;
+  plannedUnit: "minute" | "count" | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -73,11 +71,11 @@ export type Activity = {
   userId: string;
   goalId: string;
   taskId: string | null;
-  messageId: string;
+  sourceMessageId: string | null;
   summary: string;
   metricType: MetricType;
   value: number;
-  unit: "minute" | "hour" | "count";
+  unit: "minute" | "count";
   occurredOn: string;
   createdAt: string;
 };
@@ -85,8 +83,8 @@ export type Activity = {
 export type Reminder = {
   id: string;
   userId: string;
-  taskId: string | null;
-  messageId: string;
+  taskId: string;
+  sourceMessageId: string | null;
   remindAt: string;
   repeatRule: "none" | "daily" | "weekly";
   status: "scheduled" | "sent" | "cancelled";
@@ -126,8 +124,6 @@ type LifeEventCommonFields = {
 
 export type LifeEventGoalReference = {
   title: string;
-  category: string;
-  parentTitle?: string;
   goalType?: GoalType;
   lifeArea?: LifeAreaId;
   metricType?: MetricType;
@@ -181,7 +177,7 @@ export type LifeEventParseResult =
   | (LifeEventCommonFields & {
       type: "reminder";
       goal?: LifeEventGoalReference;
-      task?: LifeEventTask | null;
+      task: LifeEventTask;
       reminder: LifeEventReminder;
       metric?: LifeEventMetric;
     })

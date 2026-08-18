@@ -73,7 +73,7 @@ export default async function GoalPage({ params, searchParams }: GoalPageProps) 
     <main className="mx-auto max-w-6xl space-y-5 px-5 py-6">
       <Link className="text-sm text-moss underline" href={dashboardHref}>Back to dashboard</Link>
       <header className="rounded-lg border border-black/10 bg-white/75 p-5 shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-wide text-moss">{data.goal.category}</p>
+        <p className="text-sm font-semibold uppercase tracking-wide text-moss">{data.goal.lifeArea}</p>
         <h1 className="mt-1 text-3xl font-semibold text-ink">{data.goal.title}</h1>
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
           <div>

@@ -32,9 +32,6 @@ function firstDefined<T>(
 type ActionMetricType = "duration" | "count" | "milestone";
 
 export interface FormattedActionGoal extends ActionGoalContext {
-  category: string;
-  parentGoalId: string | null;
-  metricType: ActionMetricType;
   createdAt: string;
 }
 
@@ -119,11 +116,6 @@ export function formatActionContext(
     goals: goals.map((goal) => ({
       id: requiredString(goal.id),
       title: requiredString(goal.title),
-      category: requiredString(goal.category),
-      parentGoalId:
-        nullableString(
-          firstDefined(goal, "parent_goal_id", "parentGoalId")
-        ),
       goalType: goalType(firstDefined(goal, "goal_type", "goalType")),
       lifeArea: (() => {
         const value = firstDefined(goal, "life_area", "lifeArea");
@@ -153,6 +145,8 @@ export function formatActionContext(
   };
 }
 
+// todo 这里每次都要读取全部上下文不费token吗？
+// todo 背后的sql会不会出问题ß
 export async function readActionContext(
   userId: string,
   supabase: SupabaseClient | null = createServiceSupabaseClient(),
@@ -173,7 +167,7 @@ export async function readActionContext(
       supabase
         .from("goals")
         .select(
-          "id,title,category,parent_goal_id,goal_type,life_area,metric_type,status,created_at"
+          "id,title,goal_type,life_area,metric_type,status,created_at"
         )
         .eq("user_id", userId)
         .order("created_at"),

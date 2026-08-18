@@ -38,7 +38,7 @@ describe("Custom GPT action security", () => {
         userId: "attacker",
         rawText: "今天学习 AWS 40 分钟",
         confidence: 0.9,
-        goal: { title: "AWS", category: "职业" },
+        goal: { title: "AWS" },
         summary: "学习 AWS",
         metric: { type: "duration", value: 40, unit: "minute" },
         date: "2026-07-25"
@@ -50,7 +50,7 @@ describe("Custom GPT action security", () => {
         type: "activity",
         rawText: "bad metric",
         confidence: 0.9,
-        goal: { title: "AWS", category: "职业" },
+        goal: { title: "AWS" },
         summary: "bad metric",
         metric: { type: "duration", value: -1, unit: "minute" },
         date: "2026-07-25"
@@ -96,7 +96,7 @@ describe("Custom GPT action security", () => {
         path: "one_off",
         rawText: "买水",
         confidence: 0.9,
-        goal: { title: "生活", category: "日常" },
+        goal: { title: "生活" },
         task: { title: "买水" }
       })
     ).toThrow(/one_off forbids goal/);
@@ -107,14 +107,14 @@ describe("Custom GPT action security", () => {
       type: "goal",
       rawText: "持续学 React",
       confidence: 0.9,
-      goal: { title: "React", category: "职业", goalType: "long_term" }
+      goal: { title: "React", goalType: "long_term" }
     })).toThrow();
 
     expect(validateLifeEventPayload({
       type: "goal",
       rawText: "持续学 React",
       confidence: 0.9,
-      goal: { title: "React", category: "职业", goalType: "long_term", lifeArea: "growth" }
+      goal: { title: "React", goalType: "long_term", lifeArea: "growth" }
     })).toMatchObject({ goal: { lifeArea: "growth" } });
   });
 
@@ -126,7 +126,6 @@ describe("Custom GPT action security", () => {
         confidence: 0.9,
         goal: {
           title: "AWS 考试",
-          category: "职业",
           goalType: "short_term",
           lifeArea: "growth",
           aliases: ["AWS", " aws "]

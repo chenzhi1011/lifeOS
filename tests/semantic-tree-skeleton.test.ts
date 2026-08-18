@@ -24,7 +24,7 @@ describe("semantic tree skeleton", () => {
     const state = createInitialState();
     const before = skeleton(state);
     const fixedBefore = before.branches.filter((item) => item.entityType === "life_area");
-    state.tasks.push({ id: "open", userId: "demo-user", goalId: "aws", messageId: "m", title: "todo", status: "open", dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null, createdAt: asOf.toISOString(), completedAt: null });
+    state.tasks.push({ id: "open", userId: "demo-user", goalId: "aws", sourceMessageId: "m", title: "todo", status: "open", dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null, createdAt: asOf.toISOString(), completedAt: null });
     expect(skeleton(state).branches.filter((item) => item.entityType === "life_area")).toEqual(fixedBefore);
     state.goals.push({ ...state.goals[0]!, id: "new-goal", title: "New" });
     expect(skeleton(state).branches).toContainEqual(expect.objectContaining({ entityId: "new-goal", parentEntityId: "work" }));

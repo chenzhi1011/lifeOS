@@ -5,6 +5,7 @@ export interface ActionGoalContext {
   title: string;
   goalType: "long_term" | "short_term" | null;
   lifeArea: import("@/src/domain/life-areas").LifeAreaId;
+  metricType: "duration" | "count" | "milestone";
   status: "active" | "paused" | "completed";
 }
 
@@ -17,6 +18,7 @@ export interface ActionSameBatchGoalContext {
   key: string;
   title: string;
   aliases: string[];
+  metricType: "duration" | "count" | "milestone";
 }
 
 export interface ActionTaskContext {

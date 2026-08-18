@@ -18,8 +18,6 @@ const goals: Goal[] = [
     id: "aws",
     userId,
     title: "AWS",
-    category: "职业",
-    parentGoalId: null,
     goalType: "long_term",
     lifeArea: "work",
     metricType: "duration",
@@ -32,8 +30,6 @@ const goals: Goal[] = [
     id: "ai",
     userId,
     title: "AI",
-    category: "职业",
-    parentGoalId: null,
     goalType: "long_term",
     lifeArea: "growth",
     metricType: "duration",
@@ -46,8 +42,6 @@ const goals: Goal[] = [
     id: "muscle",
     userId,
     title: "增肌",
-    category: "健康",
-    parentGoalId: null,
     goalType: "long_term",
     lifeArea: "health",
     metricType: "count",
@@ -60,8 +54,6 @@ const goals: Goal[] = [
     id: "job-change",
     userId,
     title: "转职",
-    category: "职业",
-    parentGoalId: null,
     goalType: "short_term",
     lifeArea: "work",
     metricType: "milestone",
@@ -74,8 +66,6 @@ const goals: Goal[] = [
     id: "portfolio-launch",
     userId,
     title: "作品集上线",
-    category: "职业",
-    parentGoalId: null,
     goalType: "short_term",
     lifeArea: "growth",
     metricType: "milestone",
@@ -94,11 +84,11 @@ const goalAliases: GoalAlias[] = [
 ];
 
 const activities: Activity[] = [
-  { id: "act-1", userId, goalId: "aws", taskId: null, messageId: "seed", summary: "学习 IAM", metricType: "duration", value: 40, unit: "minute", occurredOn: "2026-07-01", createdAt: now },
-  { id: "act-2", userId, goalId: "aws", taskId: null, messageId: "seed", summary: "完成 Terraform 模块", metricType: "duration", value: 60, unit: "minute", occurredOn: "2026-07-03", createdAt: now },
-  { id: "act-3", userId, goalId: "aws", taskId: null, messageId: "seed", summary: "AWS DevOps 模拟题", metricType: "duration", value: 90, unit: "minute", occurredOn: "2026-07-10", createdAt: now },
-  { id: "act-4", userId, goalId: "ai", taskId: null, messageId: "seed", summary: "整理本地 LLM intake 方案", metricType: "duration", value: 50, unit: "minute", occurredOn: "2026-07-15", createdAt: now },
-  { id: "act-5", userId, goalId: "muscle", taskId: null, messageId: "seed", summary: "练肩", metricType: "count", value: 1, unit: "count", occurredOn: "2026-07-18", createdAt: now }
+  { id: "act-1", userId, goalId: "aws", taskId: null, sourceMessageId: "seed", summary: "学习 IAM", metricType: "duration", value: 40, unit: "minute", occurredOn: "2026-07-01", createdAt: now },
+  { id: "act-2", userId, goalId: "aws", taskId: null, sourceMessageId: "seed", summary: "完成 Terraform 模块", metricType: "duration", value: 60, unit: "minute", occurredOn: "2026-07-03", createdAt: now },
+  { id: "act-3", userId, goalId: "aws", taskId: null, sourceMessageId: "seed", summary: "AWS DevOps 模拟题", metricType: "duration", value: 90, unit: "minute", occurredOn: "2026-07-10", createdAt: now },
+  { id: "act-4", userId, goalId: "ai", taskId: null, sourceMessageId: "seed", summary: "整理本地 LLM intake 方案", metricType: "duration", value: 50, unit: "minute", occurredOn: "2026-07-15", createdAt: now },
+  { id: "act-5", userId, goalId: "muscle", taskId: null, sourceMessageId: "seed", summary: "练肩", metricType: "count", value: 1, unit: "count", occurredOn: "2026-07-18", createdAt: now }
 ];
 
 const achievements: Achievement[] = [

@@ -120,9 +120,8 @@ describe("Custom GPT batch intake database schema", () => {
       expect(sql).toMatch(/goalTitle is ambiguous at event index/i);
       expect(sql).toMatch(/v_existing_goal\.goal_type\s+is distinct from/i);
       expect(sql).toMatch(/v_existing_goal\.life_area\s+is distinct from/i);
-      expect(sql).toMatch(/v_existing_goal\.category\s+is distinct from/i);
       expect(sql).toMatch(/v_existing_goal\.metric_type\s+is distinct from/i);
-      expect(sql).toMatch(/v_existing_goal\.parent_goal_id\s+is distinct from/i);
+      expect(sql).not.toMatch(/v_existing_goal\.(?:category|parent_goal_id)/i);
       expect(sql).toMatch(/goal identity conflicts with existing goal at event index/i);
       expect(sql).toMatch(/planned_metric_type[\s\S]*?planned_value[\s\S]*?planned_unit/i);
       expect(sql).toMatch(/v_event->>'lifeArea'/i);

@@ -29,18 +29,18 @@ end
 $test$;
 
 insert into goals (
-  id, user_id, title, category, goal_type, life_area, metric_type
+  id, user_id, title, goal_type, life_area, metric_type
 )
 values
   (
     '61000000-0000-4000-8000-000000000001',
     '00000000-0000-4000-8000-000000000001',
-    '每周跑步', '运动', 'long_term', 'health', 'duration'
+    '每周跑步', 'long_term', 'health', 'duration'
   ),
   (
     '61000000-0000-4000-8000-000000000002',
     '00000000-0000-4000-8000-000000000001',
-    '通过认证考试', '考试', 'short_term', 'growth', 'milestone'
+    '通过认证考试', 'short_term', 'growth', 'milestone'
   );
 
 insert into messages (
@@ -59,7 +59,7 @@ values
   );
 
 insert into tasks (
-  id, user_id, goal_id, message_id, title, status,
+  id, user_id, goal_id, source_message_id, title, status,
   planned_metric_type, planned_value, planned_unit
 )
 values
@@ -150,10 +150,10 @@ $test$;
 do $test$
 begin
   insert into goals (
-    user_id, title, category, goal_type, life_area, metric_type
+    user_id, title, goal_type, life_area, metric_type
   ) values (
     '00000000-0000-4000-8000-000000000001',
-    '非法领域', 'invalid', 'long_term', 'unknown', 'count'
+    '非法领域', 'long_term', 'unknown', 'count'
   );
   raise exception 'invalid life area must be rejected';
 exception
@@ -164,7 +164,7 @@ $test$;
 do $test$
 begin
   insert into activities (
-    user_id, goal_id, message_id, summary,
+    user_id, goal_id, source_message_id, summary,
     metric_type, value, unit, occurred_on
   ) values (
     '00000000-0000-4000-8000-000000000001',
@@ -182,7 +182,140 @@ $test$;
 do $test$
 begin
   insert into activities (
-    user_id, goal_id, message_id, summary,
+    user_id, goal_id, source_message_id, summary,
+    metric_type, value, unit, occurred_on
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    '61000000-0000-4000-8000-000000000001',
+    null,
+    'wrong goal metric',
+    'count', 1, 'count', current_date
+  );
+  raise exception 'activity metric must match goal metric';
+exception
+  when foreign_key_violation then null;
+end
+$test$;
+
+do $test$
+begin
+  insert into activities (
+    user_id, goal_id, source_message_id, summary,
+    metric_type, value, unit, occurred_on
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    '61000000-0000-4000-8000-000000000001',
+    null,
+    'hour must be canonicalized',
+    'duration', 1, 'hour', current_date
+  );
+  raise exception 'hour duration must be rejected';
+exception
+  when check_violation then null;
+end
+$test$;
+
+do $test$
+begin
+  insert into tasks (
+    user_id, source_message_id, title, status, completed_at
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    null,
+    'invalid completed task',
+    'completed',
+    null
+  );
+  raise exception 'completed task without completed_at must be rejected';
+exception
+  when check_violation then null;
+end
+$test$;
+
+do $test$
+begin
+  insert into reminders (
+    user_id, task_id, source_message_id, remind_at
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    null,
+    null,
+    now()
+  );
+  raise exception 'reminder without task must be rejected';
+exception
+  when not_null_violation then null;
+end
+$test$;
+
+do $test$
+declare
+  task_id uuid;
+begin
+  insert into tasks (
+    user_id, source_message_id, title, status
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    null,
+    'web form task',
+    'open'
+  ) returning id into task_id;
+
+  insert into reminders (
+    user_id, task_id, source_message_id, remind_at
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    task_id,
+    null,
+    now()
+  );
+
+  insert into activities (
+    user_id, goal_id, source_message_id, summary,
+    metric_type, value, unit, occurred_on
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    '61000000-0000-4000-8000-000000000001',
+    null,
+    'web form activity',
+    'duration', 30, 'minute', current_date
+  );
+end
+$test$;
+
+do $test$
+begin
+  insert into goals (
+    user_id, title, goal_type, life_area, metric_type
+  ) values (
+    '00000000-0000-4000-8000-000000000001',
+    '  通过认证考试  ',
+    'short_term',
+    'growth',
+    'milestone'
+  );
+
+  begin
+    insert into goals (
+      user_id, title, goal_type, life_area, metric_type
+    ) values (
+      '00000000-0000-4000-8000-000000000001',
+      '通过认证考试',
+      'short_term',
+      'growth',
+      'milestone'
+    );
+    raise exception 'duplicate current goal title must be rejected';
+  exception
+    when unique_violation then null;
+  end;
+end
+$test$;
+
+do $test$
+begin
+  insert into activities (
+    user_id, goal_id, source_message_id, summary,
     metric_type, value, unit, occurred_on
   ) values (
     '00000000-0000-4000-8000-000000000001',

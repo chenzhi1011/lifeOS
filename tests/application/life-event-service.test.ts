@@ -4,7 +4,7 @@ import { recordLifeEventBatch } from "@/src/application/life-event-service";
 const command = {
   idempotencyKey: "service-1",
   rawText: "创建目标",
-  events: [{ type: "goal" as const, goalType: "long_term" as const, title: "写作", category: "成长", lifeArea: "growth" as const, confidence: 0.9 }]
+  events: [{ type: "goal" as const, goalType: "long_term" as const, title: "写作", lifeArea: "growth" as const, confidence: 0.9 }]
 };
 
 describe("recordLifeEventBatch", () => {

@@ -66,7 +66,6 @@ describe("validateLifeEventBatchPayload", () => {
           goalType: "short_term",
           confidence: 0.97,
           title: "增肌",
-          category: "健康",
           lifeArea: "health"
         },
         {
@@ -129,7 +128,6 @@ describe("validateLifeEventBatchPayload", () => {
           type: "goal",
           goalType: "long_term",
           title: "学习架构",
-          category: "职业",
           lifeArea: "growth",
           metricType: "duration",
           aliases: [],
@@ -139,7 +137,6 @@ describe("validateLifeEventBatchPayload", () => {
           type: "goal",
           goalType: "short_term",
           title: "通过考试",
-          category: "职业",
           lifeArea: "work",
           confidence: 0.98
         }
@@ -158,7 +155,6 @@ describe("validateLifeEventBatchPayload", () => {
           type: "goal",
           goalType: "long_term",
           title: "学习架构",
-          category: "职业",
           lifeArea,
           confidence: 0.98
         }]

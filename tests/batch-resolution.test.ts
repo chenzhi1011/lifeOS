@@ -14,6 +14,7 @@ const goals: ActionGoalContext[] = [
     title: "AWS",
     goalType: "long_term",
     lifeArea: "work",
+    metricType: "count",
     status: "active"
   },
   {
@@ -21,6 +22,7 @@ const goals: ActionGoalContext[] = [
     title: "增肌",
     goalType: "long_term",
     lifeArea: "health",
+    metricType: "count",
     status: "active"
   },
   {
@@ -28,6 +30,7 @@ const goals: ActionGoalContext[] = [
     title: "暂停目标",
     goalType: "short_term",
     lifeArea: "growth",
+    metricType: "milestone",
     status: "paused"
   }
 ];
@@ -174,6 +177,7 @@ describe("resolveGoalReference", () => {
             title: "家庭",
             goalType: "short_term",
             lifeArea: "relationships",
+            metricType: "milestone",
             status: "active"
           },
           {
@@ -181,6 +185,7 @@ describe("resolveGoalReference", () => {
             title: "家务系统",
             goalType: "long_term",
             lifeArea: "life",
+            metricType: "count",
             status: "active"
           }
         ],
@@ -204,6 +209,7 @@ describe("resolveGoalReference", () => {
             title: "aws",
             goalType: "long_term",
             lifeArea: "work",
+            metricType: "count",
             status: "active"
           }
         ],

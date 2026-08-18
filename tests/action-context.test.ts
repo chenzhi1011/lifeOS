@@ -10,8 +10,6 @@ describe("formatActionContext", () => {
       [{
         id: "goal-aws",
         title: "AWS",
-        category: "职业",
-        parent_goal_id: null,
         goal_type: "long_term",
         life_area: "work",
         metric_type: "duration",
@@ -45,8 +43,6 @@ describe("formatActionContext", () => {
       [{
         id: "goal-1",
         title: "目标",
-        category: "职业",
-        parentGoalId: null,
         goalType: "short_term",
         lifeArea: "career",
         metricType: "count",

@@ -48,7 +48,7 @@ function activity(): Activity {
     userId: "demo-user",
     goalId: "long-goal",
     taskId: null,
-    messageId: "message-activity",
+    sourceMessageId: "message-activity",
     summary: "完成一次系统设计练习",
     metricType: "count",
     value: 1,

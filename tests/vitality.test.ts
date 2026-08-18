@@ -15,7 +15,7 @@ function task(
     id,
     userId: "demo-user",
     goalId: null,
-    messageId: `message-${id}`,
+    sourceMessageId: `message-${id}`,
     title: id,
     status: "completed",
     dueAt: null,

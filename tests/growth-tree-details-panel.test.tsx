@@ -19,7 +19,7 @@ function activity(index: number): Activity {
     userId: "demo-user",
     goalId: "career",
     taskId: null,
-    messageId: "test",
+    sourceMessageId: "test",
     summary: `Activity ${index}`,
     metricType: "count",
     value: 1,

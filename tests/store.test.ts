@@ -6,7 +6,7 @@ import type { LifeEventParseResult } from "@/src/domain/types";
 // @ts-expect-error task events require a path discriminator
 const taskWithoutPath: LifeEventParseResult = { type: "task", confidence: 0.9, task: { title: "学习" } };
 // @ts-expect-error new goals require both goalType and lifeArea
-const goalWithoutArea: LifeEventParseResult = { type: "goal", confidence: 0.9, goal: { title: "学习", category: "职业", goalType: "long_term" } };
+const goalWithoutArea: LifeEventParseResult = { type: "goal", confidence: 0.9, goal: { title: "学习", goalType: "long_term" } };
 void [taskWithoutPath, goalWithoutArea];
 
 describe("Life OS store", () => {
@@ -24,7 +24,7 @@ describe("Life OS store", () => {
     const result = store.applyParseResult("demo-user", "mock", "今天学习 AWS 40 分钟", {
       type: "activity",
       confidence: 0.92,
-      goal: { title: "AWS", category: "职业" },
+      goal: { title: "AWS" },
       summary: "学习 AWS",
       metric: { type: "duration", value: 40, unit: "minute" },
       date: "2026-07-25"
@@ -40,7 +40,6 @@ describe("Life OS store", () => {
       confidence: 0.94,
       goal: {
         title: "React",
-        category: "职业",
         goalType: "long_term",
         lifeArea: "growth",
         metricType: "duration"
@@ -66,7 +65,7 @@ describe("Life OS store", () => {
     const result = store.applyParseResult("demo-user", "mock", "学习不存在目标", {
       type: "activity",
       confidence: 0.9,
-      goal: { title: "不存在", category: "成长" },
+      goal: { title: "不存在" },
       summary: "学习",
       metric: { type: "count", value: 1, unit: "count" }
     });

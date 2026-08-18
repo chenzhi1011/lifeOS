@@ -53,16 +53,16 @@ async function readSupabaseState(
   ] = await Promise.all([
     supabase
       .from("goals")
-      .select("id,user_id,title,category,parent_goal_id,goal_type,life_area,metric_type,status,due_at,completed_at,created_at")
+      .select("id,user_id,title,goal_type,life_area,metric_type,status,due_at,completed_at,created_at")
       .eq("user_id", userId),
     supabase
       .from("activities")
-      .select("id,user_id,goal_id,task_id,message_id,summary,metric_type,value,unit,occurred_on,created_at")
+      .select("id,user_id,goal_id,task_id,source_message_id,summary,metric_type,value,unit,occurred_on,created_at")
       .eq("user_id", userId)
       .order("occurred_on", { ascending: false }),
     supabase
       .from("tasks")
-      .select("id,user_id,goal_id,message_id,title,status,due_at,priority,planned_metric_type,planned_value,planned_unit,created_at,completed_at")
+      .select("id,user_id,goal_id,source_message_id,title,status,due_at,priority,planned_metric_type,planned_value,planned_unit,created_at,completed_at")
       .eq("user_id", userId)
       .eq("status", "completed")
       .is("goal_id", null)
@@ -103,8 +103,6 @@ async function readSupabaseState(
         id: goal.id,
         userId: goal.user_id,
         title: goal.title,
-        category: goal.category,
-        parentGoalId: goal.parent_goal_id ?? null,
         goalType: goal.goal_type,
         lifeArea: goal.life_area,
         metricType: goal.metric_type,
@@ -121,7 +119,7 @@ async function readSupabaseState(
       userId: activity.user_id,
       goalId: activity.goal_id,
       taskId: activity.task_id ?? null,
-      messageId: activity.message_id,
+      sourceMessageId: activity.source_message_id ?? null,
       summary: activity.summary,
       metricType: activity.metric_type,
       value: Number(activity.value),
@@ -135,7 +133,7 @@ async function readSupabaseState(
       id: task.id,
       userId: task.user_id,
       goalId: task.goal_id ?? null,
-      messageId: task.message_id,
+      sourceMessageId: task.source_message_id ?? null,
       title: task.title,
       status: task.status,
       dueAt: task.due_at ?? null,

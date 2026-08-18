@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 
 describe("growth completion repository", () => {
-  it("keeps completion RPCs identical in clean schema and migration", () => {
+  it("keeps completion RPCs in the final clean schema while preserving migration history", () => {
     const migrationPath = path.resolve(
       "supabase/migrations/202608010002_growth_completion.sql"
     );
@@ -70,11 +70,11 @@ describe("growth completion repository", () => {
     const completionPattern =
       /create or replace function complete_growth_task[\s\S]*?grant execute on function complete_growth_goal\(uuid, uuid, text, text, text\) to service_role;/i;
     const schemaSql = schema.match(completionPattern)?.[0];
-    const migrationSql = migration.match(completionPattern)?.[0];
-
     expect(schemaSql).toBeTruthy();
-    expect(migrationSql).toBe(schemaSql);
     expect(schemaSql).toMatch(/security definer[\s\S]*?set search_path = public, pg_temp/i);
+    expect(schemaSql).toMatch(/task completion metric must match goal metric type/i);
+    expect(schemaSql).toMatch(/source_message_id/i);
+    expect(schemaSql).toMatch(/update reminders[\s\S]*?status = 'cancelled'/i);
     expect(schema).toMatch(/create unique index idx_activities_user_task_unique/i);
     expect(schema).toMatch(/create unique index idx_achievements_user_short_goal/i);
     expect(migration).toMatch(/create unique index if not exists idx_activities_user_task_unique/i);

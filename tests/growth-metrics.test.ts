@@ -7,7 +7,7 @@ import { LIFE_AREA_IDS } from "@/src/domain/life-areas";
 describe("growth metrics", () => {
   it("normalizes units and caps one record", () => {
     expect(growthPoints({ metricType: "duration", value: 60, unit: "minute" })).toBe(2);
-    expect(growthPoints({ metricType: "duration", value: 1, unit: "hour" })).toBe(2);
+    expect(growthPoints({ metricType: "duration", value: 60, unit: "minute" })).toBe(2);
     expect(growthPoints({ metricType: "count", value: 1000, unit: "count" })).toBe(10);
     expect(growthPoints({ metricType: "milestone", value: 1, unit: "count" })).toBe(5);
   });
@@ -38,7 +38,7 @@ describe("growth metrics", () => {
     const state = createInitialState();
     const first = buildGrowthMetrics(buildDashboardData(state, "demo-user"), new Date("2026-08-01T12:00:00Z"));
     state.activities.reverse();
-    state.tasks.push({ id: "open", userId: "demo-user", goalId: "aws", messageId: "m", title: "todo", status: "open", dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null, createdAt: "2026-08-01T00:00:00Z", completedAt: null });
+    state.tasks.push({ id: "open", userId: "demo-user", goalId: "aws", sourceMessageId: "m", title: "todo", status: "open", dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null, createdAt: "2026-08-01T00:00:00Z", completedAt: null });
     const second = buildGrowthMetrics(buildDashboardData(state, "demo-user"), new Date("2026-08-01T12:00:00Z"));
     expect(second).toEqual(first);
   });

@@ -15,7 +15,6 @@ const batch: PreparedBatch = {
     {
       kind: "goal",
       title: "每周跑步",
-      category: "运动",
       goalType: "long_term",
       lifeArea: "health",
       metricType: "count",

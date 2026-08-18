@@ -42,7 +42,6 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
       confidence: 0.88,
       goal: {
         title,
-        category: "职业",
         goalType: "long_term",
         lifeArea: /AI|大模型/i.test(normalized) ? "growth" : "work",
         metricType: "duration",
@@ -55,7 +54,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
     return {
       type: "reminder",
       confidence: 0.86,
-      goal: { title: "增肌", category: "健康" },
+      goal: { title: "增肌" },
       task: { title: normalized.includes("练肩") ? "练肩" : normalized.replace(/提醒我/, "") },
       reminder: {
         remindAt: tomorrowIso(timestamp, 20),
@@ -70,7 +69,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
       type: "task",
       path: "goal",
       confidence: 0.9,
-      goal: isTraining ? { title: "增肌", category: "健康" } : { title: "转职", category: "职业" },
+      goal: isTraining ? { title: "增肌" } : { title: "转职" },
       task: {
         title: isTraining ? "练肩" : normalized.replace(/^(明天|下周)/, "").trim(),
         dueAt: tomorrowIso(timestamp, isTraining ? 15 : 9),
@@ -88,8 +87,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
       type: "activity",
       confidence: 0.92,
       goal: {
-        title: goalTitle,
-        category: isHealth ? "健康" : "职业"
+        title: goalTitle
       },
       summary: normalized.replace(/^今天/, ""),
       metric: {

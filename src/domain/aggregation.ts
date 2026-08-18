@@ -172,15 +172,14 @@ export function buildGoalDetail(
 ): GoalDetailData {
   const dashboard = buildDashboardData(state, userId, asOf);
   const goal = dashboard.goals.find((item) => item.id === goalId) ?? null;
-  const childIds = dashboard.goals.filter((item) => item.parentGoalId === goalId).map((item) => item.id);
-  const relatedIds = new Set([goalId, ...childIds]);
+  const relatedIds = new Set([goalId]);
   const recentActivities = state.activities
     .filter((activity) => activity.userId === userId && relatedIds.has(activity.goalId))
     .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn));
 
   return {
     goal,
-    children: dashboard.goals.filter((item) => item.parentGoalId === goalId),
+    children: [],
     stat: dashboard.goalStats.find((stat) => stat.goalId === goalId) ?? null,
     recentActivities,
     heatmap: buildHeatmap(recentActivities)

@@ -20,7 +20,7 @@ function finitePositive(value: number): number { return Number.isFinite(value) ?
 export function growthPoints(activity: Pick<Activity, "metricType" | "value" | "unit">): number {
   const value = finitePositive(activity.value);
   const raw = activity.metricType === "duration"
-    ? (activity.unit === "hour" ? value * 2 : value / 30)
+    ? value / 30
     : activity.metricType === "milestone" ? value * 5 : value;
   return Number(Math.min(10, raw).toFixed(4));
 }

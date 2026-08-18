@@ -7,17 +7,17 @@ import { LIFE_AREA_IDS } from "@/src/domain/life-areas";
 const asOf = new Date("2026-08-01T18:30:00.000Z");
 const userId = "demo-user";
 function goal(id: string, goalType: Goal["goalType"], lifeArea: Goal["lifeArea"], status: Goal["status"] = "active"): Goal {
-  return { id, userId, title: id, category: "test", parentGoalId: null, goalType, lifeArea,
+  return { id, userId, title: id, goalType, lifeArea,
     metricType: goalType === "short_term" ? "milestone" : "duration", status, dueAt: null,
     completedAt: status === "completed" ? "2026-07-20T00:00:00.000Z" : null,
     createdAt: "2026-01-01T00:00:00.000Z" };
 }
 function activity(id: string, goalId: string, occurredOn: string, value: number): Activity {
-  return { id, userId, goalId, taskId: null, messageId: `message-${id}`, summary: id,
+  return { id, userId, goalId, taskId: null, sourceMessageId: `message-${id}`, summary: id,
     metricType: "count", value, unit: "count", occurredOn, createdAt: `${occurredOn}T12:00:00.000Z` };
 }
 function oneOffTask(id: string): Task {
-  return { id, userId, goalId: null, messageId: `message-${id}`, title: id, status: "completed",
+  return { id, userId, goalId: null, sourceMessageId: `message-${id}`, title: id, status: "completed",
     dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null,
     createdAt: "2026-07-01T00:00:00.000Z", completedAt: "2026-08-01T08:00:00.000Z" };
 }

@@ -66,4 +66,33 @@ describe("final growth tree database schema", () => {
     expect(schema).toContain("idx_activities_user_task_unique");
     expect(schema).toContain("idx_reminders_user_status_time");
   });
+
+  it("stores duration in minutes and binds activity metrics to their goals", () => {
+    expect(schema).toMatch(/activities_metric_unit_check[\s\S]*?metric_type = 'duration' and unit = 'minute'/i);
+    expect(schema).not.toMatch(/metric_type = 'duration' and unit in \('minute', 'hour'\)/i);
+    expect(schema).toMatch(/unique\s*\(\s*user_id\s*,\s*id\s*,\s*metric_type\s*\)/i);
+    expect(schema).toMatch(/foreign key\s*\(\s*user_id\s*,\s*goal_id\s*,\s*metric_type\s*\)\s*references goals\s*\(\s*user_id\s*,\s*id\s*,\s*metric_type\s*\)/i);
+  });
+
+  it("keeps task completion state and reminder ownership structurally valid", () => {
+    expect(schema).toMatch(/tasks_completion_shape_check[\s\S]*?status = 'completed'[\s\S]*?completed_at is not null/i);
+    expect(schema).toMatch(/task_id\s+uuid\s+not null/i);
+    expect(schema).toMatch(/update reminders[\s\S]*?status = 'cancelled'[\s\S]*?task_id = p_task_id[\s\S]*?status = 'scheduled'/i);
+  });
+
+  it("allows completed goal titles to be reused and removes unused goal hierarchy fields", () => {
+    expect(schema).not.toMatch(/unique\s*\(\s*user_id\s*,\s*title\s*\)/i);
+    expect(schema).toMatch(/unique index uq_goals_user_current_title[\s\S]*?lower\(btrim\(title\)\)[\s\S]*?where status in \('active', 'paused'\)/i);
+    expect(schema).not.toMatch(/\bcategory\s+text/i);
+    expect(schema).not.toMatch(/\bparent_goal_id\b/i);
+  });
+
+  it("uses optional source-message provenance for domain rows", () => {
+    for (const table of ["tasks", "activities", "reminders"]) {
+      const definition = schema.match(new RegExp(`create table ${table} \\([\\s\\S]*?\\n\\);`, "i"))?.[0] ?? "";
+      expect(definition).toMatch(/source_message_id\s+uuid/i);
+      expect(definition).not.toMatch(/source_message_id\s+uuid\s+not null/i);
+      expect(definition).not.toMatch(/\bmessage_id\b/i);
+    }
+  });
 });

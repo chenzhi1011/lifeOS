@@ -45,8 +45,6 @@ create table goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   title text not null,
-  category text not null,
-  parent_goal_id uuid,
   goal_type text not null check (goal_type in ('long_term', 'short_term')),
   life_area text not null check (
     life_area in (
@@ -65,11 +63,10 @@ create table goals (
   created_at timestamptz not null default now(),
   completed_at timestamptz,
   unique (user_id, id),
-  unique (user_id, title),
+  unique (user_id, id, metric_type),
   constraint goals_completed_at_check check (
     status <> 'completed' or completed_at is not null
-  ),
-  foreign key (user_id, parent_goal_id) references goals(user_id, id)
+  )
 );
 
 create table goal_aliases (
@@ -107,7 +104,7 @@ create table tasks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   goal_id uuid,
-  message_id uuid not null,
+  source_message_id uuid,
   title text not null,
   status text not null default 'open' check (status in ('open', 'completed', 'cancelled')),
   due_at timestamptz,
@@ -123,16 +120,21 @@ create table tasks (
     or (
       planned_metric_type in ('duration', 'count', 'milestone')
       and planned_value > 0
-      and planned_unit in ('minute', 'hour', 'count')
+      and planned_unit in ('minute', 'count')
     )
   ),
   constraint tasks_planned_metric_unit_check check (
     planned_metric_type is null
-    or (planned_metric_type = 'duration' and planned_unit in ('minute', 'hour'))
+    or (planned_metric_type = 'duration' and planned_unit = 'minute')
     or (planned_metric_type in ('count', 'milestone') and planned_unit = 'count')
   ),
+  constraint tasks_completion_shape_check check (
+    (status = 'completed' and completed_at is not null)
+    or (status in ('open', 'cancelled') and completed_at is null)
+  ),
   foreign key (user_id, goal_id) references goals(user_id, id),
-  foreign key (user_id, message_id) references messages(user_id, id)
+  foreign key (user_id, goal_id, planned_metric_type) references goals(user_id, id, metric_type),
+  foreign key (user_id, source_message_id) references messages(user_id, id)
 );
 
 create table activities (
@@ -140,36 +142,36 @@ create table activities (
   user_id uuid not null references profiles(user_id) on delete cascade,
   goal_id uuid not null,
   task_id uuid,
-  message_id uuid not null,
+  source_message_id uuid,
   summary text not null,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   value numeric not null,
-  unit text not null check (unit in ('minute', 'hour', 'count')),
+  unit text not null check (unit in ('minute', 'count')),
   occurred_on date not null,
   created_at timestamptz not null default now(),
   unique (user_id, id),
   constraint activities_value_positive_check check (value > 0),
   constraint activities_metric_unit_check check (
-    (metric_type = 'duration' and unit in ('minute', 'hour'))
+    (metric_type = 'duration' and unit = 'minute')
     or (metric_type in ('count', 'milestone') and unit = 'count')
   ),
-  foreign key (user_id, goal_id) references goals(user_id, id),
+  foreign key (user_id, goal_id, metric_type) references goals(user_id, id, metric_type),
   foreign key (user_id, task_id) references tasks(user_id, id),
-  foreign key (user_id, message_id) references messages(user_id, id)
+  foreign key (user_id, source_message_id) references messages(user_id, id)
 );
 
 create table reminders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
-  task_id uuid,
-  message_id uuid not null,
+  task_id uuid not null,
+  source_message_id uuid,
   remind_at timestamptz not null,
   repeat_rule text not null default 'none' check (repeat_rule in ('none', 'daily', 'weekly')),
   status text not null default 'scheduled' check (status in ('scheduled', 'sent', 'cancelled')),
   created_at timestamptz not null default now(),
   unique (user_id, id),
   foreign key (user_id, task_id) references tasks(user_id, id),
-  foreign key (user_id, message_id) references messages(user_id, id)
+  foreign key (user_id, source_message_id) references messages(user_id, id)
 );
 
 create table inbox_items (
@@ -263,7 +265,9 @@ create unique index idx_messages_batch_event on messages (batch_id, event_index)
 create index idx_action_credentials_hash_status on action_credentials (token_hash, status);
 create index idx_action_credentials_user_status on action_credentials (user_id, status);
 create index idx_action_batches_user_created on action_batches (user_id, created_at desc);
-create index idx_goals_user_parent on goals (user_id, parent_goal_id);
+create unique index uq_goals_user_current_title
+  on goals(user_id, lower(btrim(title)))
+  where status in ('active', 'paused');
 create index idx_goal_aliases_user_alias on goal_aliases (user_id, alias);
 create unique index uq_goal_aliases_user_normalized_alias
   on goal_aliases(user_id, lower(btrim(alias)));
@@ -364,7 +368,6 @@ declare
   v_goal_id uuid;
   v_goal_match_count integer;
   v_existing_goal goals%rowtype;
-  v_parent_goal_id uuid;
   v_message_id uuid;
   v_task_id uuid;
   v_activity_id uuid;
@@ -430,7 +433,6 @@ begin
     v_kind := v_event->>'kind';
     v_goal_id := null;
     v_goal_match_count := 0;
-    v_parent_goal_id := null;
     v_message_id := null;
     v_task_id := null;
     v_activity_id := null;
@@ -473,18 +475,6 @@ begin
     returning id into v_message_id;
 
     if v_kind = 'goal' then
-      v_parent_goal_id := nullif(v_event->>'parentGoalId', '')::uuid;
-
-      if v_parent_goal_id is not null
-         and not exists (
-           select 1
-           from goals
-           where user_id = p_user_id
-             and id = v_parent_goal_id
-         ) then
-        raise exception 'parent goal does not belong to user at event index %', v_event_index;
-      end if;
-
       if v_event->>'goalType' is null
          or v_event->>'goalType' not in ('long_term', 'short_term') then
         raise exception 'unsupported goalType at event index %', v_event_index;
@@ -501,8 +491,6 @@ begin
       insert into goals (
         user_id,
         title,
-        category,
-        parent_goal_id,
         goal_type,
         life_area,
         metric_type,
@@ -511,27 +499,26 @@ begin
       values (
         p_user_id,
         v_event->>'title',
-        v_event->>'category',
-        v_parent_goal_id,
         v_event->>'goalType',
         v_event->>'lifeArea',
         v_event->>'metricType',
         'active'
       )
-      on conflict (user_id, title) do nothing
+      on conflict (user_id, lower(btrim(title)))
+        where status in ('active', 'paused')
+      do nothing
       returning id into v_goal_id;
 
       if v_goal_id is null then
         select * into v_existing_goal
         from goals
         where user_id = p_user_id
-          and title = v_event->>'title';
+          and status in ('active', 'paused')
+          and lower(btrim(title)) = lower(btrim(v_event->>'title'));
 
         if v_existing_goal.goal_type is distinct from v_event->>'goalType'
            or v_existing_goal.life_area is distinct from v_event->>'lifeArea'
-           or v_existing_goal.category is distinct from v_event->>'category'
-           or v_existing_goal.metric_type is distinct from v_event->>'metricType'
-           or v_existing_goal.parent_goal_id is distinct from v_parent_goal_id then
+           or v_existing_goal.metric_type is distinct from v_event->>'metricType' then
           raise exception 'goal identity conflicts with existing goal at event index %', v_event_index;
         end if;
 
@@ -614,7 +601,7 @@ begin
         insert into tasks (
           user_id,
           goal_id,
-          message_id,
+          source_message_id,
           title,
           status,
           due_at,
@@ -641,7 +628,7 @@ begin
           insert into reminders (
             user_id,
             task_id,
-            message_id,
+            source_message_id,
             remind_at,
             repeat_rule,
             status
@@ -676,13 +663,19 @@ begin
           if v_updated_id is null then
             raise exception 'matched task is not an owned open task at event index %', v_event_index;
           end if;
+
+          update reminders
+          set status = 'cancelled'
+          where user_id = p_user_id
+            and task_id = v_task_id
+            and status = 'scheduled';
         end if;
 
         insert into activities (
           user_id,
           goal_id,
           task_id,
-          message_id,
+          source_message_id,
           summary,
           metric_type,
           value,
@@ -807,6 +800,7 @@ declare
   v_metric_type text;
   v_value numeric;
   v_unit text;
+  v_goal_metric_type text;
 begin
   if p_occurred_on is null then
     raise exception 'occurredOn is required';
@@ -856,12 +850,24 @@ begin
     raise exception 'task is not open';
   end if;
 
+  if v_task.goal_id is not null then
+    select metric_type into v_goal_metric_type
+    from goals
+    where user_id = p_user_id and id = v_task.goal_id;
+  end if;
+
   update tasks
   set
     status = 'completed',
     completed_at = now()
   where user_id = p_user_id
     and id = p_task_id;
+
+  update reminders
+  set status = 'cancelled'
+  where user_id = p_user_id
+    and task_id = p_task_id
+    and status = 'scheduled';
 
   if v_task.goal_id is not null then
     if p_metric_type is not null then
@@ -873,16 +879,28 @@ begin
       v_value := v_task.planned_value;
       v_unit := v_task.planned_unit;
     else
-      v_metric_type := 'count';
+      if v_goal_metric_type = 'duration' then
+        raise exception 'duration goal task completion requires an actual or planned metric';
+      end if;
+      v_metric_type := v_goal_metric_type;
       v_value := 1;
       v_unit := 'count';
+    end if;
+
+    if v_metric_type is distinct from v_goal_metric_type then
+      raise exception 'task completion metric must match goal metric type';
+    end if;
+
+    if v_metric_type = 'duration' and v_unit = 'hour' then
+      v_value := v_value * 60;
+      v_unit := 'minute';
     end if;
 
     insert into activities (
       user_id,
       goal_id,
       task_id,
-      message_id,
+      source_message_id,
       summary,
       metric_type,
       value,
@@ -893,7 +911,7 @@ begin
       p_user_id,
       v_task.goal_id,
       v_task.id,
-      v_task.message_id,
+      v_task.source_message_id,
       v_task.title,
       v_metric_type,
       v_value,

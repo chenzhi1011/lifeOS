@@ -22,7 +22,7 @@ describe("tree recipe", () => {
     const state = createInitialState();
     const beforeData = buildDashboardData(state, "demo-user", asOf);
     const before = buildTreeRecipe(beforeData, buildGrowthMetrics(beforeData, asOf));
-    state.tasks.push({ id: "open", userId: "demo-user", goalId: "aws", messageId: "m", title: "todo", status: "open", dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null, createdAt: asOf.toISOString(), completedAt: null });
+    state.tasks.push({ id: "open", userId: "demo-user", goalId: "aws", sourceMessageId: "m", title: "todo", status: "open", dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null, createdAt: asOf.toISOString(), completedAt: null });
     state.goals.push({ ...state.goals[0]!, id: "new-goal", title: "New" });
     const afterData = buildDashboardData(state, "demo-user", asOf);
     const after = buildTreeRecipe(afterData, buildGrowthMetrics(afterData, asOf));

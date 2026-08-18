@@ -11,6 +11,7 @@ export type ApiPrincipal = {
 function cookieToken(request: Request): string | null {
   const cookie = request.headers.get("cookie") ?? "";
   const match = cookie.match(/(?:^|;\s*)life_os_access_token=([^;]+)/);
+  // todo check？
   if (match) return decodeURIComponent(match[1]!);
   const chunks = cookie.split(/;\s*/).map((item) => item.split(/=(.*)/s).slice(0, 2) as [string,string])
     .filter(([name]) => /^sb-.*-auth-token(?:\.\d+)?$/.test(name))

@@ -116,7 +116,6 @@ const goalBatchInputSchema = z
     type: z.literal("goal"),
     goalType: z.enum(["long_term", "short_term"]),
     title: textField,
-    category: textField,
     lifeArea: z.enum(LIFE_AREA_IDS),
     metricType: z.enum(["duration", "count", "milestone"]).default("count"),
     aliases: z.array(textField).max(12).default([])

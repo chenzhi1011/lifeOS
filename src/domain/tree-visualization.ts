@@ -139,7 +139,7 @@ function woodForGoal(
       activityTotal(historical)
     ),
     status: goal.status,
-    category: goal.category,
+    category: LIFE_AREAS.find((area) => area.id === goal.lifeArea)?.label ?? goal.lifeArea,
     totalValue: activityTotal(historical),
     activityCount: historical.length,
     recentActivities: activitiesFor(goal.id, recentActivities)

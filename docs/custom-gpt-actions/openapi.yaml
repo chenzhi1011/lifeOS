@@ -124,12 +124,11 @@ components:
     GoalEvent:
       type: object
       additionalProperties: false
-      required: [type, goalType, title, category, lifeArea, confidence]
+      required: [type, goalType, title, lifeArea, confidence]
       properties:
         type: { const: goal }
         goalType: { enum: [long_term, short_term] }
         title: { type: string }
-        category: { type: string }
         lifeArea: { enum: [work, growth, health, life, finance, relationships, entertainment] }
         metricType: { enum: [duration, count, milestone], default: count }
         aliases: { type: array, items: { type: string }, maxItems: 12 }
