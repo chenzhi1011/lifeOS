@@ -203,8 +203,8 @@ export function GrowthTreeScene({
       GROWTH_SCENE_CONFIG.treeOrbitTarget.y,
       GROWTH_SCENE_CONFIG.treeOrbitTarget.z
     );
-    controls.minDistance = 5.2;
-    controls.maxDistance = 12;
+    controls.minDistance = GROWTH_TREE_CAMERA_LIMITS.minimumDistance;
+    controls.maxDistance = GROWTH_TREE_CAMERA_LIMITS.maximumDistance;
     // Users may orbit horizontally, but cannot pan around the angle limits.
     // 用户可以水平绕树观察，但不能通过平移绕过俯仰限制。
     controls.enablePan = false;

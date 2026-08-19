@@ -7,6 +7,8 @@ export const GROWTH_TREE_CAMERA_LIMITS = {
   maximumUserPolarAngle: Math.PI * 2 / 3,
   minimumAzimuthAngle: Number.NEGATIVE_INFINITY,
   maximumAzimuthAngle: Number.POSITIVE_INFINITY,
+  minimumDistance: 5.2,
+  maximumDistance: 9.5,
   minimumCameraY: 0.25
 } as const;
 

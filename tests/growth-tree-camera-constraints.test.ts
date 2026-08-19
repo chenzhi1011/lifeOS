@@ -15,6 +15,8 @@ describe("growth tree camera constraints", () => {
       .toBe(Number.NEGATIVE_INFINITY);
     expect(GROWTH_TREE_CAMERA_LIMITS.maximumAzimuthAngle)
       .toBe(Number.POSITIVE_INFINITY);
+    expect(GROWTH_TREE_CAMERA_LIMITS.minimumDistance).toBe(5.2);
+    expect(GROWTH_TREE_CAMERA_LIMITS.maximumDistance).toBe(9.5);
   });
 
   it("reduces low-angle viewing as distance grows to keep the camera above ground", () => {
