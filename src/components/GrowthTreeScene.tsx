@@ -33,6 +33,10 @@ import {
 } from "./growth-tree/VitalityElements";
 import { GROWTH_SCENE_CONFIG } from "./growth-tree/scene-config";
 import { HEALING_PALETTE } from "@/src/theme/healing-palette";
+import {
+  GROWTH_TREE_CAMERA_LIMITS,
+  resolveMaximumPolarAngle
+} from "./growth-tree-camera-constraints";
 
 type GrowthTreeSceneProps = {
   viewModel: GrowthTreeViewModel;
@@ -183,14 +187,34 @@ export function GrowthTreeScene({
     // 雾效用来柔化远景，让画面更治愈，而不是生硬平面。
     scene.fog = new THREE.Fog(HEALING_PALETTE.fog, 14, 38);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    camera.position.set(0.7, 3.7, 10.8);
+    const treeOrbitTarget = GROWTH_SCENE_CONFIG.treeOrbitTarget;
+    const initialCameraOffset = GROWTH_SCENE_CONFIG.initialCameraOffset;
+    camera.position.set(
+      treeOrbitTarget.x + initialCameraOffset.x,
+      treeOrbitTarget.y + initialCameraOffset.y,
+      treeOrbitTarget.z + initialCameraOffset.z
+    );
     const controls = new OrbitControls(camera, renderer.domElement);
     // Camera framing is slightly off-center so the tree has depth and breathing room.
     // 相机略微偏心构图，让树有层次，也留出画面呼吸感。
     controls.enableDamping = true;
-    controls.target.set(-0.45, 2.45, -0.8);
+    controls.target.set(
+      GROWTH_SCENE_CONFIG.treeOrbitTarget.x,
+      GROWTH_SCENE_CONFIG.treeOrbitTarget.y,
+      GROWTH_SCENE_CONFIG.treeOrbitTarget.z
+    );
     controls.minDistance = 5.2;
     controls.maxDistance = 12;
+    // Users may orbit horizontally, but cannot pan around the angle limits.
+    // 用户可以水平绕树观察，但不能通过平移绕过俯仰限制。
+    controls.enablePan = false;
+    controls.minAzimuthAngle = GROWTH_TREE_CAMERA_LIMITS.minimumAzimuthAngle;
+    controls.maxAzimuthAngle = GROWTH_TREE_CAMERA_LIMITS.maximumAzimuthAngle;
+    controls.minPolarAngle = GROWTH_TREE_CAMERA_LIMITS.minimumPolarAngle;
+    controls.maxPolarAngle = resolveMaximumPolarAngle({
+      distance: camera.position.distanceTo(controls.target),
+      targetY: controls.target.y
+    });
 
     // Sky light / 天光：给树冠和地面一个柔和的整体色调。
     scene.add(new THREE.HemisphereLight(0xdff6ff, 0x5e8f39, 2.15));
@@ -346,6 +370,12 @@ export function GrowthTreeScene({
       const elapsedSeconds = timestamp / 1_000 - startedAt;
       runtime.environment?.update(elapsedSeconds);
       runtime.vitality?.updateVitalityElements(elapsedSeconds);
+      // Zoom changes the lowest safe orbit angle, so recompute it every frame.
+      // 缩放会改变安全仰视角，因此每帧根据距离重新计算，防止相机穿地。
+      controls.maxPolarAngle = resolveMaximumPolarAngle({
+        distance: camera.position.distanceTo(controls.target),
+        targetY: controls.target.y
+      });
       controls.update();
       renderer.render(scene, camera);
       if (

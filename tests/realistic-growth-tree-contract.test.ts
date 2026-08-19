@@ -22,6 +22,11 @@ describe("RealisticGrowthTree renderer contract", () => {
     expect(sceneSource).toContain("endPointerGesture");
     expect(sceneSource).toContain("cancelPointerGesture");
     expect(sceneSource).toContain("resolveTreeMaterialColor");
+    expect(sceneSource).toContain("controls.enablePan = false");
+    expect(sceneSource).toContain("GROWTH_TREE_CAMERA_LIMITS.minimumPolarAngle");
+    expect(sceneSource).toContain("resolveMaximumPolarAngle");
+    expect(sceneSource).toContain("GROWTH_SCENE_CONFIG.treeOrbitTarget");
+    expect(sceneSource).not.toContain("controls.target.set(-0.45, 2.45, -0.8)");
     expect(sceneSource).toContain("forceContextLoss");
     expect(sceneSource).not.toContain("preserveDrawingBuffer");
     expect(treeSource).toContain("createRealisticGrowthTreeLayer");
