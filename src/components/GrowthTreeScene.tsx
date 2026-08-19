@@ -87,6 +87,7 @@ function updateLayerMaterials(
   selection: GrowthTreeSelection,
   hoveredUuid: string | null
 ): void {
+  // Repaint the tree by interaction state / 根据交互状态重新上色
   for (const object of layer.selectable) {
     const target = layer.entityByUuid.get(object.uuid);
     const material = meshMaterial(object);
@@ -104,6 +105,8 @@ function updateLayerMaterials(
       target.kind === "leaf"
         ? new THREE.Color(HEALING_PALETTE.youngLeaf).getHex()
         : (material.userData.baseColor as number);
+    // Leaves stay greener; wood keeps its trunk palette.
+    // 叶子更偏绿色，树干保持木质主色。
     const leafHighlight = new THREE.Color(HEALING_PALETTE.matureLeaf).getHex();
     const color = resolveTreeMaterialColor(
       {
@@ -166,6 +169,8 @@ export function GrowthTreeScene({
       return;
     }
 
+    // Renderer / 相机 / 光照 together define the visual tone of the scene.
+    // 渲染器 / 相机 / 光照共同决定整个画面的气质。
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = GROWTH_SCENE_CONFIG.performance.shadows;
@@ -174,15 +179,20 @@ export function GrowthTreeScene({
 
     const scene = new THREE.Scene();
     scene.background = null;
+    // Fog softens distance and keeps the scene dreamy instead of flat.
+    // 雾效用来柔化远景，让画面更治愈，而不是生硬平面。
     scene.fog = new THREE.Fog(HEALING_PALETTE.fog, 14, 38);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
     camera.position.set(0.7, 3.7, 10.8);
     const controls = new OrbitControls(camera, renderer.domElement);
+    // Camera framing is slightly off-center so the tree has depth and breathing room.
+    // 相机略微偏心构图，让树有层次，也留出画面呼吸感。
     controls.enableDamping = true;
     controls.target.set(-0.45, 2.45, -0.8);
     controls.minDistance = 5.2;
     controls.maxDistance = 12;
 
+    // Sky light / 天光：给树冠和地面一个柔和的整体色调。
     scene.add(new THREE.HemisphereLight(0xdff6ff, 0x5e8f39, 2.15));
     const sun = new THREE.DirectionalLight(HEALING_PALETTE.sun, 4.8);
     sun.position.set(-5.8, 9, 4.5);
@@ -202,6 +212,8 @@ export function GrowthTreeScene({
       hoveredUuid: null
     };
     runtimeRef.current = runtime;
+    // Environment layer handles mountains, lake, slope, and model fallbacks.
+    // 环境层负责群山、湖泊、地形坡面和模型兜底。
     const environment = createGrowthEnvironment({
       onDiagnostic(diagnostic) {
         setAssetDiagnostics((current) =>

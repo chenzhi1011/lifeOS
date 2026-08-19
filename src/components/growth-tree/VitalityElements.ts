@@ -31,6 +31,8 @@ const caps: Record<VitalityElementType, number> = {
 
 function geometryFor(type: VitalityElementType): THREE.BufferGeometry {
   if (type === "water") {
+    // Water droplets are small and soft so they read as moisture, not decoration noise.
+    // 水滴要小而柔和，读起来像湿润感，而不是干扰性的装饰点。
     const geometry = new THREE.SphereGeometry(0.15, 8, 6);
     geometry.scale(0.78, 1.25, 0.78);
     return geometry;
@@ -43,6 +45,7 @@ function geometryFor(type: VitalityElementType): THREE.BufferGeometry {
 
 function materialFor(type: VitalityElementType): THREE.MeshLambertMaterial {
   if (type === "water") {
+    // Cool translucent blue for hydration hints / 偏冷的半透明蓝色，提示“水分”
     return new THREE.MeshLambertMaterial({
       color: 0xa8dfe2,
       emissive: 0x477f85,
@@ -53,12 +56,14 @@ function materialFor(type: VitalityElementType): THREE.MeshLambertMaterial {
     });
   }
   if (type === "creature") {
+    // Friendly warm tone / 友好的暖色小生物
     return new THREE.MeshLambertMaterial({
       color: 0xe5c96d,
       flatShading: true
     });
   }
   return new THREE.MeshLambertMaterial({
+    // Fresh plant green / 新鲜植物绿
     color: 0x7cae55,
     flatShading: true
   });
@@ -112,6 +117,7 @@ function setInstanceTransform(
 
   if (layer.type === "water") {
     // Water remains still; only its shared material highlight changes over time.
+    // 水滴本体不动，只让共享材质亮度随时间轻微变化。
   } else if (layer.type === "creature") {
     const pace = elapsedSeconds * 0.22 + record.phase;
     transform.position.x += Math.cos(pace) * record.amplitude;

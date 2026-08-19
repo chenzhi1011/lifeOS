@@ -139,6 +139,8 @@ function woodForGoal(
       activityTotal(historical)
     ),
     status: goal.status,
+    // Category is the human-readable life area label used by the UI tree.
+    // category 是 UI 里显示的人类可读领域名。
     category: LIFE_AREAS.find((area) => area.id === goal.lifeArea)?.label ?? goal.lifeArea,
     totalValue: activityTotal(historical),
     activityCount: historical.length,
@@ -177,6 +179,7 @@ export function buildGrowthTreeViewModel(
     end: vector(0, 2.65, 0),
     thickness: thicknessFromTotal(0.34, totalValue),
     status: "active",
+    // Root is the whole life tree / 根节点代表整棵人生树。
     category: "root",
     totalValue,
     activityCount: allActivities.length,

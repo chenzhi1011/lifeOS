@@ -92,6 +92,8 @@ export function createLake(): THREE.Mesh<
   THREE.PlaneGeometry,
   THREE.MeshLambertMaterial
 > {
+  // Lake is a gently warped plane to avoid a dead-flat water surface.
+  // 湖面用轻微起伏的平面，避免出现死板的完全平整感。
   const geometry = new THREE.PlaneGeometry(13, 18, 18, 24);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.attributes.position;
@@ -109,6 +111,7 @@ export function createLake(): THREE.Mesh<
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshLambertMaterial({
+    // Soft cool water tone / 柔和冷色水面
     color: "#7FAEB5",
     transparent: true,
     opacity: 0.92,
@@ -129,6 +132,8 @@ function createMountain(
   z: number,
   rotation: number
 ): THREE.Mesh<THREE.ConeGeometry, THREE.MeshLambertMaterial> {
+  // Low-poly mountains create a calm backdrop and keep the tree as the visual anchor.
+  // 低多边形群山负责安静背景，把视觉中心留给树。
   const mountain = new THREE.Mesh(
     new THREE.ConeGeometry(radius, height, 6, 2),
     new THREE.MeshLambertMaterial({
@@ -145,6 +150,8 @@ function createMountain(
 export function createMountainLayers(): THREE.Group {
   const layers = new THREE.Group();
   layers.name = "growth-mountain-layers";
+  // Far layer for depth, near layer for foreground contrast.
+  // 远山负责纵深，近山负责前景层次。
   const far = new THREE.Group();
   far.name = "mountains-far";
   const near = new THREE.Group();
@@ -176,6 +183,8 @@ export function createMountainLayers(): THREE.Group {
 function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   const group = new THREE.Group();
   group.name = "growth-foreground";
+  // Foreground slope and rocks ground the tree so the scene does not feel like it is floating.
+  // 前景坡地和石块用来“托住”树，让场景不悬空。
   const slopeGeometry = new THREE.CircleGeometry(9.5, 12);
   slopeGeometry.rotateX(-Math.PI / 2);
   const slopePositions = slopeGeometry.attributes.position;
@@ -190,6 +199,7 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   slopePositions.needsUpdate = true;
   slopeGeometry.computeVertexNormals();
   const slopeMaterial = new THREE.MeshLambertMaterial({
+    // Main grass color / 主草地颜色
     color: HEALING_PALETTE.grass,
     flatShading: true
   });
@@ -202,6 +212,7 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   const rocks = new THREE.Group();
   rocks.name = "growth-rocks-fallback";
   const rockMaterial = new THREE.MeshLambertMaterial({
+    // Soil and stone tones / 土地与石块色调
     color: HEALING_PALETTE.soil,
     flatShading: true
   });
@@ -232,6 +243,8 @@ function loadConfiguredModels(
   options: GrowthEnvironmentOptions,
   isDisposed: () => boolean
 ): void {
+  // If GLB models are available, use them; otherwise keep the fallback scenic layers.
+  // 如果能加载 GLB 模型就优先使用，否则保留当前的场景兜底层。
   const loader = options.loaderFactory?.() ?? new GLTFLoader();
   const models =
     options.modelUrls ??

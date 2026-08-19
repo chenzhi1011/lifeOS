@@ -36,6 +36,7 @@ export function resolveTreeMaterialColor(
   palette: TreeMaterialPalette,
   state: { selected: boolean; hovered: boolean; related: boolean }
 ): number {
+  // Selection color order / 颜色优先级：选中 > 悬停 > 关联 > 默认
   if (state.selected) {
     return palette.selectedColor;
   }
@@ -67,10 +68,14 @@ export function createRealisticGrowthTreeLayer(
 ): RealisticGrowthTreeLayer {
   const group = new THREE.Group();
   group.name = "realistic-growth-tree-layer";
+  // This layer builds the visible tree body: canopy, branches, and leaves.
+  // 这一层负责真正“看得见的树”：树冠、树枝、叶片。
   const selectable: THREE.Object3D[] = [];
   const entityByUuid = new Map<string, TreeSelectionTarget>();
   const ownedGeometries = new Set<THREE.BufferGeometry>();
   const ownedMaterials = new Set<THREE.Material>();
+  // Decorative canopy is the soft background foliage used to make the tree fuller.
+  // 装饰性树冠是让树看起来更丰满的背景叶层。
   const canopy = createDecorativeCanopy(viewModel.branches, viewModel.recipe);
   const visibleActivityLeaves = viewModel.semanticLeaves
     .filter((item) => item.visible)
@@ -79,6 +84,8 @@ export function createRealisticGrowthTreeLayer(
   group.add(canopy);
   rememberOwnedMesh(canopy, ownedGeometries, ownedMaterials);
   for (const segment of viewModel.branches) {
+    // Semantic branches are the structural wood pieces derived from the tree recipe.
+    // 语义树枝是根据 tree recipe 生成的结构层木枝。
     const mesh = createSemanticBranchMesh(segment);
     const target: TreeSelectionTarget = {
       kind: "wood",
@@ -98,6 +105,8 @@ export function createRealisticGrowthTreeLayer(
   }
 
   for (const leaf of visibleActivityLeaves) {
+    // Activity leaves are the user-facing growth markers attached to goals.
+    // 活动叶片代表用户行为留下的成长痕迹，挂在对应目标上。
     const mesh = createSemanticLeafMesh(leaf);
     const target: TreeSelectionTarget = {
       kind: "leaf",
