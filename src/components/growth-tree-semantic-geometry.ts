@@ -3,11 +3,29 @@ import type { SemanticBranch, SemanticLeaf } from "@/src/domain/semantic-tree-sk
 import { HEALING_PALETTE } from "@/src/theme/healing-palette";
 import { seedFromId } from "@/src/domain/stable-seed";
 import type { TreeRecipe } from "@/src/domain/tree-recipe";
+import { createNaturalBranchGeometry } from "./growth-tree-branch-geometry";
 
 const point = (v: {x:number;y:number;z:number}) => new THREE.Vector3(v.x,v.y,v.z);
+
+// Geometry detail by semantic level / 按语义层级设置几何细节：主干最厚重，细枝最轻巧。
+const BRANCH_GEOMETRY_PROFILE = {
+  root: { longitudinalSegments: 30, radialSegments: 12, irregularity: .045, twist: .16 },
+  life_area: { longitudinalSegments: 18, radialSegments: 9, irregularity: .065, twist: .24 },
+  long_goal: { longitudinalSegments: 12, radialSegments: 7, irregularity: .08, twist: .3 },
+  short_goal: { longitudinalSegments: 12, radialSegments: 7, irregularity: .08, twist: .3 }
+} as const;
+
 export function createSemanticBranchMesh(branch: SemanticBranch) {
-  const curve = new THREE.CubicBezierCurve3(...branch.controlPoints.map(point) as [THREE.Vector3,THREE.Vector3,THREE.Vector3,THREE.Vector3]);
-  const geometry = new THREE.TubeGeometry(curve, branch.entityType === "root" ? 28 : 14, branch.baseRadius, Math.min(10, branch.radialSegments), false);
+  const profile = BRANCH_GEOMETRY_PROFILE[branch.entityType];
+  // Build a tapered swept mesh instead of a fixed-radius tube.
+  // 使用连续渐细的扫掠网格，避免“弯曲圆柱”和裸露断面。
+  const geometry = createNaturalBranchGeometry({
+    entityId: branch.entityId,
+    controlPoints: branch.controlPoints,
+    baseRadius: branch.baseRadius,
+    tipRadius: branch.tipRadius,
+    ...profile
+  });
   const base = new THREE.Color(HEALING_PALETTE.trunk), light = new THREE.Color(HEALING_PALETTE.trunkLight), colors:number[]=[];
   for(let i=0;i<geometry.attributes.normal.count;i++){ const normal=new THREE.Vector3().fromBufferAttribute(geometry.attributes.normal,i); const c=base.clone().lerp(light,Math.max(0,normal.dot(new THREE.Vector3(-.4,.7,.5).normalize()))*.65); colors.push(c.r,c.g,c.b); }
   geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
