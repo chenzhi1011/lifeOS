@@ -4,6 +4,7 @@ import { buildGrowthMetrics } from "@/src/domain/growth-metrics";
 import { createInitialState } from "@/src/domain/seed";
 import { buildSemanticTreeSkeleton } from "@/src/domain/semantic-tree-skeleton";
 import { buildTreeRecipe } from "@/src/domain/tree-recipe";
+import { branchesCollide } from "@/src/domain/tree-branch-collision";
 
 const asOf = new Date("2026-08-01T12:00:00Z");
 function skeleton(state = createInitialState()) {
@@ -11,6 +12,15 @@ function skeleton(state = createInitialState()) {
   const recipe = buildTreeRecipe(data, buildGrowthMetrics(data, asOf));
   return buildSemanticTreeSkeleton(data, recipe, asOf);
 }
+
+function radiusAt(
+  branch: ReturnType<typeof skeleton>["branches"][number],
+  progress: number
+): number {
+  const smooth = progress * progress * (3 - 2 * progress);
+  return branch.baseRadius + (branch.tipRadius - branch.baseRadius) * smooth;
+}
+
 describe("semantic tree skeleton", () => {
   it("creates a root and exactly seven stable life-area curves", () => {
     const first = skeleton();
@@ -34,5 +44,46 @@ describe("semantic tree skeleton", () => {
     const result = skeleton();
     expect(result.leaves.every((leaf) => typeof leaf.visible === "boolean")).toBe(true);
     expect(skeleton().leaves).toEqual(result.leaves);
+  });
+
+  it("keeps every child root narrower than its parent at the fork", () => {
+    const state = createInitialState();
+    const data = buildDashboardData(state, "demo-user", asOf);
+    const recipe = buildTreeRecipe(data, buildGrowthMetrics(data, asOf));
+    const result = buildSemanticTreeSkeleton(data, recipe, asOf);
+    const branchById = new Map(result.branches.map((item) => [item.entityId, item]));
+    const recipeById = new Map([
+      ...recipe.lifeAreas,
+      ...recipe.longGoals,
+      ...recipe.shortGoals
+    ].map((item) => [item.entityId, item]));
+
+    for (const child of result.branches.filter((item) => item.parentEntityId)) {
+      const parent = branchById.get(child.parentEntityId!)!;
+      const childRecipe = recipeById.get(child.entityId)!;
+      const maximumRatio = child.entityType === "life_area" ? 0.68 : 0.62;
+
+      expect(child.baseRadius).toBeLessThanOrEqual(
+        radiusAt(parent, childRecipe.start) * maximumRatio + Number.EPSILON
+      );
+    }
+  });
+
+  it("keeps branch paths out of every non-permitted branch capsule", () => {
+    const result = skeleton();
+
+    for (let leftIndex = 0; leftIndex < result.branches.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < result.branches.length; rightIndex += 1) {
+        const left = result.branches[leftIndex]!;
+        const right = result.branches[rightIndex]!;
+        const candidate = left.parentEntityId === right.entityId ? left : right;
+        const obstacle = candidate === left ? right : left;
+
+        expect(
+          branchesCollide(candidate, obstacle),
+          `${candidate.entityId} collides with ${obstacle.entityId}`
+        ).toBe(false);
+      }
+    }
   });
 });
