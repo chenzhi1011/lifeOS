@@ -48,7 +48,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const resolvedSearchParams = await searchParams;
   const rawUserId = getSearchValue(resolvedSearchParams.userId);
   const session = await resolveSessionPrincipal(new Request("http://life-os.local", { headers: await headers() }));
-  const demoUserId = process.env.NODE_ENV !== "production" ? normalizeDashboardUserId(rawUserId) : null;
+  //todo 生产环境必须通过session
+  // const demoUserId = process.env.NODE_ENV !== "production" ? normalizeDashboardUserId(rawUserId) : null;
+  const demoUserId = normalizeDashboardUserId(rawUserId);
   const principal: ApiPrincipal | null = session ?? (demoUserId ? { userId: demoUserId, actorType: "session" } : null);
   if (!principal) {
     return <DashboardUserGate attemptedUserId={rawUserId} />;
