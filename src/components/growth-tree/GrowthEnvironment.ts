@@ -5,6 +5,15 @@ import {
   type GrowthSceneAsset
 } from "./scene-config";
 import { HEALING_PALETTE } from "@/src/theme/healing-palette";
+import {
+  createIslandTerrainGeometry,
+  islandHeightAt,
+  ISLAND_TERRAIN_CONFIG
+} from "../growth-tree-island-geometry";
+import {
+  createWaterSurfaceGeometry,
+  WATER_SURFACE_CONFIG
+} from "../growth-tree-water-geometry";
 
 export type AssetLoadDiagnostic = {
   code: "asset_load_failed";
@@ -89,18 +98,42 @@ function disposeObjectResources(root: THREE.Object3D): void {
 }
 
 export function createLake(): THREE.Mesh<
-  THREE.PlaneGeometry,
+  THREE.BufferGeometry,
   THREE.MeshLambertMaterial
 > {
-  // Lake is a gently warped plane to avoid a dead-flat water surface.
-  // 湖面用轻微起伏的平面，避免出现死板的完全平整感。
-  const geometry = new THREE.PlaneGeometry(13, 18, 18, 24);
-  geometry.rotateX(-Math.PI / 2);
+  // This is only the visible upper water surface: no sphere bottom, back face,
+  // or side wall is generated. The center stays flat and only the far edge
+  // curves down, keeping the shoreline connected while retaining a round world.
+  // 这里只生成可见的水面上表层，不生成球体底部、背面或侧壁。中央保持
+  // 水平，只有远端向下弯曲，既贴合岛岸，也保留圆形小世界的感觉。
+  const geometry = createWaterSurfaceGeometry();
   const positions = geometry.attributes.position;
+  const normals = geometry.attributes.normal;
+  const waveDirections = new Float32Array(positions.count * 3);
   for (let index = 0; index < positions.count; index += 1) {
     const x = positions.getX(index);
+    const y = positions.getY(index);
     const z = positions.getZ(index);
-    positions.setY(index, Math.sin(x * 0.72 + z * 0.38) * 0.025);
+    const directionX = normals.getX(index);
+    const directionY = normals.getY(index);
+    const directionZ = normals.getZ(index);
+    const radius = Math.hypot(x, z);
+    const curvedProgress = Math.min(1, Math.max(0,
+      (radius - WATER_SURFACE_CONFIG.curveStartRadius) /
+        (WATER_SURFACE_CONFIG.outerRadius -
+          WATER_SURFACE_CONFIG.curveStartRadius)
+    ));
+    const waveAmplitude = 0.006 + curvedProgress * 0.019;
+    const wave = Math.sin(x * 0.72 + z * 0.38) * waveAmplitude;
+    waveDirections[index * 3] = directionX;
+    waveDirections[index * 3 + 1] = directionY;
+    waveDirections[index * 3 + 2] = directionZ;
+    positions.setXYZ(
+      index,
+      x + directionX * wave,
+      y + directionY * wave,
+      z + directionZ * wave
+    );
   }
   positions.needsUpdate = true;
   if (positions instanceof THREE.InterleavedBufferAttribute) {
@@ -119,7 +152,13 @@ export function createLake(): THREE.Mesh<
   });
   const lake = new THREE.Mesh(geometry, material);
   lake.name = "growth-lake";
-  lake.position.set(3.6, -0.08, -4.8);
+  lake.userData.waveDirections = waveDirections;
+  lake.userData.waveBasePositions = new Float32Array(positions.array);
+  lake.position.set(
+    ISLAND_TERRAIN_CONFIG.worldX,
+    -0.08,
+    ISLAND_TERRAIN_CONFIG.worldZ
+  );
   lake.receiveShadow = true;
   return lake;
 }
@@ -185,27 +224,19 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   group.name = "growth-foreground";
   // Foreground slope and rocks ground the tree so the scene does not feel like it is floating.
   // 前景坡地和石块用来“托住”树，让场景不悬空。
-  const slopeGeometry = new THREE.CircleGeometry(9.5, 12);
-  slopeGeometry.rotateX(-Math.PI / 2);
-  const slopePositions = slopeGeometry.attributes.position;
-  for (let index = 0; index < slopePositions.count; index += 1) {
-    const x = slopePositions.getX(index);
-    const z = slopePositions.getZ(index);
-    slopePositions.setY(
-      index,
-      Math.cos(x * 0.44) * 0.11 + Math.sin(z * 0.56) * 0.08
-    );
-  }
-  slopePositions.needsUpdate = true;
-  slopeGeometry.computeVertexNormals();
+  const slopeGeometry = createIslandTerrainGeometry();
   const slopeMaterial = new THREE.MeshLambertMaterial({
     // Main grass color / 主草地颜色
     color: HEALING_PALETTE.grass,
     flatShading: true
   });
   const slope = new THREE.Mesh(slopeGeometry, slopeMaterial);
-  slope.scale.set(1.25, 0.82, 1);
-  slope.position.set(-1.2, -0.02, 0.5);
+  slope.name = "growth-island-terrain";
+  slope.position.set(
+    ISLAND_TERRAIN_CONFIG.worldX,
+    0,
+    ISLAND_TERRAIN_CONFIG.worldZ
+  );
   slope.receiveShadow = true;
   group.add(slope);
 
@@ -217,16 +248,21 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
     flatShading: true
   });
   [
-    [-3.8, 0.38, 1.5, 0.8],
-    [-2.8, 0.24, 2.1, 0.52],
-    [0.65, 0.2, 2.8, 0.45],
-    [1.35, 0.28, 1.9, 0.62]
-  ].forEach(([x, y, z, scale], index) => {
+    [-3.8, 1.5, 0.8],
+    [-2.8, 2.1, 0.52],
+    [0.65, 2.8, 0.45],
+    [1.35, 1.9, 0.62]
+  ].forEach(([x, z, scale], index) => {
     const rock = new THREE.Mesh(
       new THREE.DodecahedronGeometry(0.72, 0),
       rockMaterial
     );
-    rock.position.set(x!, y!, z!);
+    const terrainY = islandHeightAt(
+      x! - ISLAND_TERRAIN_CONFIG.worldX,
+      z! - ISLAND_TERRAIN_CONFIG.worldZ
+    );
+    const halfRockHeight = 0.72 * scale! * 0.72;
+    rock.position.set(x!, terrainY + halfRockHeight, z!);
     rock.scale.set(scale!, scale! * 0.72, scale! * 0.9);
     rock.rotation.set(0.12 * index, 0.48 * index, -0.08 * index);
     rock.castShadow = true;
@@ -315,10 +351,8 @@ export function createGrowthEnvironment(
   );
 
   const lakePositions = lake.geometry.attributes.position;
-  const lakeBaseY = Array.from(
-    { length: lakePositions.count },
-    (_, index) => lakePositions.getY(index)
-  );
+  const lakeBasePositions = lake.userData.waveBasePositions as Float32Array;
+  const lakeWaveDirections = lake.userData.waveDirections as Float32Array;
 
   return {
     group,
@@ -327,10 +361,16 @@ export function createGrowthEnvironment(
       for (let index = 0; index < lakePositions.count; index += 1) {
         const x = lakePositions.getX(index);
         const z = lakePositions.getZ(index);
-        lakePositions.setY(
+        const wave =
+          Math.sin(elapsedSeconds * 0.32 + x * 0.5 + z * 0.3) * 0.012;
+        lakePositions.setXYZ(
           index,
-          lakeBaseY[index]! +
-            Math.sin(elapsedSeconds * 0.32 + x * 0.5 + z * 0.3) * 0.012
+          lakeBasePositions[index * 3]! +
+            lakeWaveDirections[index * 3]! * wave,
+          lakeBasePositions[index * 3 + 1]! +
+            lakeWaveDirections[index * 3 + 1]! * wave,
+          lakeBasePositions[index * 3 + 2]! +
+            lakeWaveDirections[index * 3 + 2]! * wave
         );
       }
       lakePositions.needsUpdate = true;

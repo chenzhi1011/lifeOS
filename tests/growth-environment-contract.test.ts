@@ -15,6 +15,7 @@ import {
   type VitalityElementsLayer
 } from "@/src/components/growth-tree/VitalityElements";
 import { GROWTH_SCENE_CONFIG } from "@/src/components/growth-tree/scene-config";
+import { ISLAND_TERRAIN_CONFIG } from "@/src/components/growth-tree-island-geometry";
 import type {
   VitalityElement,
   VitalityElementType
@@ -124,7 +125,25 @@ describe("growth tree environment contract", () => {
     expect(attributeUsage(lake.geometry.attributes.position)).toBe(
       THREE.DynamicDrawUsage
     );
+    expect(lake.geometry).not.toBeInstanceOf(THREE.SphereGeometry);
     expect(lake.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    lake.geometry.computeBoundingBox();
+    const lakeBounds = lake.geometry.boundingBox!;
+    expect(lakeBounds.max.y).toBeGreaterThan(lakeBounds.min.y + 1);
+    expect(lake.userData.waveDirections).toHaveLength(
+      lake.geometry.attributes.position.count * 3
+    );
+    const islandHalfWidth = ISLAND_TERRAIN_CONFIG.baseRadius
+      * ISLAND_TERRAIN_CONFIG.xScale * 1.2;
+    const islandHalfDepth = ISLAND_TERRAIN_CONFIG.baseRadius * 1.2;
+    expect(lake.position.x + lakeBounds.min.x)
+      .toBeLessThan(ISLAND_TERRAIN_CONFIG.worldX - islandHalfWidth);
+    expect(lake.position.x + lakeBounds.max.x)
+      .toBeGreaterThan(ISLAND_TERRAIN_CONFIG.worldX + islandHalfWidth);
+    expect(lake.position.z + lakeBounds.min.z)
+      .toBeLessThan(ISLAND_TERRAIN_CONFIG.worldZ - islandHalfDepth);
+    expect(lake.position.z + lakeBounds.max.z)
+      .toBeGreaterThan(ISLAND_TERRAIN_CONFIG.worldZ + islandHalfDepth);
     expect(mountainMeshes.length).toBeGreaterThan(2);
     expect(
       mountainMeshes.every(
@@ -271,6 +290,12 @@ describe("growth tree environment contract", () => {
     expect(config).toContain("maxPixelRatio: 1.75");
     expect(config).toContain("shadows: true");
     expect(config).toContain('lakeReflection: "simple"');
+  });
+
+  it("uses the irregular half-diameter island terrain", () => {
+    expect(environment).toContain("createIslandTerrainGeometry");
+    expect(environment).toContain("islandHeightAt");
+    expect(environment).not.toContain("new THREE.CircleGeometry(9.5, 12)");
   });
 
   it("uses deterministic instancing and updates vitality from the scene RAF", () => {
