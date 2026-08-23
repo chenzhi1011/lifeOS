@@ -1,22 +1,29 @@
 openapi: 3.1.0
 info:
-  title: Life OS Actions
-  version: 2.0.0
+  title: Life OS Personal Test Actions
+  version: 3.0.0
+  description: Personal/test-only Custom GPT integration for one Life OS user. The server derives the user from the Bearer token. Never send userId.
 servers:
   - url: https://YOUR_DOMAIN
 paths:
   /api/actions/context:
     get:
       operationId: getLifeContext
-      summary: Get typed goals, aliases, and open tasks for the authenticated user
+      summary: Read goals, aliases, and open tasks before interpreting input
       security: [{ bearerAuth: [] }]
       responses:
-        "200": { description: Current context }
+        "200":
+          description: Context for the user bound to this token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LifeContext" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /api/actions/life-events:
     post:
       operationId: recordLifeEvents
-      summary: Record an ordered life-event batch transactionally
-      description: Do not include userId. New goals require one of seven fixed lifeArea values.
+      summary: Record an ordered batch of goals, tasks, activities, or inbox items
+      description: Read context first. Put a new Goal before dependent events. Reuse an idempotencyKey only when retrying exactly the same request. Never send userId.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -24,40 +31,155 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/LifeEventBatch" }
       responses:
-        "200": { description: Recorded or idempotently replayed }
-        "400": { description: Invalid command }
-        "401": { description: Invalid credential }
+        "200":
+          description: Batch recorded or idempotently replayed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: Idempotency key reused with different content }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { description: Batch storage unavailable }
+  /api/tasks/{id}/complete:
+    post:
+      operationId: completeLifeTask
+      summary: Complete an open Task and record its Goal activity when applicable
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/EntityId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCompletion" }
+      responses:
+        "200":
+          description: Task completed or completion replayed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskCompletionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { description: Task could not be completed }
+  /api/goals/{id}/complete:
+    post:
+      operationId: completeLifeGoal
+      summary: Complete a Goal and create fruit for a short-term Goal
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/EntityId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoalCompletion" }
+      responses:
+        "200":
+          description: Goal completed or completion replayed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GoalCompletionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { description: Goal could not be completed }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: los_personal_action_token
+  parameters:
+    EntityId:
+      name: id
+      in: path
+      required: true
+      description: UUID returned by context or life-events
+      schema: { type: string, format: uuid }
+  responses:
+    BadRequest:
+      description: Invalid request body
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Unauthorized:
+      description: Missing, invalid, or revoked personal Action token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
   schemas:
-    LifeEventBatch:
+    ErrorResponse:
       type: object
-      additionalProperties: false
-      required: [idempotencyKey, rawText, events]
+      required: [error]
       properties:
-        idempotencyKey: { type: string, minLength: 1, maxLength: 200 }
-        rawText: { type: string, minLength: 1, maxLength: 500 }
-        events:
+        error: { type: string }
+    LifeContext:
+      type: object
+      required: [user, timezone, defaultReminderTime, currentTime, goals, aliases, openTasks]
+      properties:
+        user:
+          type: object
+          required: [id, actionCredential]
+          properties:
+            id: { type: string, format: uuid }
+            actionCredential: { type: string }
+        timezone: { type: string }
+        defaultReminderTime: { type: string }
+        currentTime: { type: string }
+        goals:
           type: array
-          minItems: 1
-          maxItems: 20
           items:
-            oneOf:
-              - { $ref: "#/components/schemas/TaskEvent" }
-              - { $ref: "#/components/schemas/ActivityEvent" }
-              - { $ref: "#/components/schemas/GoalEvent" }
-              - { $ref: "#/components/schemas/InboxEvent" }
+            type: object
+            required: [id, title, goalType, lifeArea, metricType, status]
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+              goalType: { enum: [long_term, short_term] }
+              lifeArea: { $ref: "#/components/schemas/LifeArea" }
+              metricType: { $ref: "#/components/schemas/MetricType" }
+              status: { enum: [active, paused, completed] }
+        aliases:
+          type: array
+          items:
+            type: object
+            required: [goalId, alias]
+            properties:
+              goalId: { type: string, format: uuid }
+              alias: { type: string }
+        openTasks:
+          type: array
+          items:
+            type: object
+            required: [id, title, status]
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+              goalId: { type: [string, "null"], format: uuid }
+              dueAt: { type: [string, "null"], format: date-time }
+              status: { const: open }
+    LifeArea:
+      type: string
+      enum: [work, growth, health, life, finance, relationships, entertainment]
+    MetricType:
+      type: string
+      enum: [duration, count, milestone]
     GoalReference:
       type: object
       additionalProperties: false
       required: [explicit]
       properties:
-        title: { type: string }
+        title: { type: string, minLength: 1, maxLength: 500 }
         explicit: { type: boolean }
         candidateGoalId: { type: string, format: uuid }
         matchConfidence: { type: number, minimum: 0, maximum: 1 }
       anyOf:
-        - { required: [title] }
-        - { required: [candidateGoalId] }
+        - required: [title]
+        - required: [candidateGoalId]
     Metric:
       oneOf:
         - type: object
@@ -65,14 +187,14 @@ components:
           required: [type, value, unit]
           properties:
             type: { const: duration }
-            value: { type: number, exclusiveMinimum: 0 }
+            value: { type: number, exclusiveMinimum: 0, maximum: 100000 }
             unit: { enum: [minute, hour] }
         - type: object
           additionalProperties: false
           required: [type, value, unit]
           properties:
             type: { enum: [count, milestone] }
-            value: { type: number, exclusiveMinimum: 0 }
+            value: { type: number, exclusiveMinimum: 0, maximum: 100000 }
             unit: { const: count }
     ReminderChoice:
       oneOf:
@@ -98,9 +220,11 @@ components:
       properties:
         type: { const: task }
         path: { enum: [one_off, goal] }
-        title: { type: string }
+        title: { type: string, minLength: 1, maxLength: 500 }
         localDate: { type: string, format: date }
+        explicitDueAt: { type: string, format: date-time }
         confidence: { type: number, minimum: 0, maximum: 1 }
+        resolvesInboxItemId: { type: string, format: uuid }
         priority: { enum: [low, normal, high], default: normal }
         goal: { $ref: "#/components/schemas/GoalReference" }
         metric: { $ref: "#/components/schemas/Metric" }
@@ -116,11 +240,19 @@ components:
       required: [type, summary, occurredOn, confidence]
       properties:
         type: { const: activity }
-        summary: { type: string }
+        summary: { type: string, minLength: 1, maxLength: 500 }
         occurredOn: { type: string, format: date }
         confidence: { type: number, minimum: 0, maximum: 1 }
+        resolvesInboxItemId: { type: string, format: uuid }
         goal: { $ref: "#/components/schemas/GoalReference" }
         metric: { $ref: "#/components/schemas/Metric" }
+        taskMatch:
+          type: object
+          additionalProperties: false
+          required: [candidateTaskId, confidence]
+          properties:
+            candidateTaskId: { type: string, format: uuid }
+            confidence: { type: number, minimum: 0, maximum: 1 }
     GoalEvent:
       type: object
       additionalProperties: false
@@ -128,23 +260,97 @@ components:
       properties:
         type: { const: goal }
         goalType: { enum: [long_term, short_term] }
-        title: { type: string }
-        lifeArea: { enum: [work, growth, health, life, finance, relationships, entertainment] }
-        metricType: { enum: [duration, count, milestone], default: count }
-        aliases: { type: array, items: { type: string }, maxItems: 12 }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        lifeArea: { $ref: "#/components/schemas/LifeArea" }
+        metricType: { $ref: "#/components/schemas/MetricType", default: count }
+        aliases:
+          type: array
+          maxItems: 12
+          items: { type: string, minLength: 1, maxLength: 500 }
         confidence: { type: number, minimum: 0, maximum: 1 }
+        resolvesInboxItemId: { type: string, format: uuid }
     InboxEvent:
       type: object
       additionalProperties: false
       required: [type, reason, suggestedTypes, confidence]
       properties:
         type: { const: inbox }
-        reason: { type: string }
+        reason: { type: string, minLength: 1, maxLength: 500 }
         suggestedTypes:
           type: array
+          minItems: 1
+          maxItems: 5
           items: { enum: [task, activity, goal, inbox] }
         confidence: { type: number, minimum: 0, maximum: 1 }
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
+        resolvesInboxItemId: { type: string, format: uuid }
+        resolution: { const: dismiss }
+    LifeEventBatch:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, rawText, events]
+      properties:
+        idempotencyKey: { type: string, minLength: 1, maxLength: 200 }
+        rawText: { type: string, minLength: 1, maxLength: 500 }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            oneOf:
+              - { $ref: "#/components/schemas/TaskEvent" }
+              - { $ref: "#/components/schemas/ActivityEvent" }
+              - { $ref: "#/components/schemas/GoalEvent" }
+              - { $ref: "#/components/schemas/InboxEvent" }
+    BatchResponse:
+      type: object
+      required: [ok, batchId, duplicate, results]
+      properties:
+        ok: { const: true }
+        batchId: { type: string, format: uuid }
+        duplicate: { type: boolean }
+        results:
+          type: array
+          items:
+            type: object
+            required: [eventIndex, kind, messageId]
+            properties:
+              eventIndex: { type: integer, minimum: 0, maximum: 19 }
+              kind: { enum: [goal, task, activity, inbox] }
+              messageId: { type: string, format: uuid }
+              goalId: { type: string, format: uuid }
+              taskId: { type: string, format: uuid }
+              activityId: { type: string, format: uuid }
+              reminderId: { type: string, format: uuid }
+              inboxItemId: { type: string, format: uuid }
+    TaskCompletion:
+      type: object
+      additionalProperties: false
+      required: [occurredOn]
+      properties:
+        occurredOn: { type: string, format: date }
+        metric: { $ref: "#/components/schemas/Metric" }
+    TaskCompletionResponse:
+      type: object
+      required: [ok, taskId, status, activityId, duplicate]
+      properties:
+        ok: { const: true }
+        taskId: { type: string, format: uuid }
+        status: { const: completed }
+        activityId: { type: [string, "null"], format: uuid }
+        duplicate: { type: boolean }
+    GoalCompletion:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 500 }
+        note: { type: string, minLength: 1, maxLength: 500 }
+        evidenceUrl: { type: string, format: uri, maxLength: 2000 }
+    GoalCompletionResponse:
+      type: object
+      required: [ok, goalId, status, achievementId, duplicate]
+      properties:
+        ok: { const: true }
+        goalId: { type: string, format: uuid }
+        status: { const: completed }
+        achievementId: { type: [string, "null"], format: uuid }
+        duplicate: { type: boolean }

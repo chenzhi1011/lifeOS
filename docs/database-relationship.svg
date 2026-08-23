@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Life OS 数据库关系图</title>
+  <desc id="desc">展示 Supabase 用户、接入记录、目标、任务、活动、提醒、成果和待确认事项之间的关系。</desc>
+  <defs>
+    <style>
+      .bg { fill: #fff8ea; }
+      .lane { fill: #fffdf7; stroke: #dbc8ad; stroke-width: 2; rx: 18; }
+      .box { fill: #ffffff; stroke: #9b6848; stroke-width: 2; rx: 12; }
+      .core { fill: #f2f8e9; stroke: #6faf67; }
+      .auth { fill: #eef7ff; stroke: #7298b8; }
+      .view { fill: #fff3df; stroke: #c99d72; stroke-dasharray: 7 5; }
+      .title { font: 700 30px system-ui, sans-serif; fill: #59483a; }
+      .lane-title { font: 700 19px system-ui, sans-serif; fill: #59483a; }
+      .table-title { font: 700 17px ui-monospace, monospace; fill: #59483a; }
+      .field { font: 14px ui-monospace, monospace; fill: #59483a; }
+      .note { font: 14px system-ui, sans-serif; fill: #765f4c; }
+      .edge { fill: none; stroke: #806b58; stroke-width: 2; marker-end: url(#arrow); }
+      .edge-dashed { fill: none; stroke: #9b826b; stroke-width: 2; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+      .label { font: 13px system-ui, sans-serif; fill: #59483a; paint-order: stroke; stroke: #fff8ea; stroke-width: 5; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#806b58"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="1120"/>
+  <text class="title" x="50" y="50">Life OS 数据库关系图</text>
+  <text class="note" x="50" y="78">箭头由父记录指向子记录；1:N 表示一对多，1:0..1 表示最多一条。所有业务表都用 user_id 隔离用户数据。</text>
+
+  <rect class="lane" x="35" y="105" width="360" height="970"/>
+  <text class="lane-title" x="55" y="138">用户与外部接入</text>
+  <rect class="box auth" x="70" y="165" width="290" height="105"/>
+  <text class="table-title" x="90" y="195">auth.users</text>
+  <text class="field" x="90" y="220">PK id</text>
+  <text class="note" x="90" y="246">Supabase Auth 管理</text>
+
+  <rect class="box auth" x="70" y="315" width="290" height="125"/>
+  <text class="table-title" x="90" y="345">profiles</text>
+  <text class="field" x="90" y="370">PK/FK user_id</text>
+  <text class="field" x="90" y="393">timezone</text>
+  <text class="field" x="90" y="416">default_reminder_time</text>
+
+  <rect class="box" x="70" y="485" width="290" height="125"/>
+  <text class="table-title" x="90" y="515">external_accounts</text>
+  <text class="field" x="90" y="540">PK id · FK user_id</text>
+  <text class="field" x="90" y="563">provider</text>
+  <text class="field" x="90" y="586">external_user_id</text>
+
+  <rect class="box" x="70" y="655" width="290" height="125"/>
+  <text class="table-title" x="90" y="685">action_credentials</text>
+  <text class="field" x="90" y="710">PK id · FK user_id</text>
+  <text class="field" x="90" y="733">token_hash · status</text>
+  <text class="field" x="90" y="756">last_used_at?</text>
+
+  <rect class="box" x="70" y="825" width="290" height="150"/>
+  <text class="table-title" x="90" y="855">action_batches</text>
+  <text class="field" x="90" y="880">PK id · FK user_id</text>
+  <text class="field" x="90" y="903">idempotency_key</text>
+  <text class="field" x="90" y="926">request_hash · raw_text</text>
+  <text class="field" x="90" y="949">response_json</text>
+
+  <rect class="lane" x="425" y="105" width="360" height="970"/>
+  <text class="lane-title" x="445" y="138">输入审计与待确认</text>
+  <rect class="box" x="460" y="240" width="290" height="195"/>
+  <text class="table-title" x="480" y="270">messages</text>
+  <text class="field" x="480" y="295">PK id · FK user_id</text>
+  <text class="field" x="480" y="318">FK batch_id?</text>
+  <text class="field" x="480" y="341">source · raw_text</text>
+  <text class="field" x="480" y="364">intent_type · confidence</text>
+  <text class="field" x="480" y="387">parsed_json · status</text>
+  <text class="note" x="480" y="414">保留一次输入的解析依据</text>
+
+  <rect class="box" x="460" y="555" width="290" height="165"/>
+  <text class="table-title" x="480" y="585">inbox_items</text>
+  <text class="field" x="480" y="610">PK id · FK user_id</text>
+  <text class="field" x="480" y="633">FK message_id</text>
+  <text class="field" x="480" y="656">suggested_type/json</text>
+  <text class="field" x="480" y="679">reason · status</text>
+  <text class="note" x="480" y="703">低置信度输入等待确认</text>
+
+  <rect class="lane" x="815" y="105" width="750" height="970"/>
+  <text class="lane-title" x="835" y="138">成长业务核心</text>
+  <rect class="box core" x="850" y="175" width="310" height="210"/>
+  <text class="table-title" x="870" y="205">goals</text>
+  <text class="field" x="870" y="230">PK id · FK user_id</text>
+  <text class="field" x="870" y="253">title · goal_type</text>
+  <text class="field" x="870" y="276">life_area（七个固定领域）</text>
+  <text class="field" x="870" y="299">metric_type</text>
+  <text class="field" x="870" y="322">status · completed_at?</text>
+  <text class="note" x="870" y="350">树枝的业务归属与成长口径</text>
+
+  <rect class="box" x="1220" y="175" width="300" height="140"/>
+  <text class="table-title" x="1240" y="205">goal_aliases</text>
+  <text class="field" x="1240" y="230">PK id · FK user_id</text>
+  <text class="field" x="1240" y="253">FK goal_id</text>
+  <text class="field" x="1240" y="276">alias（用户内唯一）</text>
+  <text class="note" x="1240" y="299">帮助 AI 匹配目标</text>
+
+  <rect class="box core" x="850" y="465" width="310" height="210"/>
+  <text class="table-title" x="870" y="495">tasks</text>
+  <text class="field" x="870" y="520">PK id · FK user_id</text>
+  <text class="field" x="870" y="543">FK goal_id? · source_message_id?</text>
+  <text class="field" x="870" y="566">title · status · due_at?</text>
+  <text class="field" x="870" y="589">planned_metric_*?</text>
+  <text class="field" x="870" y="612">completed_at?</text>
+  <text class="note" x="870" y="645">未来要做什么；未完成时不上树</text>
+
+  <rect class="box core" x="1220" y="430" width="300" height="225"/>
+  <text class="table-title" x="1240" y="460">activities</text>
+  <text class="field" x="1240" y="485">PK id · FK user_id</text>
+  <text class="field" x="1240" y="508">FK goal_id · task_id?</text>
+  <text class="field" x="1240" y="531">source_message_id?</text>
+  <text class="field" x="1240" y="554">metric_type · value · unit</text>
+  <text class="field" x="1240" y="577">occurred_on</text>
+  <text class="note" x="1240" y="608">已经发生的积累；驱动树成长</text>
+  <text class="note" x="1240" y="632">每个 Task 最多对应一条</text>
+
+  <rect class="box" x="850" y="760" width="310" height="155"/>
+  <text class="table-title" x="870" y="790">reminders</text>
+  <text class="field" x="870" y="815">PK id · FK user_id</text>
+  <text class="field" x="870" y="838">FK task_id（必填）</text>
+  <text class="field" x="870" y="861">remind_at · repeat_rule</text>
+  <text class="field" x="870" y="884">status</text>
+
+  <rect class="box core" x="1220" y="745" width="300" height="175"/>
+  <text class="table-title" x="1240" y="775">achievements</text>
+  <text class="field" x="1240" y="800">PK id · FK user_id</text>
+  <text class="field" x="1240" y="823">FK short_goal_id</text>
+  <text class="field" x="1240" y="846">title · note? · evidence_url?</text>
+  <text class="field" x="1240" y="869">achieved_at</text>
+  <text class="note" x="1240" y="898">完成短期 Goal 后生成果实</text>
+
+  <rect class="box view" x="850" y="970" width="670" height="70"/>
+  <text class="table-title" x="870" y="998">只读视图：goal_activity_rollup → goal_growth_stats</text>
+  <text class="note" x="870" y="1024">汇总 Goal 的总量、次数、活跃天数、最近活动、连续周数和强度</text>
+
+  <path class="edge" d="M215 270 L215 315"/><text class="label" x="225" y="297">1:1</text>
+  <path class="edge" d="M215 440 L215 485"/><text class="label" x="225" y="468">1:N</text>
+  <path class="edge" d="M215 440 C180 505 180 590 215 655"/><text class="label" x="145" y="555">1:N</text>
+  <path class="edge" d="M215 440 C110 570 110 700 215 825"/><text class="label" x="93" y="645">1:N</text>
+  <path class="edge" d="M360 900 C420 900 420 338 460 338"/><text class="label" x="392" y="620">1:N</text>
+  <path class="edge" d="M605 435 L605 555"/><text class="label" x="615" y="500">1:N</text>
+
+  <path class="edge" d="M1160 245 L1220 245"/><text class="label" x="1172" y="235">1:N</text>
+  <path class="edge" d="M1005 385 L1005 465"/><text class="label" x="1015" y="430">1:N</text>
+  <path class="edge" d="M1160 330 C1220 350 1280 365 1340 430"/><text class="label" x="1220" y="370">1:N</text>
+  <path class="edge" d="M1160 570 L1220 570"/><text class="label" x="1168" y="559">1:0..1</text>
+  <path class="edge" d="M1005 675 L1005 760"/><text class="label" x="1015" y="722">1:N</text>
+  <path class="edge" d="M1115 385 C1180 505 1220 655 1340 745"/><text class="label" x="1190" y="610">1:0..1 短期</text>
+  <path class="edge-dashed" d="M605 435 C650 500 780 525 850 545"/><text class="label" x="675" y="496">来源可空</text>
+  <path class="edge-dashed" d="M750 335 C930 350 1110 405 1220 505"/><text class="label" x="935" y="378">来源可空</text>
+  <path class="edge-dashed" d="M750 370 C810 540 800 760 850 830"/><text class="label" x="775" y="655">来源可空</text>
+  <path class="edge-dashed" d="M1185 970 C1185 910 1270 700 1350 655"/>
+</svg>
