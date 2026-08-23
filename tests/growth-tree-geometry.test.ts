@@ -41,7 +41,7 @@ const viewModel: GrowthTreeViewModel = {
     { entityType: "life_area", entityId: "growth", parentEntityId: "root", controlPoints: [{x:0,y:1,z:0},{x:.2,y:1.4,z:0},{x:.5,y:2,z:0},{x:1,y:2.4,z:0}], baseRadius:.2, tipRadius:.06, radialSegments:8 },
     { entityType: "long_goal", entityId: "career", parentEntityId: "growth", controlPoints: [{x:.5,y:2,z:0},{x:.7,y:2.3,z:0},{x:1,y:2.6,z:0},{x:1.2,y:3,z:0}], baseRadius:.1, tipRadius:.03, radialSegments:7 }
   ],
-  semanticLeaves: [{ activityId: "activity-1", goalId: "career", anchor: {x:1.2,y:3,z:0}, rotation:{x:0,y:0,z:0}, scale:1, visible:true }],
+  semanticLeaves: [{ activityId: "activity-1", goalId: "career", anchor: {x:1.48,y:3.33,z:.12}, direction:{x:.97,y:-.24,z:0}, roll:0, rotation:{x:0,y:0,z:0}, scale:.65, visible:true, twig:{id:"activity-twig-1",parentEntityId:"career",controlPoints:[{x:1.05,y:2.75,z:0},{x:1.18,y:2.95,z:.04},{x:1.3,y:3.18,z:.08},{x:1.4,y:3.35,z:.12}],baseRadius:.014,tipRadius:.014}, petiole:{id:"activity-petiole-1",parentEntityId:"activity-twig-1",controlPoints:[{x:1.4,y:3.35,z:.12},{x:1.43,y:3.343,z:.12},{x:1.455,y:3.337,z:.12},{x:1.48,y:3.33,z:.12}],baseRadius:.004,tipRadius:.004} }],
   root: {
     ...segment,
     entityType: "root",
@@ -217,6 +217,8 @@ describe("growth tree geometry", () => {
     );
 
     expect(layer.selectable).toHaveLength(4);
+    expect(layer.group.getObjectByName("decorative-canopy-twigs")).toBeDefined();
+    expect(layer.group.getObjectByName("activity-leaf-twig-activity-1")).toBeDefined();
     expect(layer.entityByUuid.size).toBe(layer.selectable.length);
     expect(
       layer.selectable.map((object) => layer.entityByUuid.get(object.uuid))

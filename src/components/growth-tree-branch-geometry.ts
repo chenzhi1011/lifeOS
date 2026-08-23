@@ -46,6 +46,13 @@ export type NaturalBranchProfile = {
   tipVertexCount: number;
 };
 
+export type UniformCurvedBranchGeometryOptions = {
+  controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector];
+  radius: number;
+  longitudinalSegments: number;
+  radialSegments: number;
+};
+
 function vector(value: SceneVector): THREE.Vector3 {
   return new THREE.Vector3(value.x, value.y, value.z);
 }
@@ -135,6 +142,61 @@ function transportNormal(
   return transported.lengthSq() > 1e-8
     ? transported.normalize()
     : initialNormal(tangent);
+}
+
+/** Constant-radius capped curve for fine twigs and petioles. / 细枝和叶柄专用的等半径封口弯管。 */
+export function createUniformCurvedBranchGeometry(
+  options: UniformCurvedBranchGeometryOptions
+): THREE.BufferGeometry {
+  validateControlPoints(options.controlPoints);
+  requireFinitePositive("radius", options.radius);
+  const longitudinalSegments = Math.max(1, Math.round(options.longitudinalSegments));
+  const radialSegments = Math.max(3, Math.round(options.radialSegments));
+  const ringCount = longitudinalSegments + 1;
+  const curve = new THREE.CubicBezierCurve3(
+    ...options.controlPoints.map(vector) as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3]
+  );
+  const positions: number[] = [];
+  const indices: number[] = [];
+  let normal: THREE.Vector3 | null = null;
+  for (let ring = 0; ring < ringCount; ring += 1) {
+    const along = ring / longitudinalSegments;
+    const center = curve.getPoint(along);
+    const tangent = curve.getTangent(along).normalize();
+    normal = normal ? transportNormal(normal, tangent) : initialNormal(tangent);
+    const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+    for (let side = 0; side < radialSegments; side += 1) {
+      const angle = side / radialSegments * Math.PI * 2;
+      const position = center.clone()
+        .addScaledVector(normal, Math.cos(angle) * options.radius)
+        .addScaledVector(binormal, Math.sin(angle) * options.radius);
+      positions.push(position.x, position.y, position.z);
+    }
+  }
+  for (let ring = 0; ring < ringCount - 1; ring += 1) {
+    const current = ring * radialSegments;
+    const next = (ring + 1) * radialSegments;
+    for (let side = 0; side < radialSegments; side += 1) {
+      const following = (side + 1) % radialSegments;
+      indices.push(current + side, next + following, next + side, current + side, current + following, next + following);
+    }
+  }
+  const baseCenter = positions.length / 3;
+  const base = curve.getPoint(0);
+  positions.push(base.x, base.y, base.z);
+  for (let side = 0; side < radialSegments; side += 1) indices.push(baseCenter, (side + 1) % radialSegments, side);
+  const tipCenter = positions.length / 3;
+  const tip = curve.getPoint(1);
+  positions.push(tip.x, tip.y, tip.z);
+  const lastRing = (ringCount - 1) * radialSegments;
+  for (let side = 0; side < radialSegments; side += 1) indices.push(lastRing + side, lastRing + (side + 1) % radialSegments, tipCenter);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 /**

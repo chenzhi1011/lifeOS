@@ -43,6 +43,25 @@ describe("semantic tree skeleton", () => {
   it("uses deterministic leaf visibility from canopy retention", () => {
     const result = skeleton();
     expect(result.leaves.every((leaf) => typeof leaf.visible === "boolean")).toBe(true);
+    expect(
+      result.leaves.every(
+        (leaf) =>
+          leaf.twig.parentEntityId === leaf.goalId &&
+          leaf.petiole.controlPoints[0].x === leaf.twig.controlPoints[3].x &&
+          leaf.petiole.controlPoints[0].y === leaf.twig.controlPoints[3].y &&
+          leaf.petiole.controlPoints[0].z === leaf.twig.controlPoints[3].z &&
+          leaf.petiole.controlPoints[3].x === leaf.anchor.x &&
+          leaf.petiole.controlPoints[3].y === leaf.anchor.y &&
+          leaf.petiole.controlPoints[3].z === leaf.anchor.z &&
+          Math.hypot(
+            leaf.anchor.x - leaf.petiole.controlPoints[0].x,
+            leaf.anchor.y - leaf.petiole.controlPoints[0].y,
+            leaf.anchor.z - leaf.petiole.controlPoints[0].z
+          ) <= .05 &&
+          leaf.direction.y <= 0.02
+      )
+    ).toBe(true);
+    expect(result.leaves.every((leaf) => leaf.scale <= 0.72)).toBe(true);
     expect(skeleton().leaves).toEqual(result.leaves);
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
   createNaturalBranchGeometry,
+  createUniformCurvedBranchGeometry,
   getNaturalBranchProfile,
   type NaturalBranchGeometryOptions
 } from "@/src/components/growth-tree-branch-geometry";
@@ -23,6 +24,27 @@ const options: NaturalBranchGeometryOptions = {
 };
 
 describe("natural branch geometry", () => {
+  it("creates a capped constant-radius curve without a pointed tip", () => {
+    const radius = .014;
+    const geometry = createUniformCurvedBranchGeometry({
+      controlPoints: options.controlPoints,
+      radius,
+      longitudinalSegments: 5,
+      radialSegments: 5
+    });
+    const positions = geometry.attributes.position;
+    const curve = new THREE.CubicBezierCurve3(...options.controlPoints.map((item) => new THREE.Vector3(item.x, item.y, item.z)) as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3]);
+    for (let ring = 0; ring <= 5; ring += 1) {
+      const center = curve.getPoint(ring / 5);
+      for (let side = 0; side < 5; side += 1) {
+        expect(new THREE.Vector3().fromBufferAttribute(positions, ring * 5 + side).distanceTo(center)).toBeCloseTo(radius, 5);
+      }
+    }
+    expect(positions.count).toBe(32);
+    expect(geometry.index).not.toBeNull();
+    geometry.dispose();
+  });
+
   it("creates a deterministic tapered branch with one pointed tip", () => {
     const profile = getNaturalBranchProfile(options);
     const first = createNaturalBranchGeometry(options);

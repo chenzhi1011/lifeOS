@@ -6,7 +6,10 @@ import type {
 import {
   createSemanticBranchMesh,
   createSemanticLeafMesh,
-  createDecorativeCanopy
+  createDecorativeCanopy,
+  buildCanopyStructure,
+  createDecorativeCanopyTwigs,
+  createActivityLeafTwigMesh
 } from "./growth-tree-semantic-geometry";
 
 export type TreeSelectionTarget = {
@@ -76,12 +79,21 @@ export function createRealisticGrowthTreeLayer(
   const ownedMaterials = new Set<THREE.Material>();
   // Decorative canopy is the soft background foliage used to make the tree fuller.
   // 装饰性树冠是让树看起来更丰满的背景叶层。
+  const canopyStructure = buildCanopyStructure(
+    viewModel.branches,
+    viewModel.recipe
+  );
+  const canopyTwigs = createDecorativeCanopyTwigs([
+    ...canopyStructure.twigs,
+    ...canopyStructure.petioles
+  ]);
   const canopy = createDecorativeCanopy(viewModel.branches, viewModel.recipe);
   const visibleActivityLeaves = viewModel.semanticLeaves
     .filter((item) => item.visible)
     .sort((left, right) => left.activityId.localeCompare(right.activityId))
     .slice(0, 100);
-  group.add(canopy);
+  group.add(canopyTwigs, canopy);
+  rememberOwnedMesh(canopyTwigs, ownedGeometries, ownedMaterials);
   rememberOwnedMesh(canopy, ownedGeometries, ownedMaterials);
   for (const segment of viewModel.branches) {
     // Semantic branches are the structural wood pieces derived from the tree recipe.
@@ -107,6 +119,7 @@ export function createRealisticGrowthTreeLayer(
   for (const leaf of visibleActivityLeaves) {
     // Activity leaves are the user-facing growth markers attached to goals.
     // 活动叶片代表用户行为留下的成长痕迹，挂在对应目标上。
+    const twigMesh = createActivityLeafTwigMesh(leaf);
     const mesh = createSemanticLeafMesh(leaf);
     const target: TreeSelectionTarget = {
       kind: "leaf",
@@ -115,7 +128,8 @@ export function createRealisticGrowthTreeLayer(
       leafId: leaf.activityId,
       goalId: leaf.goalId
     };
-    group.add(mesh);
+    group.add(twigMesh, mesh);
+    rememberOwnedMesh(twigMesh, ownedGeometries, ownedMaterials);
     selectable.push(mesh);
     entityByUuid.set(mesh.uuid, target);
     rememberOwnedMesh(mesh, ownedGeometries, ownedMaterials);

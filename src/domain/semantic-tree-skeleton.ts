@@ -6,7 +6,10 @@ import { treeBranchRadiusAt } from "./tree-branch-shape";
 import { branchesCollide } from "./tree-branch-collision";
 
 export type SemanticBranch = { entityType: "root" | "life_area" | "long_goal" | "short_goal"; entityId: string; parentEntityId: string | null; controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector]; baseRadius: number; tipRadius: number; radialSegments: number };
-export type SemanticLeaf = { activityId: string; goalId: string; anchor: SceneVector; rotation: SceneVector; scale: number; visible: boolean };
+export type LeafTwig = { id: string; parentEntityId: string; controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector]; baseRadius: number; tipRadius: number };
+export const CANOPY_TWIG_RADIUS = .014;
+export const LEAF_PETIOLE_RADIUS = .004;
+export type SemanticLeaf = { activityId: string; goalId: string; twig: LeafTwig; petiole: LeafTwig; anchor: SceneVector; direction: SceneVector; roll: number; rotation: SceneVector; scale: number; visible: boolean };
 export type SemanticTreeSkeleton = { branches: SemanticBranch[]; leaves: SemanticLeaf[] };
 const v = (x: number, y: number, z: number): SceneVector => ({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)), z: Number(z.toFixed(4)) });
 function bezier(points: SemanticBranch["controlPoints"], t: number): SceneVector {
@@ -14,6 +17,88 @@ function bezier(points: SemanticBranch["controlPoints"], t: number): SceneVector
   return v(u ** 3 * a.x + 3 * u ** 2 * t * b.x + 3 * u * t ** 2 * c.x + t ** 3 * d.x,
     u ** 3 * a.y + 3 * u ** 2 * t * b.y + 3 * u * t ** 2 * c.y + t ** 3 * d.y,
     u ** 3 * a.z + 3 * u ** 2 * t * b.z + 3 * u * t ** 2 * c.z + t ** 3 * d.z);
+}
+
+function normalized(vector: SceneVector): SceneVector {
+  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
+  return v(vector.x / length, vector.y / length, vector.z / length);
+}
+
+function leafTwig(
+  activityId: string,
+  parent: SemanticBranch,
+  progress: number
+): { twig: LeafTwig; petiole: LeafTwig; direction: SceneVector } {
+  const start = bezier(parent.controlPoints, progress);
+  const before = bezier(parent.controlPoints, Math.max(0, progress - .035));
+  const tangent = normalized(v(
+    start.x - before.x,
+    start.y - before.y,
+    start.z - before.z
+  ));
+  const azimuth = seedFromId(activityId, "twig-azimuth") * Math.PI * 2;
+  const outward = normalized(v(
+    tangent.x * .34 + Math.cos(azimuth) * .72,
+    Math.max(.24, tangent.y * .35 + .48),
+    tangent.z * .34 + Math.sin(azimuth) * .72
+  ));
+  const length = .34 + seedFromId(activityId, "twig-length") * .22;
+  const end = v(
+    start.x + outward.x * length,
+    start.y + outward.y * length,
+    start.z + outward.z * length
+  );
+  const twig: LeafTwig = {
+    id: `activity-twig-${activityId}`,
+    parentEntityId: parent.entityId,
+    controlPoints: [
+      start,
+      v(
+        start.x + outward.x * length * .28,
+        start.y + outward.y * length * .22 + .025,
+        start.z + outward.z * length * .28
+      ),
+      v(
+        start.x + outward.x * length * .68,
+        start.y + outward.y * length * .62 + .035,
+        start.z + outward.z * length * .68
+      ),
+      end
+    ],
+    baseRadius: CANOPY_TWIG_RADIUS,
+    tipRadius: CANOPY_TWIG_RADIUS
+  };
+  const leafDirection = normalized(v(
+    Math.cos(azimuth) * .82 + outward.x * .18,
+    -.24,
+    Math.sin(azimuth) * .82 + outward.z * .18
+  ));
+  const petioleEnd = v(
+    end.x + leafDirection.x * .045,
+    end.y + leafDirection.y * .045,
+    end.z + leafDirection.z * .045
+  );
+  const petiole: LeafTwig = {
+    id: `activity-petiole-${activityId}`,
+    parentEntityId: twig.id,
+    controlPoints: [
+      end,
+      v(
+        end.x + leafDirection.x * .015,
+        end.y + leafDirection.y * .015,
+        end.z + leafDirection.z * .015
+      ),
+      v(
+        end.x + leafDirection.x * .03,
+        end.y + leafDirection.y * .03,
+        end.z + leafDirection.z * .03
+      ),
+      petioleEnd
+    ],
+    baseRadius: LEAF_PETIOLE_RADIUS,
+    tipRadius: LEAF_PETIOLE_RADIUS
+  };
+  return { twig, petiole, direction: leafDirection };
 }
 
 type CurveAdjustment = {
@@ -105,10 +190,12 @@ export function buildSemanticTreeSkeleton(data: DashboardData, recipe: TreeRecip
   const recentIds = new Set(data.recentActivities.map((item) => item.id));
   const leaves = [...data.allActivities].sort((a, b) => a.id.localeCompare(b.id)).flatMap((activity): SemanticLeaf[] => {
     const parent = branchById.get(activity.goalId); if (!parent) return [];
-    const rank = seedFromId(activity.id, "visibility"); const t = .58 + seedFromId(activity.id, "anchor") * .4;
-    return [{ activityId: activity.id, goalId: activity.goalId, anchor: bezier(parent.controlPoints, t),
+    const rank = seedFromId(activity.id, "visibility"); const t = .62 + seedFromId(activity.id, "anchor") * .34;
+    const { twig, petiole, direction } = leafTwig(activity.id, parent, t);
+    return [{ activityId: activity.id, goalId: activity.goalId, twig, petiole, anchor: petiole.controlPoints[3], direction,
+      roll: Number(((seedFromId(activity.id, "roll") - .5) * .5).toFixed(4)),
       rotation: v(seedFromId(activity.id, "rx") * .5, seedFromId(activity.id, "ry") * Math.PI * 2, (seedFromId(activity.id, "rz") - .5) * .8),
-      scale: Number((.78 + seedFromId(activity.id, "scale") * .35).toFixed(4)), visible: recentIds.has(activity.id) && rank <= recipe.canopy.retention }];
+      scale: Number((.52 + seedFromId(activity.id, "scale") * .2).toFixed(4)), visible: recentIds.has(activity.id) && rank <= recipe.canopy.retention }];
   });
   return { branches, leaves };
 }
