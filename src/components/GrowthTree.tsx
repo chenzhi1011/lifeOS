@@ -4,9 +4,8 @@ import type { Goal } from "@/src/domain/types";
 
 export function GrowthTree({ goals, stats }: { goals: Goal[]; stats: GoalGrowthStat[] }) {
   const statByGoal = new Map(stats.map((stat) => [stat.goalId, stat]));
-  const root = goals.find((goal) => goal.id === "life") ?? goals[0];
-  const branches = goals.filter((goal) => goal.parentGoalId === root?.id);
-  const leaves = goals.filter((goal) => goal.parentGoalId && goal.parentGoalId !== root?.id);
+  const branches = goals.filter((goal) => goal.goalType === "long_term");
+  const leaves = goals.filter((goal) => goal.goalType === "short_term");
 
   return (
     <section className="rounded-lg border border-black/10 bg-white/75 p-5 shadow-sm">

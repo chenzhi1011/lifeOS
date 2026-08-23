@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
-import { normalizeDashboardUserId } from "@/src/dashboard/user-id";
-import { readDashboardData } from "@/src/db/lifeos-read";
+import { queryDashboard } from "@/src/application/dashboard-queries";
+import { resolveSessionPrincipal } from "@/src/auth/api-principal";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const userId = normalizeDashboardUserId(url.searchParams.get("userId"));
-  if (!userId) {
-    return NextResponse.json({ error: "A valid userId query parameter is required." }, { status: 400 });
-  }
+  const principal = await resolveSessionPrincipal(request);
+  if (!principal) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  return NextResponse.json(await readDashboardData(userId));
+  try {
+    const asOf = new Date();
+    return NextResponse.json(await queryDashboard(principal, asOf));
+  } catch {
+    return NextResponse.json(
+      { error: "failed to read dashboard data" },
+      { status: 500 }
+    );
+  }
 }

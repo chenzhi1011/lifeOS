@@ -45,14 +45,28 @@ create table goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   title text not null,
-  category text not null,
-  parent_goal_id uuid,
+  goal_type text not null check (goal_type in ('long_term', 'short_term')),
+  life_area text not null check (
+    life_area in (
+      'work',
+      'growth',
+      'health',
+      'life',
+      'finance',
+      'relationships',
+      'entertainment'
+    )
+  ),
+  due_at timestamptz,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   status text not null default 'active' check (status in ('active', 'paused', 'completed')),
   created_at timestamptz not null default now(),
+  completed_at timestamptz,
   unique (user_id, id),
-  unique (user_id, title),
-  foreign key (user_id, parent_goal_id) references goals(user_id, id)
+  unique (user_id, id, metric_type),
+  constraint goals_completed_at_check check (
+    status <> 'completed' or completed_at is not null
+  )
 );
 
 create table goal_aliases (
@@ -73,7 +87,7 @@ create table messages (
   batch_id uuid,
   event_index integer,
   raw_text text not null,
-  intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'reminder', 'inbox')),
+  intent_type text not null check (intent_type in ('task', 'activity', 'goal', 'inbox')),
   confidence numeric not null check (confidence >= 0 and confidence <= 1),
   parsed_json jsonb not null,
   status text not null check (status in ('processed', 'inbox', 'failed')),
@@ -90,16 +104,37 @@ create table tasks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   goal_id uuid,
-  message_id uuid not null,
+  source_message_id uuid,
   title text not null,
   status text not null default 'open' check (status in ('open', 'completed', 'cancelled')),
   due_at timestamptz,
   priority text not null default 'normal' check (priority in ('low', 'normal', 'high')),
+  planned_metric_type text,
+  planned_value numeric,
+  planned_unit text,
   created_at timestamptz not null default now(),
   completed_at timestamptz,
   unique (user_id, id),
+  constraint tasks_planned_metric_shape_check check (
+    (planned_metric_type is null and planned_value is null and planned_unit is null)
+    or (
+      planned_metric_type in ('duration', 'count', 'milestone')
+      and planned_value > 0
+      and planned_unit in ('minute', 'count')
+    )
+  ),
+  constraint tasks_planned_metric_unit_check check (
+    planned_metric_type is null
+    or (planned_metric_type = 'duration' and planned_unit = 'minute')
+    or (planned_metric_type in ('count', 'milestone') and planned_unit = 'count')
+  ),
+  constraint tasks_completion_shape_check check (
+    (status = 'completed' and completed_at is not null)
+    or (status in ('open', 'cancelled') and completed_at is null)
+  ),
   foreign key (user_id, goal_id) references goals(user_id, id),
-  foreign key (user_id, message_id) references messages(user_id, id)
+  foreign key (user_id, goal_id, planned_metric_type) references goals(user_id, id, metric_type),
+  foreign key (user_id, source_message_id) references messages(user_id, id)
 );
 
 create table activities (
@@ -107,38 +142,43 @@ create table activities (
   user_id uuid not null references profiles(user_id) on delete cascade,
   goal_id uuid not null,
   task_id uuid,
-  message_id uuid not null,
+  source_message_id uuid,
   summary text not null,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   value numeric not null,
-  unit text not null check (unit in ('minute', 'hour', 'count')),
+  unit text not null check (unit in ('minute', 'count')),
   occurred_on date not null,
   created_at timestamptz not null default now(),
   unique (user_id, id),
-  foreign key (user_id, goal_id) references goals(user_id, id),
+  constraint activities_value_positive_check check (value > 0),
+  constraint activities_metric_unit_check check (
+    (metric_type = 'duration' and unit = 'minute')
+    or (metric_type in ('count', 'milestone') and unit = 'count')
+  ),
+  foreign key (user_id, goal_id, metric_type) references goals(user_id, id, metric_type),
   foreign key (user_id, task_id) references tasks(user_id, id),
-  foreign key (user_id, message_id) references messages(user_id, id)
+  foreign key (user_id, source_message_id) references messages(user_id, id)
 );
 
 create table reminders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
-  task_id uuid,
-  message_id uuid not null,
+  task_id uuid not null,
+  source_message_id uuid,
   remind_at timestamptz not null,
   repeat_rule text not null default 'none' check (repeat_rule in ('none', 'daily', 'weekly')),
   status text not null default 'scheduled' check (status in ('scheduled', 'sent', 'cancelled')),
   created_at timestamptz not null default now(),
   unique (user_id, id),
   foreign key (user_id, task_id) references tasks(user_id, id),
-  foreign key (user_id, message_id) references messages(user_id, id)
+  foreign key (user_id, source_message_id) references messages(user_id, id)
 );
 
 create table inbox_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
   message_id uuid not null,
-  suggested_type text not null check (suggested_type in ('task', 'activity', 'goal', 'reminder', 'inbox')),
+  suggested_type text not null check (suggested_type in ('task', 'activity', 'goal', 'inbox')),
   suggested_json jsonb not null,
   reason text not null,
   status text not null default 'pending' check (status in ('pending', 'resolved', 'dismissed')),
@@ -150,28 +190,94 @@ create table inbox_items (
 create table achievements (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(user_id) on delete cascade,
-  goal_id uuid,
+  short_goal_id uuid not null,
   title text not null,
   metric_type text not null check (metric_type in ('duration', 'count', 'milestone')),
   threshold_value numeric,
+  note text,
+  evidence_url text,
   achieved_at timestamptz not null,
   created_at timestamptz not null default now(),
   unique (user_id, id),
-  foreign key (user_id, goal_id) references goals(user_id, id)
+  foreign key (user_id, short_goal_id) references goals(user_id, id)
 );
+
+create or replace function enforce_achievement_short_goal()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $function$
+begin
+  if new.short_goal_id is null then
+    raise exception 'achievement requires a short_term goal owned by the user';
+  end if;
+
+  perform 1
+  from goals
+  where user_id = new.user_id
+    and id = new.short_goal_id
+    and goal_type = 'short_term'
+    and status = 'completed'
+    and completed_at is not null
+  for share;
+
+  if not found then
+    raise exception 'achievement requires a short_term goal owned by the user';
+  end if;
+
+  return new;
+end
+$function$;
+
+create trigger achievements_short_goal_guard
+before insert or update of user_id, short_goal_id on achievements
+for each row execute function enforce_achievement_short_goal();
+
+create or replace function enforce_goal_achievement_shape()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $function$
+begin
+  if (
+    new.goal_type is distinct from 'short_term'
+    or new.status is distinct from 'completed'
+    or new.completed_at is null
+  ) and exists (
+    select 1
+    from achievements
+    where user_id = new.user_id
+      and short_goal_id = new.id
+  ) then
+    raise exception 'a goal referenced by an achievement must remain completed short_term';
+  end if;
+
+  return new;
+end
+$function$;
+
+create trigger goals_achievement_shape_guard
+before update of goal_type, status, completed_at on goals
+for each row execute function enforce_goal_achievement_shape();
 
 create index idx_messages_user_created on messages (user_id, created_at desc);
 create unique index idx_messages_batch_event on messages (batch_id, event_index) where batch_id is not null;
 create index idx_action_credentials_hash_status on action_credentials (token_hash, status);
 create index idx_action_credentials_user_status on action_credentials (user_id, status);
 create index idx_action_batches_user_created on action_batches (user_id, created_at desc);
-create index idx_goals_user_parent on goals (user_id, parent_goal_id);
+create unique index uq_goals_user_current_title
+  on goals(user_id, lower(btrim(title)))
+  where status in ('active', 'paused');
 create index idx_goal_aliases_user_alias on goal_aliases (user_id, alias);
+create unique index uq_goal_aliases_user_normalized_alias
+  on goal_aliases(user_id, lower(btrim(alias)));
 create index idx_tasks_user_status_due on tasks (user_id, status, due_at);
 create index idx_activities_user_date on activities (user_id, occurred_on desc);
 create index idx_activities_user_goal_date on activities (user_id, goal_id, occurred_on desc);
+create unique index idx_activities_user_task_unique on activities (user_id, task_id) where task_id is not null;
 create index idx_reminders_user_status_time on reminders (user_id, status, remind_at);
 create index idx_inbox_items_user_status on inbox_items (user_id, status, created_at desc);
+create unique index idx_achievements_user_short_goal on achievements (user_id, short_goal_id) where short_goal_id is not null;
 
 create view goal_activity_rollup as
 select
@@ -211,20 +317,33 @@ alter table reminders enable row level security;
 alter table inbox_items enable row level security;
 alter table achievements enable row level security;
 
-create policy profiles_own_rows on profiles using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy external_accounts_own_rows on external_accounts using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy action_credentials_own_rows on action_credentials using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy profiles_own_rows on profiles for select using (user_id = auth.uid());
+create policy external_accounts_own_rows on external_accounts for select using (user_id = auth.uid());
+create policy action_credentials_own_rows on action_credentials for select using (user_id = auth.uid());
 create policy action_batches_own_rows on action_batches for select using (user_id = auth.uid());
-create policy goals_own_rows on goals using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy goal_aliases_own_rows on goal_aliases using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy messages_own_rows on messages using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy tasks_own_rows on tasks using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy activities_own_rows on activities using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy reminders_own_rows on reminders using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy inbox_items_own_rows on inbox_items using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy achievements_own_rows on achievements using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy goals_own_rows on goals for select using (user_id = auth.uid());
+create policy goal_aliases_own_rows on goal_aliases for select using (user_id = auth.uid());
+create policy messages_own_rows on messages for select using (user_id = auth.uid());
+create policy tasks_own_rows on tasks for select using (user_id = auth.uid());
+create policy activities_own_rows on activities for select using (user_id = auth.uid());
+create policy reminders_own_rows on reminders for select using (user_id = auth.uid());
+create policy inbox_items_own_rows on inbox_items for select using (user_id = auth.uid());
+create policy achievements_own_rows on achievements for select using (user_id = auth.uid());
 
 revoke insert, update, delete on action_batches from anon, authenticated;
+revoke insert, update, delete on
+  profiles,
+  external_accounts,
+  action_credentials,
+  goals,
+  goal_aliases,
+  messages,
+  tasks,
+  activities,
+  reminders,
+  inbox_items,
+  achievements
+from anon, authenticated;
 
 create or replace function record_life_event_batch(
   p_user_id uuid,
@@ -247,7 +366,8 @@ declare
   v_event_index integer;
   v_kind text;
   v_goal_id uuid;
-  v_parent_goal_id uuid;
+  v_goal_match_count integer;
+  v_existing_goal goals%rowtype;
   v_message_id uuid;
   v_task_id uuid;
   v_activity_id uuid;
@@ -258,6 +378,7 @@ declare
   v_response jsonb;
   v_updated_id uuid;
   v_alias text;
+  v_alias_owner_goal_id uuid;
 begin
   if not exists (select 1 from profiles where user_id = p_user_id) then
     raise exception 'profile does not exist for user %', p_user_id;
@@ -311,7 +432,7 @@ begin
     v_event_index := (v_ordinal - 1)::integer;
     v_kind := v_event->>'kind';
     v_goal_id := null;
-    v_parent_goal_id := null;
+    v_goal_match_count := 0;
     v_message_id := null;
     v_task_id := null;
     v_activity_id := null;
@@ -354,74 +475,125 @@ begin
     returning id into v_message_id;
 
     if v_kind = 'goal' then
-      v_parent_goal_id := nullif(v_event->>'parentGoalId', '')::uuid;
+      if v_event->>'goalType' is null
+         or v_event->>'goalType' not in ('long_term', 'short_term') then
+        raise exception 'unsupported goalType at event index %', v_event_index;
+      end if;
 
-      if v_parent_goal_id is not null
-         and not exists (
-           select 1
-           from goals
-           where user_id = p_user_id
-             and id = v_parent_goal_id
+      if v_event->>'lifeArea' is null
+         or v_event->>'lifeArea' not in (
+           'work', 'growth', 'health', 'life',
+           'finance', 'relationships', 'entertainment'
          ) then
-        raise exception 'parent goal does not belong to user at event index %', v_event_index;
+        raise exception 'unsupported lifeArea at event index %', v_event_index;
       end if;
 
       insert into goals (
         user_id,
         title,
-        category,
-        parent_goal_id,
+        goal_type,
+        life_area,
         metric_type,
         status
       )
       values (
         p_user_id,
         v_event->>'title',
-        v_event->>'category',
-        v_parent_goal_id,
+        v_event->>'goalType',
+        v_event->>'lifeArea',
         v_event->>'metricType',
         'active'
       )
-      on conflict (user_id, title) do nothing
+      on conflict (user_id, lower(btrim(title)))
+        where status in ('active', 'paused')
+      do nothing
       returning id into v_goal_id;
 
       if v_goal_id is null then
-        select id into v_goal_id
+        select * into v_existing_goal
         from goals
         where user_id = p_user_id
-          and title = v_event->>'title';
+          and status in ('active', 'paused')
+          and lower(btrim(title)) = lower(btrim(v_event->>'title'));
+
+        if v_existing_goal.goal_type is distinct from v_event->>'goalType'
+           or v_existing_goal.life_area is distinct from v_event->>'lifeArea'
+           or v_existing_goal.metric_type is distinct from v_event->>'metricType' then
+          raise exception 'goal identity conflicts with existing goal at event index %', v_event_index;
+        end if;
+
+        v_goal_id := v_existing_goal.id;
       end if;
 
       for v_alias in
         select value
         from jsonb_array_elements_text(coalesce(v_event->'aliases', '[]'::jsonb))
       loop
+        v_alias := lower(btrim(v_alias));
+        if v_alias is null or v_alias = '' then
+          raise exception 'goal alias must not be empty at event index %', v_event_index;
+        end if;
+
+        v_alias_owner_goal_id := null;
         insert into goal_aliases (user_id, goal_id, alias)
         values (p_user_id, v_goal_id, v_alias)
-        on conflict (user_id, alias) do nothing;
+        on conflict (user_id, lower(btrim(alias))) do nothing
+        returning goal_id into v_alias_owner_goal_id;
+
+        if v_alias_owner_goal_id is null then
+          select goal_id into v_alias_owner_goal_id
+          from goal_aliases
+          where user_id = p_user_id
+            and lower(btrim(alias)) = v_alias
+          for update;
+        end if;
+
+        if v_alias_owner_goal_id is distinct from v_goal_id then
+          raise exception 'goal alias belongs to another goal at event index %', v_event_index;
+        end if;
       end loop;
 
     elsif v_kind in ('task', 'activity') then
       v_goal_id := nullif(v_event->>'goalId', '')::uuid;
 
       if v_goal_id is not null then
-        if not exists (
-          select 1
-          from goals
-          where user_id = p_user_id
-            and id = v_goal_id
-        ) then
-          raise exception 'goal does not belong to user at event index %', v_event_index;
+        select id into v_goal_id
+        from goals
+        where user_id = p_user_id
+          and id = v_goal_id
+          and status = 'active'
+        -- Keep status-changing updates serialized without blocking FK KEY SHARE locks.
+        for no key update;
+
+        if not found then
+          raise exception 'goal does not belong to user or is not active at event index %', v_event_index;
         end if;
       elsif nullif(btrim(v_event->>'goalTitle'), '') is not null then
-        select id into v_goal_id
+        select
+          count(*),
+          (array_agg(id order by created_at, id))[1]
+        into v_goal_match_count, v_goal_id
         from goals
         where user_id = p_user_id
           and status = 'active'
           and lower(btrim(title)) = lower(btrim(v_event->>'goalTitle'));
 
-        if v_goal_id is null then
+        if v_goal_match_count = 0 then
           raise exception 'active goalTitle was not created before event index %', v_event_index;
+        elsif v_goal_match_count > 1 then
+          raise exception 'goalTitle is ambiguous at event index %', v_event_index;
+        end if;
+
+        perform 1
+        from goals
+        where user_id = p_user_id
+          and id = v_goal_id
+          and status = 'active'
+        -- Keep status-changing updates serialized without blocking FK KEY SHARE locks.
+        for no key update;
+
+        if not found then
+          raise exception 'goal does not belong to user or is not active at event index %', v_event_index;
         end if;
       end if;
 
@@ -429,11 +601,14 @@ begin
         insert into tasks (
           user_id,
           goal_id,
-          message_id,
+          source_message_id,
           title,
           status,
           due_at,
-          priority
+          priority,
+          planned_metric_type,
+          planned_value,
+          planned_unit
         )
         values (
           p_user_id,
@@ -442,27 +617,32 @@ begin
           v_event->>'title',
           'open',
           (v_event->>'dueAt')::timestamptz,
-          v_event->>'priority'
+          v_event->>'priority',
+          nullif(v_event->>'plannedMetricType', ''),
+          (v_event->>'plannedValue')::numeric,
+          nullif(v_event->>'plannedUnit', '')
         )
         returning id into v_task_id;
 
-        insert into reminders (
-          user_id,
-          task_id,
-          message_id,
-          remind_at,
-          repeat_rule,
-          status
-        )
-        values (
-          p_user_id,
-          v_task_id,
-          v_message_id,
-          (v_event->>'remindAt')::timestamptz,
-          'none',
-          'scheduled'
-        )
-        returning id into v_reminder_id;
+        if nullif(v_event->>'remindAt', '') is not null then
+          insert into reminders (
+            user_id,
+            task_id,
+            source_message_id,
+            remind_at,
+            repeat_rule,
+            status
+          )
+          values (
+            p_user_id,
+            v_task_id,
+            v_message_id,
+            (v_event->>'remindAt')::timestamptz,
+            coalesce(nullif(v_event->>'repeatRule', ''), 'none'),
+            'scheduled'
+          )
+          returning id into v_reminder_id;
+        end if;
       else
         if v_goal_id is null then
           raise exception 'activity requires a goal at event index %', v_event_index;
@@ -483,13 +663,19 @@ begin
           if v_updated_id is null then
             raise exception 'matched task is not an owned open task at event index %', v_event_index;
           end if;
+
+          update reminders
+          set status = 'cancelled'
+          where user_id = p_user_id
+            and task_id = v_task_id
+            and status = 'scheduled';
         end if;
 
         insert into activities (
           user_id,
           goal_id,
           task_id,
-          message_id,
+          source_message_id,
           summary,
           metric_type,
           value,
@@ -594,3 +780,249 @@ $function$;
 
 revoke execute on function public.record_life_event_batch(uuid, text, text, text, jsonb) from public, anon, authenticated;
 grant execute on function record_life_event_batch(uuid, text, text, text, jsonb) to service_role;
+
+create or replace function complete_growth_task(
+  p_user_id uuid,
+  p_task_id uuid,
+  p_occurred_on date,
+  p_metric_type text,
+  p_value numeric,
+  p_unit text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  v_task tasks%rowtype;
+  v_activity_id uuid;
+  v_metric_type text;
+  v_value numeric;
+  v_unit text;
+  v_goal_metric_type text;
+begin
+  if p_occurred_on is null then
+    raise exception 'occurredOn is required';
+  end if;
+
+  if p_metric_type is null and p_value is null and p_unit is null then
+    null;
+  elsif p_metric_type is null or p_value is null or p_unit is null then
+    raise exception 'actual metric requires type, value, and unit together';
+  elsif p_metric_type not in ('duration', 'count', 'milestone')
+     or p_value <= 0
+     or p_unit not in ('minute', 'hour', 'count') then
+    raise exception 'actual metric is invalid';
+  end if;
+
+  select * into v_task
+  from tasks
+  where user_id = p_user_id
+    and id = p_task_id
+  for update;
+
+  if not found then
+    raise exception 'task does not belong to user';
+  end if;
+
+  if v_task.status = 'completed' then
+    if v_task.goal_id is not null then
+      select id into v_activity_id
+      from activities
+      where user_id = p_user_id
+        and task_id = p_task_id;
+
+      if v_activity_id is null then
+        raise exception 'completed goal task is missing its activity';
+      end if;
+    end if;
+
+    return jsonb_build_object(
+      'taskId', v_task.id,
+      'status', 'completed',
+      'activityId', v_activity_id,
+      'duplicate', true
+    );
+  end if;
+
+  if v_task.status <> 'open' then
+    raise exception 'task is not open';
+  end if;
+
+  if v_task.goal_id is not null then
+    select metric_type into v_goal_metric_type
+    from goals
+    where user_id = p_user_id and id = v_task.goal_id;
+  end if;
+
+  update tasks
+  set
+    status = 'completed',
+    completed_at = now()
+  where user_id = p_user_id
+    and id = p_task_id;
+
+  update reminders
+  set status = 'cancelled'
+  where user_id = p_user_id
+    and task_id = p_task_id
+    and status = 'scheduled';
+
+  if v_task.goal_id is not null then
+    if p_metric_type is not null then
+      v_metric_type := p_metric_type;
+      v_value := p_value;
+      v_unit := p_unit;
+    elsif v_task.planned_metric_type is not null then
+      v_metric_type := v_task.planned_metric_type;
+      v_value := v_task.planned_value;
+      v_unit := v_task.planned_unit;
+    else
+      if v_goal_metric_type = 'duration' then
+        raise exception 'duration goal task completion requires an actual or planned metric';
+      end if;
+      v_metric_type := v_goal_metric_type;
+      v_value := 1;
+      v_unit := 'count';
+    end if;
+
+    if v_metric_type is distinct from v_goal_metric_type then
+      raise exception 'task completion metric must match goal metric type';
+    end if;
+
+    if v_metric_type = 'duration' and v_unit = 'hour' then
+      v_value := v_value * 60;
+      v_unit := 'minute';
+    end if;
+
+    insert into activities (
+      user_id,
+      goal_id,
+      task_id,
+      source_message_id,
+      summary,
+      metric_type,
+      value,
+      unit,
+      occurred_on
+    )
+    values (
+      p_user_id,
+      v_task.goal_id,
+      v_task.id,
+      v_task.source_message_id,
+      v_task.title,
+      v_metric_type,
+      v_value,
+      v_unit,
+      p_occurred_on
+    )
+    returning id into v_activity_id;
+  end if;
+
+  return jsonb_build_object(
+    'taskId', v_task.id,
+    'status', 'completed',
+    'activityId', v_activity_id,
+    'duplicate', false
+  );
+end
+$function$;
+
+revoke execute on function public.complete_growth_task(uuid, uuid, date, text, numeric, text) from public, anon, authenticated;
+grant execute on function complete_growth_task(uuid, uuid, date, text, numeric, text) to service_role;
+
+create or replace function complete_growth_goal(
+  p_user_id uuid,
+  p_goal_id uuid,
+  p_title text,
+  p_note text,
+  p_evidence_url text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  v_goal goals%rowtype;
+  v_achievement_id uuid;
+  v_duplicate boolean;
+begin
+  select * into v_goal
+  from goals
+  where user_id = p_user_id
+    and id = p_goal_id
+  for update;
+
+  if not found then
+    raise exception 'goal does not belong to user';
+  end if;
+
+  if v_goal.goal_type not in ('long_term', 'short_term') then
+    raise exception 'goal type is invalid';
+  end if;
+
+  v_duplicate := v_goal.status = 'completed';
+  if not v_duplicate then
+    update goals
+    set
+      status = 'completed',
+      completed_at = now()
+    where user_id = p_user_id
+      and id = p_goal_id
+    returning * into v_goal;
+  end if;
+
+  if v_goal.completed_at is null then
+    raise exception 'completed goal is missing completed_at';
+  end if;
+
+  if v_goal.goal_type = 'short_term' then
+    insert into achievements (
+      user_id,
+      short_goal_id,
+      title,
+      metric_type,
+      threshold_value,
+      note,
+      evidence_url,
+      achieved_at
+    )
+    values (
+      p_user_id,
+      v_goal.id,
+      coalesce(nullif(btrim(p_title), ''), v_goal.title),
+      'milestone',
+      null,
+      p_note,
+      p_evidence_url,
+      v_goal.completed_at
+    )
+    on conflict (user_id, short_goal_id) where short_goal_id is not null
+    do update set
+      title = excluded.title,
+      note = excluded.note,
+      evidence_url = excluded.evidence_url
+    returning id into v_achievement_id;
+
+    if v_achievement_id is null then
+      select id into v_achievement_id
+      from achievements
+      where user_id = p_user_id
+        and short_goal_id = v_goal.id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'goalId', v_goal.id,
+    'status', 'completed',
+    'achievementId', v_achievement_id,
+    'duplicate', v_duplicate
+  );
+end
+$function$;
+
+revoke execute on function public.complete_growth_goal(uuid, uuid, text, text, text) from public, anon, authenticated;
+grant execute on function complete_growth_goal(uuid, uuid, text, text, text) to service_role;

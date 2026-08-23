@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LIFE_AREA_IDS } from "@/src/domain/life-areas";
 
 const textField = z.string().trim().min(1).max(500);
 const dateField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -28,7 +29,31 @@ const metricSchema = z
     value: z.number().positive().max(100_000),
     unit: z.enum(["minute", "hour", "count"])
   })
-  .strict();
+  .strict()
+  .superRefine((metric, ctx) => {
+    const unitIsValid =
+      (metric.type === "duration" && ["minute", "hour"].includes(metric.unit)) ||
+      (["count", "milestone"].includes(metric.type) && metric.unit === "count");
+    if (!unitIsValid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `invalid unit ${metric.unit} for ${metric.type}`,
+        path: ["unit"]
+      });
+    }
+  });
+
+const reminderSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("default") }).strict(),
+  z.object({ mode: z.literal("none") }).strict(),
+  z
+    .object({
+      mode: z.literal("custom"),
+      remindAt: z.string().datetime({ offset: true }),
+      repeatRule: z.enum(["none", "daily", "weekly"]).default("none")
+    })
+    .strict()
+]);
 
 const taskMatchSchema = z
   .object({
@@ -46,13 +71,32 @@ const taskBatchInputSchema = z
   .object({
     ...commonEventFields,
     type: z.literal("task"),
+    path: z.enum(["one_off", "goal"]),
     title: textField,
     localDate: dateField,
     explicitDueAt: z.string().datetime({ offset: true }).optional(),
     priority: z.enum(["low", "normal", "high"]).default("normal"),
+    reminder: reminderSchema.optional(),
+    metric: metricSchema.optional(),
     goal: goalReferenceSchema.optional()
   })
-  .strict();
+  .strict()
+  .superRefine((task, ctx) => {
+    if (task.path === "one_off" && task.goal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "one_off forbids goal",
+        path: ["goal"]
+      });
+    }
+    if (task.path === "goal" && !task.goal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "goal path requires goal",
+        path: ["goal"]
+      });
+    }
+  });
 
 const activityBatchInputSchema = z
   .object({
@@ -70,9 +114,9 @@ const goalBatchInputSchema = z
   .object({
     ...commonEventFields,
     type: z.literal("goal"),
+    goalType: z.enum(["long_term", "short_term"]),
     title: textField,
-    category: textField,
-    parentGoalId: uuidField.optional(),
+    lifeArea: z.enum(LIFE_AREA_IDS),
     metricType: z.enum(["duration", "count", "milestone"]).default("count"),
     aliases: z.array(textField).max(12).default([])
   })
@@ -83,12 +127,15 @@ const inboxBatchInputSchema = z
     ...commonEventFields,
     type: z.literal("inbox"),
     reason: textField,
-    suggestedTypes: z.array(z.enum(["task", "activity", "goal", "inbox"])).min(1).max(4),
+    suggestedTypes: z
+      .array(z.enum(["task", "activity", "goal", "inbox"]))
+      .min(1)
+      .max(5),
     resolution: z.literal("dismiss").optional()
   })
   .strict();
 
-const lifeEventBatchInputSchema = z.discriminatedUnion("type", [
+const lifeEventBatchInputSchema = z.union([
   taskBatchInputSchema,
   activityBatchInputSchema,
   goalBatchInputSchema,

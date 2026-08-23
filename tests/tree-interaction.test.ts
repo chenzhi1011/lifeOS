@@ -6,30 +6,49 @@ import {
 } from "@/src/domain/tree-interaction";
 
 describe("growth tree interaction", () => {
-  it("selects wood and clears any previously selected leaf", () => {
+  it("selects wood by entity identity and clears a previous leaf", () => {
     expect(
-      selectTreeWood({ goalId: "career", leafId: "career-leaf-0" }, "health")
+      selectTreeWood(
+        { entityType: "long_goal", entityId: "goal-a", leafId: "activity-a" },
+        { entityType: "life_area", entityId: "growth" }
+      )
     ).toEqual({
-      goalId: "health",
+      entityType: "life_area",
+      entityId: "growth",
       leafId: null
     });
   });
 
-  it("only selects a leaf belonging to the selected goal", () => {
-    const selected = { goalId: "career", leafId: null };
+  it("only selects a leaf belonging to the selected goal wood", () => {
+    const selected = {
+      entityType: "long_goal" as const,
+      entityId: "goal-a",
+      leafId: null
+    };
 
     expect(
-      selectTreeLeaf(selected, { id: "health-leaf-0", goalId: "health" })
+      selectTreeLeaf(selected, { activityId: "activity-b", goalId: "goal-b" })
     ).toEqual(selected);
     expect(
-      selectTreeLeaf(selected, { id: "career-leaf-0", goalId: "career" })
+      selectTreeLeaf(selected, { activityId: "activity-a", goalId: "goal-a" })
     ).toEqual({
-      goalId: "career",
-      leafId: "career-leaf-0"
+      entityType: "long_goal",
+      entityId: "goal-a",
+      leafId: "activity-a"
     });
+    expect(
+      selectTreeLeaf(
+        { entityType: "life_area", entityId: "growth", leafId: null },
+        { activityId: "activity-a", goalId: "goal-a" }
+      )
+    ).toEqual({ entityType: "life_area", entityId: "growth", leafId: null });
   });
 
-  it("clears all selection", () => {
-    expect(clearTreeSelection()).toEqual({ goalId: null, leafId: null });
+  it("clears entity and leaf identity", () => {
+    expect(clearTreeSelection()).toEqual({
+      entityType: null,
+      entityId: null,
+      leafId: null
+    });
   });
 });

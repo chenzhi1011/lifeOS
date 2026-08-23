@@ -1,6 +1,9 @@
-import { RealisticGrowthTree } from "@/src/components/RealisticGrowthTree";
+import { GrowthTreeDashboard } from "@/src/components/GrowthTreeDashboard";
 import { normalizeDashboardUserId } from "@/src/dashboard/user-id";
-import { readDashboardData } from "@/src/db/lifeos-read";
+import { queryDashboard } from "@/src/application/dashboard-queries";
+import { resolveSessionPrincipal, type ApiPrincipal } from "@/src/auth/api-principal";
+import { buildGrowthTreeViewModel } from "@/src/domain/tree-visualization";
+import { headers } from "next/headers";
 
 type DashboardPageProps = {
   searchParams: Promise<{
@@ -44,11 +47,22 @@ function DashboardUserGate({ attemptedUserId }: { attemptedUserId?: string }) {
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const resolvedSearchParams = await searchParams;
   const rawUserId = getSearchValue(resolvedSearchParams.userId);
-  const userId = normalizeDashboardUserId(rawUserId);
-  if (!userId) {
+  const session = await resolveSessionPrincipal(new Request("http://life-os.local", { headers: await headers() }));
+  //todo 生产环境必须通过session
+  // const demoUserId = process.env.NODE_ENV !== "production" ? normalizeDashboardUserId(rawUserId) : null;
+  const demoUserId = normalizeDashboardUserId(rawUserId);
+  const principal: ApiPrincipal | null = session ?? (demoUserId ? { userId: demoUserId, actorType: "session" } : null);
+  if (!principal) {
     return <DashboardUserGate attemptedUserId={rawUserId} />;
   }
 
-  const data = await readDashboardData(userId);
-  return <RealisticGrowthTree data={data} />;
+  const asOf = new Date();
+  const data = await queryDashboard(principal, asOf);
+  const viewModel = buildGrowthTreeViewModel(data, asOf);
+  return (
+    <GrowthTreeDashboard
+      achievements={data.achievements}
+      viewModel={viewModel}
+    />
+  );
 }

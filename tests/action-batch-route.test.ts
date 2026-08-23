@@ -61,6 +61,7 @@ function validPayload() {
     events: [
       {
         type: "task",
+        path: "one_off",
         confidence: 0.98,
         title: "复习 AWS",
         localDate: "2099-07-29",

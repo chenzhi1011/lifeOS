@@ -1,111 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { buildDashboardData } from "@/src/domain/aggregation";
-import { createInitialState } from "@/src/domain/seed";
-import { buildGrowthTreeScene } from "@/src/domain/tree-visualization";
-import type { Activity, Goal } from "@/src/domain/types";
+import type { DashboardData } from "@/src/domain/aggregation";
+import { buildGrowthTreeViewModel } from "@/src/domain/tree-visualization";
+import type { Activity, Goal, Task } from "@/src/domain/types";
+import { LIFE_AREA_IDS } from "@/src/domain/life-areas";
 
-function goal(id: string, parentGoalId: string | null): Goal {
-  return {
-    id,
-    userId: "demo-user",
-    title: id,
-    category: id === "root" ? "root" : "test",
-    parentGoalId,
-    metricType: "count",
-    status: "active",
-    createdAt: `2026-07-01T00:00:00.000Z-${id}`
-  };
+const asOf = new Date("2026-08-01T18:30:00.000Z");
+const userId = "demo-user";
+function goal(id: string, goalType: Goal["goalType"], lifeArea: Goal["lifeArea"], status: Goal["status"] = "active"): Goal {
+  return { id, userId, title: id, goalType, lifeArea,
+    metricType: goalType === "short_term" ? "milestone" : "duration", status, dueAt: null,
+    completedAt: status === "completed" ? "2026-07-20T00:00:00.000Z" : null,
+    createdAt: "2026-01-01T00:00:00.000Z" };
+}
+function activity(id: string, goalId: string, occurredOn: string, value: number): Activity {
+  return { id, userId, goalId, taskId: null, sourceMessageId: `message-${id}`, summary: id,
+    metricType: "count", value, unit: "count", occurredOn, createdAt: `${occurredOn}T12:00:00.000Z` };
+}
+function oneOffTask(id: string): Task {
+  return { id, userId, goalId: null, sourceMessageId: `message-${id}`, title: id, status: "completed",
+    dueAt: null, priority: "normal", plannedMetricType: null, plannedValue: null, plannedUnit: null,
+    createdAt: "2026-07-01T00:00:00.000Z", completedAt: "2026-08-01T08:00:00.000Z" };
+}
+function fixture(): DashboardData {
+  const allActivities = [activity("activity-recent", "long-active", "2026-08-01", 1), activity("activity-history", "long-completed", "2026-06-01", 100)];
+  return { goals: [goal("long-active", "long_term", "health"), goal("long-completed", "long_term", "growth", "completed"), goal("short-active", "short_term", "work"), goal("short-completed", "short_term", "life", "completed")],
+    goalStats: [], allActivities, recentActivities: [allActivities[0]!], recentCompletedOneOffTasks: [oneOffTask("oneoff-recent")], achievements: [], heatmap: [], inboxCount: 0 };
 }
 
-function activity(id: string, goalId: string, occurredOn: string): Activity {
-  return {
-    id,
-    userId: "demo-user",
-    goalId,
-    taskId: null,
-    messageId: "test",
-    summary: id,
-    metricType: "count",
-    value: 1,
-    unit: "count",
-    occurredOn,
-    createdAt: `${occurredOn}T00:00:00.000Z`
-  };
-}
-
-describe("buildGrowthTreeScene", () => {
-  it("maps goals and stats into a growth tree scene model", () => {
-    const dashboard = buildDashboardData(createInitialState(), "demo-user");
-    const scene = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
-
-    expect(scene.root?.label).toBe("人生");
-    expect(scene.branches.filter((branch) => branch.depth === 1).map((branch) => branch.label)).toEqual(["职业", "健康", "兴趣", "财富"]);
-    expect(scene.branches.some((branch) => branch.goalId === "aws" && branch.activityCount === 3)).toBe(true);
-    expect(scene.leaves.some((leaf) => leaf.goalId === "aws" && leaf.activities.length === 3)).toBe(true);
+describe("buildGrowthTreeViewModel", () => {
+  it("always projects exactly seven fixed life-area branches", () => {
+    const model = buildGrowthTreeViewModel(fixture(), asOf);
+    expect(model.root.label).toBe("人生");
+    expect(model.recipe.seed).toBeTypeOf("number");
+    expect(model.branches.filter((branch) => branch.entityType === "life_area")).toHaveLength(7);
+    expect(model.branches.find((branch) => branch.entityId === "long-active")?.parentEntityId).toBe("health");
+    expect(model.lifeAreaBranches.map((branch) => branch.entityId)).toEqual(LIFE_AREA_IDS);
+    expect(model.longGoalTwigs.map((twig) => twig.entityId)).toEqual(["long-completed", "long-active"]);
+    expect(model.shortGoalBranches.map((branch) => branch.entityId)).toEqual(["short-active"]);
+    expect(model.activityLeaves.map((leaf) => leaf.activityId)).toEqual(["activity-recent"]);
   });
 
-  it("uses stable positions for repeated renders", () => {
-    const dashboard = buildDashboardData(createInitialState(), "demo-user");
-    const first = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
-    const second = buildGrowthTreeScene(dashboard.goals, dashboard.goalStats, dashboard.recentActivities);
+  it("is deterministic and historical totals increase wood thickness", () => {
+    const data = fixture();
+    const first = buildGrowthTreeViewModel(data, asOf);
+    expect(buildGrowthTreeViewModel(data, asOf)).toEqual(first);
+    expect(first.longGoalTwigs.find((item) => item.entityId === "long-completed")!.thickness)
+      .toBeGreaterThan(first.longGoalTwigs.find((item) => item.entityId === "long-active")!.thickness);
+  });
 
-    expect(first.branches.map((branch) => [branch.startPosition, branch.endPosition])).toEqual(
-      second.branches.map((branch) => [branch.startPosition, branch.endPosition])
+  it("rejects invalid dates and diagnoses invalid activity values", () => {
+    expect(() => buildGrowthTreeViewModel(fixture(), new Date(Number.NaN))).toThrow(/valid asOf date/);
+    const data = fixture();
+    data.allActivities.push(activity("bad", "long-active", "2026-08-01", Number.NaN));
+    expect(buildGrowthTreeViewModel(data, asOf).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "invalid_activity_value", entityId: "bad" })
     );
-    expect(first.leaves.map((leaf) => leaf.position)).toEqual(second.leaves.map((leaf) => leaf.position));
-  });
-
-  it("renders goal branches through depth three and excludes deeper goals", () => {
-    const goals = [
-      goal("root", null),
-      goal("level-1", "root"),
-      goal("level-2", "level-1"),
-      goal("level-3", "level-2"),
-      goal("level-4", "level-3")
-    ];
-
-    const scene = buildGrowthTreeScene(goals, [], []);
-
-    expect(scene.root?.goalId).toBe("root");
-    expect(scene.branches.map((branch) => [branch.goalId, branch.depth])).toEqual([
-      ["level-1", 1],
-      ["level-2", 2],
-      ["level-3", 3]
-    ]);
-    expect(scene.branches.some((branch) => branch.goalId === "level-4")).toBe(false);
-  });
-
-  it("does not render goals whose parent is missing", () => {
-    const scene = buildGrowthTreeScene([goal("root", null), goal("orphan", "missing-parent")], [], []);
-
-    expect(scene.branches).toHaveLength(0);
-  });
-
-  it("groups ordered activities into non-empty leaves of at most five", () => {
-    const goals = [goal("root", null), goal("career", "root")];
-    const activities = Array.from({ length: 12 }, (_, index) =>
-      activity(`activity-${index}`, "career", `2026-07-${String(index + 1).padStart(2, "0")}`)
-    );
-
-    const scene = buildGrowthTreeScene(goals, [], activities);
-    const leaves = scene.leaves.filter((leaf) => leaf.goalId === "career");
-
-    expect(leaves.map((leaf) => leaf.activities.length)).toEqual([5, 5, 2]);
-    expect(leaves.flatMap((leaf) => leaf.activities).map((item) => item.id)).toEqual(
-      [...activities].reverse().map((item) => item.id)
-    );
-  });
-
-  it("does not create leaves for hidden goals", () => {
-    const goals = [
-      goal("root", null),
-      goal("level-1", "root"),
-      goal("level-2", "level-1"),
-      goal("level-3", "level-2"),
-      goal("level-4", "level-3")
-    ];
-    const scene = buildGrowthTreeScene(goals, [], [activity("hidden", "level-4", "2026-07-01")]);
-
-    expect(scene.leaves).toHaveLength(0);
   });
 });

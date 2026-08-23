@@ -1,157 +1,149 @@
 openapi: 3.1.0
 info:
-  title: Life OS Custom GPT Actions
-  version: 1.0.0
+  title: Life OS Actions
+  version: 2.0.0
 servers:
-  - url: https://life-os-tau-dun.vercel.app
+  - url: https://YOUR_DOMAIN
 paths:
   /api/actions/context:
     get:
-      operationId: getLifeOSContext
-      summary: Get the current user's Life OS goals and aliases
-      security:
-        - bearerAuth: []
+      operationId: getLifeContext
+      summary: Get typed goals, aliases, and open tasks for the authenticated user
+      security: [{ bearerAuth: [] }]
       responses:
-        "200":
-          description: Current user's context
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  user:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      actionCredential:
-                        type: string
-                  goals:
-                    type: array
-                    items:
-                      type: object
-                  aliases:
-                    type: array
-                    items:
-                      type: object
-        "401":
-          description: Invalid or missing action credential
-        "429":
-          description: Rate limit exceeded
-  /api/actions/life-event:
+        "200": { description: Current context }
+  /api/actions/life-events:
     post:
-      operationId: recordLifeEvent
-      summary: Record one structured Life OS event for the authenticated credential owner
-      description: Do not include userId in the request body. The backend derives user ownership from the Bearer token.
-      security:
-        - bearerAuth: []
+      operationId: recordLifeEvents
+      summary: Record an ordered life-event batch transactionally
+      description: Do not include userId. New goals require one of seven fixed lifeArea values.
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required:
-                - type
-                - rawText
-                - confidence
-              properties:
-                type:
-                  type: string
-                  enum: [activity, task, goal, reminder, inbox]
-                rawText:
-                  type: string
-                  maxLength: 500
-                confidence:
-                  type: number
-                  minimum: 0
-                  maximum: 1
-                goal:
-                  type: object
-                  additionalProperties: false
-                  properties:
-                    title:
-                      type: string
-                      maxLength: 500
-                    category:
-                      type: string
-                      maxLength: 500
-                    parentTitle:
-                      type: string
-                      maxLength: 500
-                    metricType:
-                      type: string
-                      enum: [duration, count, milestone]
-                    aliases:
-                      type: array
-                      maxItems: 12
-                      items:
-                        type: string
-                        maxLength: 500
-                summary:
-                  type: string
-                  maxLength: 500
-                metric:
-                  type: object
-                  additionalProperties: false
-                  properties:
-                    type:
-                      type: string
-                      enum: [duration, count, milestone]
-                    value:
-                      type: number
-                      exclusiveMinimum: 0
-                      maximum: 100000
-                    unit:
-                      type: string
-                      enum: [minute, hour, count]
-                date:
-                  type: string
-                  pattern: "^\\d{4}-\\d{2}-\\d{2}$"
-                task:
-                  type: object
-                  additionalProperties: false
-                  properties:
-                    title:
-                      type: string
-                      maxLength: 500
-                    dueAt:
-                      type: string
-                      format: date-time
-                    priority:
-                      type: string
-                      enum: [low, normal, high]
-                reminder:
-                  type: object
-                  additionalProperties: false
-                  properties:
-                    remindAt:
-                      type: string
-                      format: date-time
-                    repeatRule:
-                      type: string
-                      enum: [none, daily, weekly]
-                suggestedTypes:
-                  type: array
-                  maxItems: 5
-                  items:
-                    type: string
-                    enum: [task, activity, goal, reminder, inbox]
-                reason:
-                  type: string
-                  maxLength: 500
+            schema: { $ref: "#/components/schemas/LifeEventBatch" }
       responses:
-        "200":
-          description: Life event recorded
-        "400":
-          description: Invalid payload
-        "401":
-          description: Invalid or missing action credential
-        "429":
-          description: Rate limit exceeded
+        "200": { description: Recorded or idempotently replayed }
+        "400": { description: Invalid command }
+        "401": { description: Invalid credential }
 components:
-  schemas: {}
+  schemas:
+    LifeEventBatch:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, rawText, events]
+      properties:
+        idempotencyKey: { type: string, minLength: 1, maxLength: 200 }
+        rawText: { type: string, minLength: 1, maxLength: 500 }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            oneOf:
+              - { $ref: "#/components/schemas/TaskEvent" }
+              - { $ref: "#/components/schemas/ActivityEvent" }
+              - { $ref: "#/components/schemas/GoalEvent" }
+              - { $ref: "#/components/schemas/InboxEvent" }
+    GoalReference:
+      type: object
+      additionalProperties: false
+      required: [explicit]
+      properties:
+        title: { type: string }
+        explicit: { type: boolean }
+        candidateGoalId: { type: string, format: uuid }
+        matchConfidence: { type: number, minimum: 0, maximum: 1 }
+      anyOf:
+        - { required: [title] }
+        - { required: [candidateGoalId] }
+    Metric:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type, value, unit]
+          properties:
+            type: { const: duration }
+            value: { type: number, exclusiveMinimum: 0 }
+            unit: { enum: [minute, hour] }
+        - type: object
+          additionalProperties: false
+          required: [type, value, unit]
+          properties:
+            type: { enum: [count, milestone] }
+            value: { type: number, exclusiveMinimum: 0 }
+            unit: { const: count }
+    ReminderChoice:
+      oneOf:
+        - type: object
+          required: [mode]
+          additionalProperties: false
+          properties: { mode: { const: default } }
+        - type: object
+          required: [mode]
+          additionalProperties: false
+          properties: { mode: { const: none } }
+        - type: object
+          required: [mode, remindAt]
+          additionalProperties: false
+          properties:
+            mode: { const: custom }
+            remindAt: { type: string, format: date-time }
+            repeatRule: { enum: [none, daily, weekly], default: none }
+    TaskEvent:
+      type: object
+      additionalProperties: false
+      required: [type, path, title, localDate, confidence]
+      properties:
+        type: { const: task }
+        path: { enum: [one_off, goal] }
+        title: { type: string }
+        localDate: { type: string, format: date }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        priority: { enum: [low, normal, high], default: normal }
+        goal: { $ref: "#/components/schemas/GoalReference" }
+        metric: { $ref: "#/components/schemas/Metric" }
+        reminder: { $ref: "#/components/schemas/ReminderChoice" }
+      oneOf:
+        - properties: { path: { const: one_off } }
+          not: { required: [goal] }
+        - properties: { path: { const: goal } }
+          required: [path, goal]
+    ActivityEvent:
+      type: object
+      additionalProperties: false
+      required: [type, summary, occurredOn, confidence]
+      properties:
+        type: { const: activity }
+        summary: { type: string }
+        occurredOn: { type: string, format: date }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        goal: { $ref: "#/components/schemas/GoalReference" }
+        metric: { $ref: "#/components/schemas/Metric" }
+    GoalEvent:
+      type: object
+      additionalProperties: false
+      required: [type, goalType, title, lifeArea, confidence]
+      properties:
+        type: { const: goal }
+        goalType: { enum: [long_term, short_term] }
+        title: { type: string }
+        lifeArea: { enum: [work, growth, health, life, finance, relationships, entertainment] }
+        metricType: { enum: [duration, count, milestone], default: count }
+        aliases: { type: array, items: { type: string }, maxItems: 12 }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+    InboxEvent:
+      type: object
+      additionalProperties: false
+      required: [type, reason, suggestedTypes, confidence]
+      properties:
+        type: { const: inbox }
+        reason: { type: string }
+        suggestedTypes:
+          type: array
+          items: { enum: [task, activity, goal, inbox] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
   securitySchemes:
     bearerAuth:
       type: http

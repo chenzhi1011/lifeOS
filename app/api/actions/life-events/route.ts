@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import {
-  BatchIdempotencyConflictError,
-  BatchStorageUnavailableError,
-  writePreparedBatch
-} from "@/src/actions/batch-repository";
-import { prepareLifeEventBatch } from "@/src/actions/batch-preparation";
-import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
-import { readActionContext } from "@/src/actions/repository";
+import { BatchIdempotencyConflictError, BatchStorageUnavailableError } from "@/src/actions/batch-repository";
 import { requireActionCredential } from "@/src/actions/request";
+import { recordLifeEventBatch } from "@/src/application/life-event-service";
 
 function jsonWithRateHeaders(
   body: unknown,
@@ -26,16 +20,9 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const payload = validateLifeEventBatchPayload(body);
-    const context = await readActionContext(auth.credential.userId);
-    const prepared = await prepareLifeEventBatch(
-      payload,
-      context,
-      new Date()
-    );
-    const result = await writePreparedBatch(
-      auth.credential.userId,
-      prepared
+    const result = await recordLifeEventBatch(
+      { userId: auth.credential.userId, actorType: "action", actorName: auth.credential.name },
+      body
     );
 
     return jsonWithRateHeaders(

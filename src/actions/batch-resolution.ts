@@ -3,12 +3,22 @@ import type { GoalReferenceInput } from "./batch-validation";
 export interface ActionGoalContext {
   id: string;
   title: string;
+  goalType: "long_term" | "short_term" | null;
+  lifeArea: import("@/src/domain/life-areas").LifeAreaId;
+  metricType: "duration" | "count" | "milestone";
   status: "active" | "paused" | "completed";
 }
 
 export interface ActionGoalAliasContext {
   goalId: string;
   alias: string;
+}
+
+export interface ActionSameBatchGoalContext {
+  key: string;
+  title: string;
+  aliases: string[];
+  metricType: "duration" | "count" | "milestone";
 }
 
 export interface ActionTaskContext {
@@ -21,6 +31,7 @@ export interface ActionTaskContext {
 
 export type GoalResolution =
   | { kind: "resolved"; goalId: string }
+  | { kind: "same_batch"; goalTitle: string }
   | { kind: "unassigned" }
   | { kind: "inbox"; reason: string };
 
@@ -52,7 +63,8 @@ export function resolveGoalReference(
   reference: GoalReferenceInput | undefined,
   eventType: "task" | "activity",
   goals: ActionGoalContext[],
-  aliases: ActionGoalAliasContext[]
+  aliases: ActionGoalAliasContext[],
+  sameBatchGoals: ActionSameBatchGoalContext[] = []
 ): GoalResolution {
   if (!reference) {
     return unresolvedGoal(eventType);
@@ -60,28 +72,69 @@ export function resolveGoalReference(
 
   const activeGoals = goals.filter((goal) => goal.status === "active");
   const requestedTitle = reference.title?.trim().toLowerCase();
+  const candidates = new Map<
+    string,
+    { kind: "resolved"; goalId: string } | { kind: "same_batch"; goalTitle: string }
+  >();
 
   if (requestedTitle) {
-    const exactGoal = activeGoals.find((goal) => goal.title.trim().toLowerCase() === requestedTitle);
-    if (exactGoal) {
-      return { kind: "resolved", goalId: exactGoal.id };
+    for (const goal of activeGoals) {
+      if (goal.title.trim().toLowerCase() === requestedTitle) {
+        candidates.set(`goal:${goal.id}`, {
+          kind: "resolved",
+          goalId: goal.id
+        });
+      }
     }
 
-    const matchingAlias = aliases.find(
-      (alias) =>
-        alias.alias.trim().toLowerCase() === requestedTitle &&
-        activeGoals.some((goal) => goal.id === alias.goalId)
-    );
-    if (matchingAlias) {
-      return { kind: "resolved", goalId: matchingAlias.goalId };
+    const activeGoalIds = new Set(activeGoals.map((goal) => goal.id));
+    for (const alias of aliases) {
+      if (
+        activeGoalIds.has(alias.goalId) &&
+        alias.alias.trim().toLowerCase() === requestedTitle
+      ) {
+        candidates.set(`goal:${alias.goalId}`, {
+          kind: "resolved",
+          goalId: alias.goalId
+        });
+      }
+    }
+
+    for (const goal of sameBatchGoals) {
+      const matchesTitle =
+        goal.title.trim().toLowerCase() === requestedTitle;
+      const matchesAlias = goal.aliases.some(
+        (alias) => alias.trim().toLowerCase() === requestedTitle
+      );
+      if (matchesTitle || matchesAlias) {
+        candidates.set(`same-batch:${goal.key}`, {
+          kind: "same_batch",
+          goalTitle: goal.title
+        });
+      }
     }
   }
 
   if (reference.candidateGoalId && (reference.matchConfidence ?? 0) >= 0.85) {
     const candidate = activeGoals.find((goal) => goal.id === reference.candidateGoalId);
     if (candidate) {
-      return { kind: "resolved", goalId: candidate.id };
+      candidates.set(`goal:${candidate.id}`, {
+        kind: "resolved",
+        goalId: candidate.id
+      });
     }
+  }
+
+  if (candidates.size > 1) {
+    return {
+      kind: "inbox",
+      reason: `multiple active goals match: ${reference.title ?? reference.candidateGoalId}`
+    };
+  }
+
+  const [candidate] = candidates.values();
+  if (candidate) {
+    return candidate;
   }
 
   if (reference.explicit) {

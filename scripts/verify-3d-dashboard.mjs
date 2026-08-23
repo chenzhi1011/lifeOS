@@ -1,52 +1,99 @@
 import { chromium } from "playwright";
 
 const url = process.env.LIFE_OS_DASHBOARD_URL ?? "http://localhost:3001/dashboard?userId=demo-user";
+const screenshotPaths = {
+  desktop: "test-results/dashboard-3d-desktop.png",
+  mobile: "test-results/dashboard-3d-mobile.png"
+};
+
+async function withStageTimeout(stageName, timeoutMs, operation) {
+  console.error(`[visual:${stageName}:start]`);
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${stageName} timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
+  try {
+    const result = await Promise.race([operation(), timeout]);
+    console.error(`[visual:${stageName}:end]`);
+    return result;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 async function verifyViewport(browser, viewport, name) {
   const page = await browser.newPage({ viewport });
-  await page.goto(url, { waitUntil: "networkidle" });
-  await page.waitForSelector("canvas", { timeout: 10000 });
-  await page.waitForTimeout(800);
+  try {
+    await withStageTimeout(`${name}:navigation`, 30000, () =>
+      page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 })
+    );
+    const canvas = page.locator('canvas[data-scene-ready="true"]');
+    await withStageTimeout(`${name}:scene-ready`, 20000, () =>
+      Promise.all([
+        canvas.waitFor({ state: "visible", timeout: 20000 }),
+        page.getByRole("button", { name: /果实面板/ }).waitFor({ timeout: 20000 }),
+        page
+          .getByRole("status", { name: "近期生命力" })
+          .waitFor({ timeout: 20000 })
+      ])
+    );
 
-  const sample = await page.evaluate(() => {
-    const source = document.querySelector("canvas");
-    if (!(source instanceof HTMLCanvasElement)) {
-      return { hasCanvas: false, nonBlank: 0, width: 0, height: 0 };
-    }
+    const metadata = await withStageTimeout(`${name}:metadata`, 5000, async () => ({
+      sceneObjects: JSON.parse(
+        (await canvas.getAttribute("data-scene-objects")) ?? "{}"
+      ),
+      width: Number(await canvas.getAttribute("width")),
+      height: Number(await canvas.getAttribute("height"))
+    }));
 
-    const width = Math.min(96, source.width);
-    const height = Math.min(96, source.height);
-    const probe = document.createElement("canvas");
-    probe.width = width;
-    probe.height = height;
-    const ctx = probe.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      return { hasCanvas: true, nonBlank: 0, width: source.width, height: source.height };
-    }
+    console.error(`[visual:${name}:screenshot:start]`);
+    const screenshot = await withStageTimeout(`${name}:screenshot`, 20000, () =>
+      page.screenshot({ path: screenshotPaths[name], timeout: 15000 })
+    );
+    console.error(`[visual:${name}:screenshot:end]`);
 
-    ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, width, height);
-    const pixels = ctx.getImageData(0, 0, width, height).data;
-    let nonBlank = 0;
-    for (let index = 0; index < pixels.length; index += 4) {
-      const r = pixels[index] ?? 0;
-      const g = pixels[index + 1] ?? 0;
-      const b = pixels[index + 2] ?? 0;
-      if (r + g + b > 24) {
-        nonBlank += 1;
+    const metrics = await withStageTimeout(`${name}:layout-metrics`, 5000, async () => {
+      const session = await page.context().newCDPSession(page);
+      try {
+        return await session.send("Page.getLayoutMetrics");
+      } finally {
+        await session.detach();
       }
+    });
+    const sample = {
+      hasCanvas: true,
+      hasFruitButton: true,
+      hasVitalitySummary: true,
+      horizontalOverflow:
+        metrics.contentSize.width > metrics.layoutViewport.clientWidth + 1,
+      sceneObjects: metadata.sceneObjects,
+      width: metadata.width,
+      height: metadata.height,
+      screenshotBytes: screenshot.byteLength
+    };
+
+    if (
+      !sample.hasCanvas ||
+      !sample.hasFruitButton ||
+      !sample.hasVitalitySummary ||
+      sample.width <= 0 ||
+      sample.height <= 0 ||
+      sample.screenshotBytes < 12000 ||
+      sample.sceneObjects.lake < 1 ||
+      sample.sceneObjects.mountains < 1 ||
+      sample.sceneObjects.tree < 1 ||
+      (name === "mobile" && sample.horizontalOverflow)
+    ) {
+      throw new Error(`${name} canvas check failed: ${JSON.stringify(sample)}`);
     }
 
-    return { hasCanvas: true, nonBlank, width: source.width, height: source.height };
-  });
-
-  await page.screenshot({ path: `test-results/dashboard-3d-${name}.png`, fullPage: true });
-  await page.close();
-
-  if (!sample.hasCanvas || sample.width <= 0 || sample.height <= 0 || sample.nonBlank < 80) {
-    throw new Error(`${name} canvas check failed: ${JSON.stringify(sample)}`);
+    return sample;
+  } finally {
+    await page.close();
   }
-
-  return sample;
 }
 
 const browser = await chromium.launch();

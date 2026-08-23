@@ -1,32 +1,45 @@
+import type {
+  ActivityLeaf,
+  TreeEntityType,
+  TreeWood
+} from "./tree-visualization";
+
 export type GrowthTreeSelection = {
-  goalId: string | null;
+  entityType: TreeEntityType | null;
+  entityId: string | null;
   leafId: string | null;
 };
 
 export const EMPTY_TREE_SELECTION: GrowthTreeSelection = {
-  goalId: null,
+  entityType: null,
+  entityId: null,
   leafId: null
 };
 
 export function selectTreeWood(
   _selection: GrowthTreeSelection,
-  goalId: string
+  wood: Pick<TreeWood, "entityType" | "entityId">
 ): GrowthTreeSelection {
-  return { goalId, leafId: null };
+  return {
+    entityType: wood.entityType,
+    entityId: wood.entityId,
+    leafId: null
+  };
 }
 
 export function selectTreeLeaf(
   selection: GrowthTreeSelection,
-  leaf: { id: string; goalId: string }
+  leaf: Pick<ActivityLeaf, "activityId" | "goalId">
 ): GrowthTreeSelection {
-  if (selection.goalId !== leaf.goalId) {
+  if (
+    (selection.entityType !== "long_goal" &&
+      selection.entityType !== "short_goal") ||
+    selection.entityId !== leaf.goalId
+  ) {
     return selection;
   }
 
-  return {
-    goalId: selection.goalId,
-    leafId: leaf.id
-  };
+  return { ...selection, leafId: leaf.activityId };
 }
 
 export function clearTreeSelection(): GrowthTreeSelection {

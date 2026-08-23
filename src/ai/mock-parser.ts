@@ -25,6 +25,16 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
     };
   }
 
+  if (/^(买水|买菜|倒垃圾|打扫卫生)$/.test(normalized)) {
+    return {
+      type: "task",
+      path: "one_off",
+      confidence: 0.96,
+      rawText: normalized,
+      task: { title: normalized }
+    };
+  }
+
   if (/想.*(AWS|Rust|AI|大模型|DevOps)/i.test(normalized) || /今年.*考.*AWS/i.test(normalized)) {
     const title = /Rust/i.test(normalized) ? "Rust" : /AI|大模型/i.test(normalized) ? "AI" : "AWS DevOps";
     return {
@@ -32,8 +42,8 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
       confidence: 0.88,
       goal: {
         title,
-        category: "职业",
-        parentTitle: "职业",
+        goalType: "long_term",
+        lifeArea: /AI|大模型/i.test(normalized) ? "growth" : "work",
         metricType: "duration",
         aliases: title === "AWS DevOps" ? ["AWS", "DevOps", "Terraform"] : [title]
       }
@@ -44,7 +54,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
     return {
       type: "reminder",
       confidence: 0.86,
-      goal: { title: "增肌", category: "健康" },
+      goal: { title: "增肌" },
       task: { title: normalized.includes("练肩") ? "练肩" : normalized.replace(/提醒我/, "") },
       reminder: {
         remindAt: tomorrowIso(timestamp, 20),
@@ -57,8 +67,9 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
     const isTraining = /练肩|训练|健身/.test(normalized);
     return {
       type: "task",
+      path: "goal",
       confidence: 0.9,
-      goal: isTraining ? { title: "增肌", category: "健康" } : { title: "转职", category: "职业" },
+      goal: isTraining ? { title: "增肌" } : { title: "转职" },
       task: {
         title: isTraining ? "练肩" : normalized.replace(/^(明天|下周)/, "").trim(),
         dueAt: tomorrowIso(timestamp, isTraining ? 15 : 9),
@@ -76,8 +87,7 @@ export function parseWithMockRules(text: string, timestamp: string): LifeEventPa
       type: "activity",
       confidence: 0.92,
       goal: {
-        title: goalTitle,
-        category: isHealth ? "健康" : "职业"
+        title: goalTitle
       },
       summary: normalized.replace(/^今天/, ""),
       metric: {

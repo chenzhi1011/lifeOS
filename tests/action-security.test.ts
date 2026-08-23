@@ -3,7 +3,7 @@ import { authenticateActionToken, extractBearerToken, hashActionToken } from "@/
 import { validateLifeEventBatchPayload } from "@/src/actions/batch-validation";
 import { checkActionRateLimit, resetActionRateLimits } from "@/src/actions/rate-limit";
 import { requireActionCredential } from "@/src/actions/request";
-import { validateLifeEventPayload } from "@/src/actions/validation";
+import { toParseResult, validateLifeEventPayload } from "@/src/actions/validation";
 
 describe("Custom GPT action security", () => {
   it("extracts bearer tokens and hashes them without preserving the raw token", async () => {
@@ -38,7 +38,7 @@ describe("Custom GPT action security", () => {
         userId: "attacker",
         rawText: "今天学习 AWS 40 分钟",
         confidence: 0.9,
-        goal: { title: "AWS", category: "职业" },
+        goal: { title: "AWS" },
         summary: "学习 AWS",
         metric: { type: "duration", value: 40, unit: "minute" },
         date: "2026-07-25"
@@ -50,12 +50,88 @@ describe("Custom GPT action security", () => {
         type: "activity",
         rawText: "bad metric",
         confidence: 0.9,
-        goal: { title: "AWS", category: "职业" },
+        goal: { title: "AWS" },
         summary: "bad metric",
         metric: { type: "duration", value: -1, unit: "minute" },
         date: "2026-07-25"
       })
     ).toThrow();
+  });
+
+  it("accepts one-off tasks and preserves their path", () => {
+    const payload = validateLifeEventPayload({
+      type: "task",
+      path: "one_off",
+      rawText: "买水",
+      confidence: 0.96,
+      task: { title: "买水" }
+    });
+
+    expect(payload.type).toBe("task");
+    if (payload.type !== "task") {
+      throw new Error("expected task payload");
+    }
+    expect(payload.path).toBe("one_off");
+    expect(toParseResult(payload)).toMatchObject({
+      type: "task",
+      path: "one_off",
+      task: { title: "买水" }
+    });
+  });
+
+  it("enforces task path mutual exclusion", () => {
+    expect(() =>
+      validateLifeEventPayload({
+        type: "task",
+        path: "goal",
+        rawText: "准备面试",
+        confidence: 0.9,
+        task: { title: "准备面试" }
+      })
+    ).toThrow(/goal path requires goal/);
+
+    expect(() =>
+      validateLifeEventPayload({
+        type: "task",
+        path: "one_off",
+        rawText: "买水",
+        confidence: 0.9,
+        goal: { title: "生活" },
+        task: { title: "买水" }
+      })
+    ).toThrow(/one_off forbids goal/);
+  });
+
+  it("requires a fixed life area for every new goal", () => {
+    expect(() => validateLifeEventPayload({
+      type: "goal",
+      rawText: "持续学 React",
+      confidence: 0.9,
+      goal: { title: "React", goalType: "long_term" }
+    })).toThrow();
+
+    expect(validateLifeEventPayload({
+      type: "goal",
+      rawText: "持续学 React",
+      confidence: 0.9,
+      goal: { title: "React", goalType: "long_term", lifeArea: "growth" }
+    })).toMatchObject({ goal: { lifeArea: "growth" } });
+  });
+
+  it("rejects duplicate normalized goal aliases before persistence", () => {
+    expect(() =>
+      validateLifeEventPayload({
+        type: "goal",
+        rawText: "准备 AWS 考试",
+        confidence: 0.9,
+        goal: {
+          title: "AWS 考试",
+          goalType: "short_term",
+          lifeArea: "growth",
+          aliases: ["AWS", " aws "]
+        }
+      })
+    ).toThrow(/goal aliases must be unique/);
   });
 
   it("rejects a user-controlled userId in a batch payload", () => {

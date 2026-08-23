@@ -33,7 +33,12 @@ export interface BatchEventWriteResult {
   inboxItemId?: string;
 }
 
-const batchEventKinds = new Set(["goal", "task", "activity", "inbox"]);
+const batchEventKinds = new Set([
+  "goal",
+  "task",
+  "activity",
+  "inbox"
+]);
 const optionalEntityIdKeys = [
   "goalId",
   "taskId",
@@ -76,10 +81,7 @@ function hasRequiredEntityIds(result: BatchEventWriteResult): boolean {
     return isNonEmptyString(result.goalId);
   }
   if (result.kind === "task") {
-    return (
-      isNonEmptyString(result.taskId) &&
-      isNonEmptyString(result.reminderId)
-    );
+    return isNonEmptyString(result.taskId);
   }
   if (result.kind === "activity") {
     return (

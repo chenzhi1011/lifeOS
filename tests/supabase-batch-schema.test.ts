@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 const migrationPath = path.resolve(
   "supabase/migrations/202607270001_custom_gpt_batch_intake.sql"
 );
+const growthMigrationPath = path.resolve(
+  "supabase/migrations/202608010001_growth_tree_domain.sql"
+);
 
 const requiredFragments = [
   "timezone",
@@ -100,5 +103,38 @@ describe("Custom GPT batch intake database schema", () => {
         /update tasks[\s\S]*?where user_id = p_user_id[\s\S]*?and id = v_task_id[\s\S]*?and goal_id = v_goal_id[\s\S]*?and status = 'open'/i
       );
     }
+  });
+
+  it("keeps the final clean schema RPC on fixed life areas", () => {
+    const schema = readFileSync(path.resolve("supabase/schema.sql"), "utf8");
+    const rpcPattern =
+      /create or replace function record_life_event_batch[\s\S]*?grant execute on function record_life_event_batch\(uuid, text, text, text, jsonb\) to service_role;/i;
+    const schemaRpc = schema.match(rpcPattern)?.[0];
+
+    expect(schemaRpc).toBeTruthy();
+    for (const sql of [schemaRpc ?? ""]) {
+      expect(sql).toMatch(/v_kind not in \('goal', 'task', 'activity', 'inbox'\)/i);
+      expect(sql).not.toMatch(/ability/i);
+      expect(sql).toMatch(/goal_type[\s\S]*?life_area/i);
+      expect(sql).toMatch(/v_goal_match_count/i);
+      expect(sql).toMatch(/goalTitle is ambiguous at event index/i);
+      expect(sql).toMatch(/v_existing_goal\.goal_type\s+is distinct from/i);
+      expect(sql).toMatch(/v_existing_goal\.life_area\s+is distinct from/i);
+      expect(sql).toMatch(/v_existing_goal\.metric_type\s+is distinct from/i);
+      expect(sql).not.toMatch(/v_existing_goal\.(?:category|parent_goal_id)/i);
+      expect(sql).toMatch(/goal identity conflicts with existing goal at event index/i);
+      expect(sql).toMatch(/planned_metric_type[\s\S]*?planned_value[\s\S]*?planned_unit/i);
+      expect(sql).toMatch(/v_event->>'lifeArea'/i);
+    }
+  });
+
+  it("allows authenticated clients to read business tables but not write them directly", () => {
+    const schema = readFileSync(path.resolve("supabase/schema.sql"), "utf8");
+    const tables = ["profiles", "external_accounts", "action_credentials", "goals", "goal_aliases", "messages", "tasks", "activities", "reminders", "inbox_items", "achievements"];
+
+    for (const table of tables) {
+      expect(schema).toMatch(new RegExp(`create policy ${table}_own_rows\\s+on ${table}\\s+for select\\s+using`, "i"));
+    }
+    expect(schema).toMatch(/revoke\s+insert\s*,\s*update\s*,\s*delete\s+on\s+profiles\s*,[\s\S]*?achievements\s+from\s+anon\s*,\s*authenticated\s*;/i);
   });
 });

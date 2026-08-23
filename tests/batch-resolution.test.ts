@@ -9,9 +9,30 @@ import {
 } from "@/src/actions/batch-resolution";
 
 const goals: ActionGoalContext[] = [
-  { id: "goal-aws", title: "AWS", status: "active" },
-  { id: "goal-muscle", title: "增肌", status: "active" },
-  { id: "goal-paused", title: "暂停目标", status: "paused" }
+  {
+    id: "goal-aws",
+    title: "AWS",
+    goalType: "long_term",
+    lifeArea: "work",
+    metricType: "count",
+    status: "active"
+  },
+  {
+    id: "goal-muscle",
+    title: "增肌",
+    goalType: "long_term",
+    lifeArea: "health",
+    metricType: "count",
+    status: "active"
+  },
+  {
+    id: "goal-paused",
+    title: "暂停目标",
+    goalType: "short_term",
+    lifeArea: "growth",
+    metricType: "milestone",
+    status: "paused"
+  }
 ];
 
 const aliases: ActionGoalAliasContext[] = [{ goalId: "goal-aws", alias: "云计算" }];
@@ -109,7 +130,7 @@ describe("resolveGoalReference", () => {
   it.each([
     ["exact title", "AWS"],
     ["alias", "云计算"]
-  ])("prefers an %s match over a conflicting candidate", (_case, title) => {
+  ])("rejects a conflicting candidate alongside an %s match", (_case, title) => {
     expect(
       resolveGoalReference(
         {
@@ -122,7 +143,99 @@ describe("resolveGoalReference", () => {
         goals,
         aliases
       )
+    ).toEqual({
+      kind: "inbox",
+      reason: `multiple active goals match: ${title}`
+    });
+  });
+
+  it("deduplicates an exact, alias, and candidate match for the same goal id", () => {
+    expect(
+      resolveGoalReference(
+        {
+          title: "AWS",
+          explicit: true,
+          candidateGoalId: "goal-aws",
+          matchConfidence: 0.99
+        },
+        "task",
+        goals,
+        [...aliases, { goalId: "goal-aws", alias: "AWS" }]
+      )
     ).toEqual({ kind: "resolved", goalId: "goal-aws" });
+  });
+
+  it("treats an exact title on one goal and an alias on another as ambiguous", () => {
+    expect(
+      resolveGoalReference(
+        { title: "家庭", explicit: true },
+        "task",
+        [
+          ...goals,
+          {
+            id: "goal-family",
+            title: "家庭",
+            goalType: "short_term",
+            lifeArea: "relationships",
+            metricType: "milestone",
+            status: "active"
+          },
+          {
+            id: "goal-chores",
+            title: "家务系统",
+            goalType: "long_term",
+            lifeArea: "life",
+            metricType: "count",
+            status: "active"
+          }
+        ],
+        [...aliases, { goalId: "goal-chores", alias: "家庭" }]
+      )
+    ).toEqual({
+      kind: "inbox",
+      reason: "multiple active goals match: 家庭"
+    });
+  });
+
+  it("routes duplicate exact goal titles to inbox instead of choosing the first", () => {
+    expect(
+      resolveGoalReference(
+        { title: "AWS", explicit: true },
+        "task",
+        [
+          ...goals,
+          {
+            id: "goal-aws-2",
+            title: "aws",
+            goalType: "long_term",
+            lifeArea: "work",
+            metricType: "count",
+            status: "active"
+          }
+        ],
+        aliases
+      )
+    ).toEqual({
+      kind: "inbox",
+      reason: "multiple active goals match: AWS"
+    });
+  });
+
+  it("routes an alias shared by active goals to inbox", () => {
+    expect(
+      resolveGoalReference(
+        { title: "云计算", explicit: true },
+        "task",
+        goals,
+        [
+          ...aliases,
+          { goalId: "goal-muscle", alias: "云计算" }
+        ]
+      )
+    ).toEqual({
+      kind: "inbox",
+      reason: "multiple active goals match: 云计算"
+    });
   });
 });
 
