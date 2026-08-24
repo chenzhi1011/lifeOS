@@ -31,6 +31,19 @@ function branch(
 }
 
 describe("semantic geometry", () => {
+  it("uses the same uniform wood color on trunks and fine twigs", () => {
+    const trunk = createSemanticBranchMesh(branch("root", "root"));
+    const twig = createDecorativeCanopyTwigs([]);
+    expect(trunk.geometry.getAttribute("color")).toBeUndefined();
+    expect((trunk.material as THREE.MeshLambertMaterial).vertexColors).toBe(false);
+    expect((twig.material as THREE.MeshLambertMaterial).color.getHex())
+      .toBe((trunk.material as THREE.MeshLambertMaterial).color.getHex());
+    expect(trunk.material.userData.selectedColor)
+      .toBe(new THREE.Color("#A98276").getHex());
+    expect(trunk.material.userData.hoverColor)
+      .toBe(new THREE.Color("#916F65").getHex());
+  });
+
   it("organizes every decorative leaf on a deterministic fine twig", () => {
     const lifeArea = branch("life_area", "health");
     const recipe = {

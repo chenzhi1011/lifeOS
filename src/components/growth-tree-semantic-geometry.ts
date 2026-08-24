@@ -27,11 +27,9 @@ export function createSemanticBranchMesh(branch: SemanticBranch) {
     tipRadius: branch.tipRadius,
     ...profile
   });
-  const base = new THREE.Color(HEALING_PALETTE.trunk), light = new THREE.Color(HEALING_PALETTE.trunkLight), colors:number[]=[];
-  for(let i=0;i<geometry.attributes.normal.count;i++){ const normal=new THREE.Vector3().fromBufferAttribute(geometry.attributes.normal,i); const c=base.clone().lerp(light,Math.max(0,normal.dot(new THREE.Vector3(-.4,.7,.5).normalize()))*.65); colors.push(c.r,c.g,c.b); }
-  geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
-  const material=new THREE.MeshLambertMaterial({vertexColors:true});
-  material.userData={baseColor:base.getHex(),hoverColor:light.getHex(),selectedColor:light.getHex()};
+  const material=new THREE.MeshLambertMaterial({color:HEALING_PALETTE.trunk});
+  const base=material.color;
+  material.userData={baseColor:base.getHex(),hoverColor:new THREE.Color(HEALING_PALETTE.trunkHover).getHex(),selectedColor:new THREE.Color(HEALING_PALETTE.trunkSelected).getHex()};
   const mesh=new THREE.Mesh(geometry,material); mesh.userData={entityType:branch.entityType,entityId:branch.entityId,goalId:branch.entityType.includes("goal")?branch.entityId:null,leafId:null}; mesh.castShadow=true; return mesh;
 }
 export function createSemanticLeafMesh(leaf: SemanticLeaf){ const shape=new THREE.Shape(); shape.moveTo(0,-.16); shape.quadraticCurveTo(.22,.05,0,.28); shape.quadraticCurveTo(-.22,.05,0,-.16);
@@ -186,7 +184,7 @@ export function createDecorativeCanopyTwigs(
     : new THREE.BufferGeometry();
   for (const part of parts) part.dispose();
   const material = new THREE.MeshLambertMaterial({
-    color: HEALING_PALETTE.trunkLight,
+    color: HEALING_PALETTE.trunk,
     flatShading: true
   });
   const mesh = new THREE.Mesh(geometry, material);
@@ -208,7 +206,7 @@ export function createActivityLeafTwigMesh(
   const mesh = new THREE.Mesh(
     geometry,
     new THREE.MeshLambertMaterial({
-      color: HEALING_PALETTE.trunkLight,
+      color: HEALING_PALETTE.trunk,
       flatShading: true
     })
   );
