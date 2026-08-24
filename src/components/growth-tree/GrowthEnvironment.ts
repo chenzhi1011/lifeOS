@@ -14,6 +14,7 @@ import {
   createWaterSurfaceGeometry,
   WATER_SURFACE_CONFIG
 } from "../growth-tree-water-geometry";
+import { createArchipelagoGeometry } from "../growth-tree-archipelago-geometry";
 
 export type AssetLoadDiagnostic = {
   code: "asset_load_failed";
@@ -156,7 +157,7 @@ export function createLake(): THREE.Mesh<
   lake.userData.waveBasePositions = new Float32Array(positions.array);
   lake.position.set(
     ISLAND_TERRAIN_CONFIG.worldX,
-    -0.08,
+    WATER_SURFACE_CONFIG.worldY,
     ISLAND_TERRAIN_CONFIG.worldZ
   );
   lake.receiveShadow = true;
@@ -219,6 +220,31 @@ export function createMountainLayers(): THREE.Group {
   return layers;
 }
 
+export function createArchipelago(): THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.MeshLambertMaterial
+> {
+  const mesh = new THREE.Mesh(
+    createArchipelagoGeometry(),
+    new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      flatShading: true,
+      // Distance is already expressed by muted green vertex colors. Disabling
+      // scene fog keeps horizon islands green instead of washing them to white.
+      // 远近层次由低饱和绿色顶点色表达；关闭雾混合，避免远岛被洗成白色。
+      fog: false
+    })
+  );
+  mesh.name = "growth-archipelago-terrain";
+  mesh.position.set(
+    ISLAND_TERRAIN_CONFIG.worldX,
+    0,
+    ISLAND_TERRAIN_CONFIG.worldZ
+  );
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   const group = new THREE.Group();
   group.name = "growth-foreground";
@@ -238,7 +264,7 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
     ISLAND_TERRAIN_CONFIG.worldZ
   );
   slope.receiveShadow = true;
-  group.add(slope);
+  group.add(slope, createArchipelago());
 
   const rocks = new THREE.Group();
   rocks.name = "growth-rocks-fallback";

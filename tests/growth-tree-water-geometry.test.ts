@@ -17,6 +17,7 @@ describe("growth tree water surface geometry", () => {
   });
 
   it("stays nearly level around the complete island shoreline", () => {
+    expect(WATER_SURFACE_CONFIG.worldY).toBe(-0.08);
     expect(WATER_SURFACE_CONFIG.flatRadius).toBeGreaterThan(6);
     expect(waterHeightAtRadius(0)).toBe(0);
     expect(waterHeightAtRadius(WATER_SURFACE_CONFIG.flatRadius)).toBe(0);

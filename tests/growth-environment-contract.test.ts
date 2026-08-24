@@ -3,6 +3,7 @@ import path from "node:path";
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
+  createArchipelago,
   createGrowthEnvironment,
   createLake,
   createMountainLayers,
@@ -165,6 +166,26 @@ describe("growth tree environment contract", () => {
         }
       }
     });
+  });
+
+  it("adds the surrounding archipelago as one green terrain mesh", () => {
+    const archipelago = createArchipelago();
+    expect(archipelago.name).toBe("growth-archipelago-terrain");
+    expect(archipelago.geometry.index).not.toBeNull();
+    expect(archipelago.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect(archipelago.geometry.attributes.color).toBeDefined();
+    expect(archipelago.material.vertexColors).toBe(true);
+    expect(archipelago.material.fog).toBe(false);
+    expect(archipelago.material.flatShading).toBe(true);
+
+    const environment = createGrowthEnvironment({
+      modelUrls: { tree: null, mountains: null, rocks: null }
+    });
+    expect(environment.group.getObjectByName("growth-archipelago-terrain"))
+      .toBeInstanceOf(THREE.Mesh);
+    environment.dispose();
+    archipelago.geometry.dispose();
+    archipelago.material.dispose();
   });
 
   it("loads an external tree as decoration without hiding the interactive tree", () => {

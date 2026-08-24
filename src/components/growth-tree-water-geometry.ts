@@ -1,6 +1,9 @@
 import * as THREE from "three";
 
 export const WATER_SURFACE_CONFIG = {
+  // Shared world-space height used by both water and island shorelines.
+  // 水面与所有岛岸共用的世界坐标高度，避免远岛漂浮或下沉。
+  worldY: -0.08,
   // Covers the island's widest shoreline before any visible curvature starts.
   // 覆盖小岛最宽岸线；在这个范围内水面保持水平，不与岛岸分离。
   flatRadius: 7.2,
