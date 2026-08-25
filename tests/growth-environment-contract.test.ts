@@ -184,6 +184,8 @@ describe("growth tree environment contract", () => {
     });
     expect(environment.group.getObjectByName("growth-archipelago-terrain"))
       .toBeInstanceOf(THREE.Mesh);
+    expect(environment.group.getObjectByName("growth-atmospheric-haze"))
+      .toBeInstanceOf(THREE.Mesh);
     environment.dispose();
     archipelago.geometry.dispose();
     archipelago.material.dispose();

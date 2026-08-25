@@ -19,6 +19,10 @@ import {
   updateWaterRippleTime
 } from "../growth-tree-water-material";
 import { createArchipelagoGeometry } from "../growth-tree-archipelago-geometry";
+import {
+  createAtmosphericHaze,
+  updateAtmosphericHaze
+} from "../growth-tree-atmospheric-haze";
 
 export type AssetLoadDiagnostic = {
   code: "asset_load_failed";
@@ -323,10 +327,11 @@ export function createGrowthEnvironment(
 ): GrowthEnvironmentLayer {
   const group = new THREE.Group();
   group.name = "growth-environment";
+  const atmosphericHaze = createAtmosphericHaze();
   const lake = createLake();
   const mountains = createMountainLayers();
   const foreground = createForeground();
-  group.add(mountains, lake, foreground.group);
+  group.add(atmosphericHaze, mountains, lake, foreground.group);
 
   let disposed = false;
   loadConfiguredModels(
@@ -340,6 +345,7 @@ export function createGrowthEnvironment(
     group,
     fog: new THREE.Fog(HEALING_PALETTE.fog, 14, 38),
     update(elapsedSeconds) {
+      updateAtmosphericHaze(atmosphericHaze.material, elapsedSeconds);
       updateWaterRippleTime(lake.material, elapsedSeconds);
     },
     dispose() {
