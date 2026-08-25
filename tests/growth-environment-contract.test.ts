@@ -113,7 +113,7 @@ describe("growth tree environment contract", () => {
     expect(environment).not.toContain("background-image");
   });
 
-  it("creates a dynamic Lambert lake and flat-shaded mountain layers", () => {
+  it("creates a shader-animated lake with static geometry and mountain layers", () => {
     const lake = createLake();
     const mountains = createMountainLayers();
     const mountainMeshes: THREE.Mesh[] = [];
@@ -124,16 +124,17 @@ describe("growth tree environment contract", () => {
     });
 
     expect(attributeUsage(lake.geometry.attributes.position)).toBe(
-      THREE.DynamicDrawUsage
+      THREE.StaticDrawUsage
     );
     expect(lake.geometry).not.toBeInstanceOf(THREE.SphereGeometry);
     expect(lake.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect(lake.material.map).toBeInstanceOf(THREE.DataTexture);
+    expect(lake.material.userData.waterRippleUniform).toEqual({ value: 0 });
     lake.geometry.computeBoundingBox();
     const lakeBounds = lake.geometry.boundingBox!;
     expect(lakeBounds.max.y).toBeGreaterThan(lakeBounds.min.y + 1);
-    expect(lake.userData.waveDirections).toHaveLength(
-      lake.geometry.attributes.position.count * 3
-    );
+    expect(lake.userData.waveDirections).toBeUndefined();
+    expect(lake.userData.waveBasePositions).toBeUndefined();
     const islandHalfWidth = ISLAND_TERRAIN_CONFIG.baseRadius
       * ISLAND_TERRAIN_CONFIG.xScale * 1.2;
     const islandHalfDepth = ISLAND_TERRAIN_CONFIG.baseRadius * 1.2;

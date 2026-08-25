@@ -39,6 +39,7 @@ export function createWaterSurfaceGeometry(): THREE.BufferGeometry {
     radialRings
   } = WATER_SURFACE_CONFIG;
   const vertices: number[] = [0, 0, 0];
+  const uvs: number[] = [.5, .5];
   const indices: number[] = [];
 
   for (let ring = 1; ring <= radialRings; ring += 1) {
@@ -50,6 +51,10 @@ export function createWaterSurfaceGeometry(): THREE.BufferGeometry {
         Math.cos(angle) * radius,
         height,
         Math.sin(angle) * radius
+      );
+      uvs.push(
+        .5 + Math.cos(angle) * radius / outerRadius * .5,
+        .5 + Math.sin(angle) * radius / outerRadius * .5
       );
     }
   }
@@ -85,6 +90,7 @@ export function createWaterSurfaceGeometry(): THREE.BufferGeometry {
     "position",
     new THREE.Float32BufferAttribute(vertices, 3)
   );
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
