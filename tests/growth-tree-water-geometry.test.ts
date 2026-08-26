@@ -24,6 +24,7 @@ import {
 } from "@/src/components/growth-tree-island-geometry";
 import {
   createWaterRippleMaterial,
+  setWaterRainEnabled,
   setWaterSparkleParameters,
   setWaterRippleParameters,
   updateWaterRippleTime,
@@ -207,6 +208,7 @@ describe("growth tree water surface geometry", () => {
     expect(shader.uniforms.waterSparkleIntensity).toBeDefined();
     expect(shader.uniforms.waterSparkleSpeed).toBeDefined();
     expect(shader.uniforms.waterSparkleCrossfadeSpeed).toBeDefined();
+    expect(shader.uniforms.waterRainEnabled).toBeDefined();
     expect(shader.fragmentShader).toContain("seaMask");
     expect(shader.fragmentShader).toContain("baseCrest");
     expect(shader.fragmentShader).toContain("waterValueNoise");
@@ -227,6 +229,10 @@ describe("growth tree water surface geometry", () => {
     expect(shader.fragmentShader).toContain("groupBVisibility = 1.0 - groupAVisibility");
     expect(shader.fragmentShader).toContain("sparkleSeedA");
     expect(shader.fragmentShader).toContain("sparkleSeedB");
+    expect(shader.fragmentShader).toContain("waterRainImpactRipple");
+    expect(shader.fragmentShader).toContain("rainImpactProbability");
+    expect(shader.fragmentShader).toContain("rainImpactLife");
+    expect(shader.fragmentShader).toContain("rainShoreMask");
     expect(shader.fragmentShader).toContain("smoothstep");
     expect(shader.fragmentShader).not.toContain("vec3(1.0)");
     expect(shader.vertexShader).not.toContain("transformed.y +=");
@@ -260,6 +266,10 @@ describe("growth tree water surface geometry", () => {
     expect(shader.uniforms.waterSparkleIntensity!.value).toBe(.32);
     expect(shader.uniforms.waterSparkleSpeed!.value).toBe(.75);
     expect(shader.uniforms.waterSparkleCrossfadeSpeed!.value).toBe(.4);
+    setWaterRainEnabled(material, false);
+    expect(shader.uniforms.waterRainEnabled!.value).toBe(0);
+    setWaterRainEnabled(material, true);
+    expect(shader.uniforms.waterRainEnabled!.value).toBe(1);
     material.map!.dispose();
     material.dispose();
   });

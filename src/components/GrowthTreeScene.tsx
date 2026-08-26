@@ -37,6 +37,7 @@ import {
   GROWTH_TREE_CAMERA_LIMITS,
   resolveMaximumPolarAngle
 } from "./growth-tree-camera-constraints";
+import { RAINY_SCENE_FILTER } from "./growth-tree-rain";
 
 type GrowthTreeSceneProps = {
   viewModel: GrowthTreeViewModel;
@@ -158,6 +159,10 @@ export function GrowthTreeScene({
   const [assetDiagnostics, setAssetDiagnostics] = useState<
     AssetLoadDiagnostic[]
   >([]);
+  // TODO: Replace this temporary manual switch with the future weather,
+  // user-state, or Life OS condition.
+  // TODO：未来根据天气、用户状态或 Life OS 业务条件自动控制天气。
+  const [rainEnabled, setRainEnabled] = useState(true);
   const selectionRef = useRef(selection);
   const onSelectWoodRef = useRef(onSelectWood);
   const onSelectLeafRef = useRef(onSelectLeaf);
@@ -177,6 +182,8 @@ export function GrowthTreeScene({
     // 渲染器 / 相机 / 光照共同决定整个画面的气质。
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
+    renderer.domElement.style.transition = "filter 320ms ease";
+    renderer.domElement.style.filter = rainEnabled ? RAINY_SCENE_FILTER : "none";
     renderer.shadowMap.enabled = GROWTH_SCENE_CONFIG.performance.shadows;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     mount.appendChild(renderer.domElement);
@@ -251,6 +258,7 @@ export function GrowthTreeScene({
       }
     });
     runtime.environment = environment;
+    environment.setRainEnabled(rainEnabled);
     scene.add(environment.group);
     let pointerGesture: PointerGestureState | null = null;
 
@@ -446,6 +454,14 @@ export function GrowthTreeScene({
   }, []);
 
   useEffect(() => {
+    runtimeRef.current?.environment?.setRainEnabled(rainEnabled);
+    const canvas = mountRef.current?.querySelector("canvas");
+    if (canvas) {
+      canvas.style.filter = rainEnabled ? RAINY_SCENE_FILTER : "none";
+    }
+  }, [rainEnabled]);
+
+  useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) {
       return;
@@ -502,6 +518,28 @@ export function GrowthTreeScene({
       >
         近期生命力 · 水滴 {viewModel.vitalityElements.filter((item) => item.type === "water").length} · 小生物 {viewModel.vitalityElements.filter((item) => item.type === "creature").length} · 花草 {viewModel.vitalityElements.filter((item) => item.type === "flora").length}
       </div>
+      <button
+        aria-checked={rainEnabled}
+        aria-label="细雨"
+        className="absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-[#315d3a]/20 bg-[#fff8ea]/88 px-3 py-2 text-xs font-semibold text-[#59483a] shadow-md backdrop-blur transition hover:bg-[#fff8ea] focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
+        onClick={() => setRainEnabled((enabled) => !enabled)}
+        role="switch"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          className={`relative h-5 w-9 rounded-full transition ${
+            rainEnabled ? "bg-[#6f9fba]" : "bg-[#b9b5a9]"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-[#fff8ea] shadow-sm transition-transform ${
+              rainEnabled ? "translate-x-[18px]" : "translate-x-0.5"
+            }`}
+          />
+        </span>
+        细雨
+      </button>
       {assetDiagnostics.length > 0 ? (
         <aside
           aria-label="资源加载提示"

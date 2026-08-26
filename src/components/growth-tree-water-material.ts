@@ -44,6 +44,7 @@ type RippleUniforms = {
   sparkleIntensity: RippleUniform;
   sparkleSpeed: RippleUniform;
   sparkleCrossfadeSpeed: RippleUniform;
+  rainEnabled: RippleUniform;
   shoreDistanceMap: { value: THREE.DataTexture };
 };
 
@@ -77,6 +78,7 @@ export function createWaterRippleMaterial(
     sparkleIntensity: { value: WATER_SPARKLE_CONFIG.sparkleIntensity },
     sparkleSpeed: { value: WATER_SPARKLE_CONFIG.sparkleSpeed },
     sparkleCrossfadeSpeed: { value: WATER_SPARKLE_CONFIG.crossfadeSpeed },
+    rainEnabled: { value: 1 },
     shoreDistanceMap: { value: shoreDistanceTexture }
   };
   material.userData.waterRippleUniform = uniforms.time;
@@ -93,6 +95,7 @@ export function createWaterRippleMaterial(
     shader.uniforms.waterSparkleSpeed = uniforms.sparkleSpeed;
     shader.uniforms.waterSparkleCrossfadeSpeed =
       uniforms.sparkleCrossfadeSpeed;
+    shader.uniforms.waterRainEnabled = uniforms.rainEnabled;
     shader.uniforms.waterShoreDistanceMap = uniforms.shoreDistanceMap;
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -117,6 +120,7 @@ export function createWaterRippleMaterial(
         uniform float waterSparkleIntensity;
         uniform float waterSparkleSpeed;
         uniform float waterSparkleCrossfadeSpeed;
+        uniform float waterRainEnabled;
         varying vec2 vWaterPosition;
 
         float waterHash21(vec2 point) {
@@ -185,6 +189,54 @@ export function createWaterRippleMaterial(
           );
           float sparklePulse = 0.30 + pow(sparkleWave, 7.0) * 0.70;
           return sparkleShape * sparklePresence * sparklePulse;
+        }
+
+        float waterRainImpactRipple(vec2 worldPosition, float impactTime) {
+          float impactCellSize = 2.35;
+          vec2 impactGrid = worldPosition / impactCellSize;
+          vec2 impactCell = floor(impactGrid);
+          vec2 impactLocal = fract(impactGrid);
+          vec2 impactPoint = vec2(
+            mix(0.16, 0.84, waterHash21(impactCell + vec2(11.7, 4.2))),
+            mix(0.16, 0.84, waterHash21(impactCell + vec2(3.4, 15.8)))
+          );
+          float rainImpactProbability = 0.18;
+          float impactPresence = step(
+            1.0 - rainImpactProbability,
+            waterHash21(impactCell + 23.6)
+          );
+          float impactRate = mix(
+            0.68,
+            1.18,
+            waterHash21(impactCell + 31.2)
+          );
+          float rainImpactLife = fract(
+            impactTime * impactRate + waterHash21(impactCell + 41.9)
+          );
+          float impactDistance = length(impactLocal - impactPoint);
+          float outerRadius = rainImpactLife * 0.22;
+          float innerRadius = rainImpactLife * 0.13;
+          float impactEdge = max(fwidth(impactDistance) * 1.25, 0.009);
+          float outerRing = 1.0 - smoothstep(
+            impactEdge,
+            impactEdge * 2.4,
+            abs(impactDistance - outerRadius)
+          );
+          float innerRing = 1.0 - smoothstep(
+            impactEdge,
+            impactEdge * 2.2,
+            abs(impactDistance - innerRadius)
+          );
+          float centerDrop = 1.0 - smoothstep(
+            0.012,
+            0.055,
+            impactDistance
+          );
+          float impactFade = smoothstep(0.0, 0.08, rainImpactLife) *
+            (1.0 - smoothstep(0.55, 1.0, rainImpactLife));
+          return impactPresence * impactFade * (
+            outerRing * 0.62 + innerRing * 0.28 + centerDrop * 0.34
+          );
         }`
       )
       .replace(
@@ -233,6 +285,22 @@ export function createWaterRippleMaterial(
         float tealLight = 0.988 + highlight * waterRippleAmplitude;
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * tealLight, seaMask);
 
+        // Only a sparse visual sample of rain drops creates surface rings;
+        // individual 3D streaks do not require expensive collision matching.
+        // 只让少量雨滴产生水面涟漪，不逐滴计算三维碰撞。
+        float rainImpactAmount = waterRainImpactRipple(
+          vWaterPosition,
+          waterRippleTime
+        );
+        float rainShoreMask = seaMask * smoothstep(0.42, 0.96, shoreDistance);
+        rainImpactAmount *= rainShoreMask * waterRainEnabled * 0.42;
+        vec3 rainImpactTint = vec3(0.36, 0.68, 0.91);
+        diffuseColor.rgb = mix(
+          diffuseColor.rgb,
+          rainImpactTint,
+          rainImpactAmount
+        );
+
         // Two differently seeded populations crossfade with complementary
         // weights. Group A is dense; group B is sparse but slightly brighter.
         // 两组不同种子的反光点互补交叉淡化；A 组多，B 组少但略亮。
@@ -267,7 +335,7 @@ export function createWaterRippleMaterial(
         diffuseColor.rgb = mix(diffuseColor.rgb, sparkleTint, sparkleAmount);`
       );
   };
-  material.customProgramCacheKey = () => "growth-water-ripples-v4";
+  material.customProgramCacheKey = () => "growth-water-ripples-v5";
   material.addEventListener("dispose", () => shoreDistanceTexture.dispose());
   return material;
 }
@@ -313,4 +381,11 @@ export function updateWaterRippleTime(
   elapsedSeconds: number
 ): void {
   rippleUniforms(material).time.value = elapsedSeconds;
+}
+
+export function setWaterRainEnabled(
+  material: THREE.MeshLambertMaterial,
+  enabled: boolean
+): void {
+  rippleUniforms(material).rainEnabled.value = enabled ? 1 : 0;
 }

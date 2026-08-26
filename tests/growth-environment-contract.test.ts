@@ -186,6 +186,11 @@ describe("growth tree environment contract", () => {
       .toBeInstanceOf(THREE.Mesh);
     expect(environment.group.getObjectByName("growth-atmospheric-haze"))
       .toBeInstanceOf(THREE.Mesh);
+    expect(environment.group.getObjectByName("growth-tree-rain"))
+      .toBeInstanceOf(THREE.LineSegments);
+    environment.setRainEnabled(false);
+    expect(environment.group.getObjectByName("growth-tree-rain")?.visible)
+      .toBe(false);
     environment.dispose();
     archipelago.geometry.dispose();
     archipelago.material.dispose();

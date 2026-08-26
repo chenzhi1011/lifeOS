@@ -16,6 +16,7 @@ import {
 } from "../growth-tree-water-geometry";
 import {
   createWaterRippleMaterial,
+  setWaterRainEnabled,
   updateWaterRippleTime
 } from "../growth-tree-water-material";
 import { createArchipelagoGeometry } from "../growth-tree-archipelago-geometry";
@@ -23,6 +24,11 @@ import {
   createAtmosphericHaze,
   updateAtmosphericHaze
 } from "../growth-tree-atmospheric-haze";
+import {
+  createGrowthTreeRain,
+  setGrowthTreeRainEnabled,
+  updateGrowthTreeRain
+} from "../growth-tree-rain";
 
 export type AssetLoadDiagnostic = {
   code: "asset_load_failed";
@@ -34,6 +40,7 @@ export type AssetLoadDiagnostic = {
 export type GrowthEnvironmentLayer = {
   group: THREE.Group;
   fog: THREE.Fog;
+  setRainEnabled: (enabled: boolean) => void;
   update: (elapsedSeconds: number) => void;
   dispose: () => void;
 };
@@ -328,10 +335,11 @@ export function createGrowthEnvironment(
   const group = new THREE.Group();
   group.name = "growth-environment";
   const atmosphericHaze = createAtmosphericHaze();
+  const rain = createGrowthTreeRain();
   const lake = createLake();
   const mountains = createMountainLayers();
   const foreground = createForeground();
-  group.add(atmosphericHaze, mountains, lake, foreground.group);
+  group.add(atmosphericHaze, mountains, lake, foreground.group, rain.lines);
 
   let disposed = false;
   loadConfiguredModels(
@@ -344,15 +352,21 @@ export function createGrowthEnvironment(
   return {
     group,
     fog: new THREE.Fog(HEALING_PALETTE.fog, 14, 38),
+    setRainEnabled(enabled) {
+      setGrowthTreeRainEnabled(rain, enabled);
+      setWaterRainEnabled(lake.material, enabled);
+    },
     update(elapsedSeconds) {
       updateAtmosphericHaze(atmosphericHaze.material, elapsedSeconds);
       updateWaterRippleTime(lake.material, elapsedSeconds);
+      updateGrowthTreeRain(rain, elapsedSeconds);
     },
     dispose() {
       if (disposed) {
         return;
       }
       disposed = true;
+      rain.dispose();
       disposeObjectResources(group);
       group.clear();
     }

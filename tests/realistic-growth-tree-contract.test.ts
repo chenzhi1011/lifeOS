@@ -28,6 +28,13 @@ describe("RealisticGrowthTree renderer contract", () => {
     expect(sceneSource).toContain("GROWTH_SCENE_CONFIG.treeOrbitTarget");
     expect(sceneSource).not.toContain("controls.target.set(-0.45, 2.45, -0.8)");
     expect(sceneSource).toContain("forceContextLoss");
+    expect(sceneSource).toContain("role=\"switch\"");
+    expect(sceneSource).toContain("aria-checked={rainEnabled}");
+    expect(sceneSource).toContain("TODO：未来根据天气、用户状态或 Life OS 业务条件");
+    expect(sceneSource).toContain("setRainEnabled(rainEnabled)");
+    expect(sceneSource).toContain("renderer.domElement.style.filter");
+    expect(sceneSource).toContain("RAINY_SCENE_FILTER");
+    expect(sceneSource).toContain("renderer.domElement.style.transition");
     expect(sceneSource).not.toContain("preserveDrawingBuffer");
     expect(treeSource).toContain("createRealisticGrowthTreeLayer");
     expect(treeSource).toContain("createSemanticBranchMesh");
