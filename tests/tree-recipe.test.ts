@@ -77,4 +77,43 @@ describe("tree recipe", () => {
       }
     }
   });
+
+  it("gives secondary branches full-circle directions and visibly varied lengths", () => {
+    const state = createMatureGrowthTreeMockState(asOf);
+    const data = buildDashboardData(
+      state,
+      MATURE_GROWTH_TREE_MOCK_USER_ID,
+      asOf
+    );
+    const mature = buildTreeRecipe(data, buildGrowthMetrics(data, asOf));
+    const goals = mature.longGoals;
+    const occupiedQuadrants = new Set(
+      goals.map((goal) => Math.floor(goal.azimuth / 90) % 4)
+    );
+    const lengths = goals.map((goal) => goal.length);
+
+    expect(goals.every((goal) => goal.azimuth >= 0 && goal.azimuth < 360))
+      .toBe(true);
+    expect(occupiedQuadrants.size).toBeGreaterThanOrEqual(3);
+    expect(Math.max(...goals.map((goal) => goal.azimuth))
+      - Math.min(...goals.map((goal) => goal.azimuth))).toBeGreaterThan(180);
+    expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(.2);
+  });
+
+  it("uses irregular rather than evenly stratified attachment positions", () => {
+    const state = createMatureGrowthTreeMockState(asOf);
+    const data = buildDashboardData(
+      state,
+      MATURE_GROWTH_TREE_MOCK_USER_ID,
+      asOf
+    );
+    const mature = buildTreeRecipe(data, buildGrowthMetrics(data, asOf));
+    const starts = mature.longGoals
+      .filter((goal) => goal.parentEntityId === "work")
+      .map((goal) => goal.start)
+      .sort((left, right) => left - right);
+    const gaps = starts.slice(1).map((start, index) => start - starts[index]!);
+
+    expect(Math.max(...gaps) - Math.min(...gaps)).toBeGreaterThan(.04);
+  });
 });

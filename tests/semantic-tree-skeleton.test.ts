@@ -83,8 +83,8 @@ describe("semantic tree skeleton", () => {
     expect(skeleton().leaves).toEqual(result.leaves);
   });
 
-  it("fills a shared goal twig to 20 activity leaves before opening another", () => {
-    const counts = [20, 21, 41].map((activityCount) => {
+  it("uses stable varied capacities from 5 to 20 without a tiny remainder twig", () => {
+    const counts = [21, 41, 100].map((activityCount) => {
       const result = skeleton(stateWithAwsActivities(activityCount));
       const twigs = result.leafTwigs.filter(
         (twig) => twig.parentEntityId === "aws"
@@ -93,14 +93,30 @@ describe("semantic tree skeleton", () => {
       const leafCounts = twigs.map((twig) =>
         leaves.filter((leaf) => leaf.twigId === twig.id).length
       );
-      return { twigCount: twigs.length, leafCounts };
+      return { activityCount, twigCount: twigs.length, leafCounts };
     });
 
-    expect(counts).toEqual([
-      { twigCount: 1, leafCounts: [20] },
-      { twigCount: 2, leafCounts: [20, 1] },
-      { twigCount: 3, leafCounts: [20, 20, 1] }
-    ]);
+    for (const item of counts) {
+      expect(item.leafCounts.reduce((sum, count) => sum + count, 0))
+        .toBe(item.activityCount);
+      expect(item.leafCounts.every((count) => count >= 5 && count <= 20))
+        .toBe(true);
+    }
+    expect(new Set(counts.at(-1)!.leafCounts).size).toBeGreaterThan(1);
+    expect(skeleton(stateWithAwsActivities(100)).leafTwigs)
+      .toEqual(skeleton(stateWithAwsActivities(100)).leafTwigs);
+  });
+
+  it("shortens a fine twig when it carries fewer activity leaves", () => {
+    const twigLength = (activityCount: number): number => {
+      const twig = skeleton(stateWithAwsActivities(activityCount)).leafTwigs
+        .find((item) => item.parentEntityId === "aws")!;
+      const start = twig.controlPoints[0];
+      const end = twig.controlPoints[3];
+      return Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z);
+    };
+
+    expect(twigLength(3)).toBeLessThan(twigLength(8) * .8);
   });
 
   it("stratifies goal twigs across the secondary branch and rotates sectors", () => {
@@ -110,17 +126,35 @@ describe("semantic tree skeleton", () => {
     );
     const progresses = twigs.map((twig) => twig.attachmentProgress!);
 
-    expect(twigs).toHaveLength(5);
+    expect(twigs.length).toBeGreaterThan(5);
     expect(progresses.every((progress) => progress >= .25 && progress <= .9))
       .toBe(true);
     for (let index = 1; index < progresses.length; index += 1) {
       expect(progresses[index]! - progresses[index - 1]!)
-        .toBeGreaterThanOrEqual(.1199);
+        .toBeGreaterThanOrEqual(.06);
     }
     expect(new Set(twigs.map((twig) => twig.directionSector)).size).toBe(4);
     expect(new Set(twigs.map((twig) => JSON.stringify(twig.controlPoints[0]))).size)
       .toBe(twigs.length);
     expect(skeleton(stateWithAwsActivities(100)).leafTwigs).toEqual(result.leafTwigs);
+  });
+
+  it("keeps fine twigs outside the near-vertical up and down cones", () => {
+    const twigs = skeleton(stateWithAwsActivities(100)).leafTwigs
+      .filter((twig) => twig.parentEntityId === "aws");
+    const verticalComponents = twigs.map((twig) => {
+      const start = twig.controlPoints[0];
+      const end = twig.controlPoints[3];
+      const x = end.x - start.x;
+      const y = end.y - start.y;
+      const z = end.z - start.z;
+      return y / Math.hypot(x, y, z);
+    });
+
+    expect(verticalComponents.every((y) => y <= Math.sin(Math.PI / 3)))
+      .toBe(true);
+    expect(verticalComponents.every((y) => y >= -Math.sin(Math.PI / 9)))
+      .toBe(true);
   });
 
   it("places activity leaves on staggered opposite sides of their shared twig", () => {
