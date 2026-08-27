@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
   createActivityLeafGeometry,
+  createActivityLeafInstances,
   createActivityLeafTwigBatch,
   createSemanticBranchMesh
 } from "@/src/components/growth-tree-semantic-geometry";
 import type { LeafTwig, SemanticBranch, SemanticLeaf } from "@/src/domain/semantic-tree-skeleton";
+import { HEALING_PALETTE } from "@/src/theme/healing-palette";
 
 const controlPoints = [
   { x: 0, y: 1, z: 0 },
@@ -69,7 +71,7 @@ describe("semantic geometry", () => {
       attachmentProgress: .4,
       directionSector: 0
     };
-    const leaf = (id: string, side: -1 | 1): SemanticLeaf => ({
+    const leaf = (id: string, side: -1 | 1, recent: boolean): SemanticLeaf => ({
       activityId: id,
       goalId: "goal",
       twigId: sharedTwig.id,
@@ -107,17 +109,31 @@ describe("semantic geometry", () => {
       roll: side * .1,
       rotation: { x: 0, y: 0, z: 0 },
       scale: .6,
-      visible: true
+      visible: true,
+      recent
     });
 
     const mesh = createActivityLeafTwigBatch(
       [sharedTwig],
-      [leaf("left", -1), leaf("right", 1)]
+      [leaf("left", -1, true), leaf("right", 1, false)]
     );
 
     expect(mesh.userData.sharedTwigCount).toBe(1);
     expect(mesh.userData.petioleCount).toBe(2);
     expect(mesh.userData.midribCount).toBe(2);
+
+    const leaves = createActivityLeafInstances([
+      leaf("recent", -1, true),
+      leaf("historical", 1, false)
+    ]);
+    const recentColor = new THREE.Color();
+    const historicalColor = new THREE.Color();
+    leaves.getColorAt(0, recentColor);
+    leaves.getColorAt(1, historicalColor);
+    expect(recentColor.getHex()).toBe(new THREE.Color(HEALING_PALETTE.youngLeaf).getHex());
+    expect(historicalColor.getHex()).toBe(new THREE.Color(HEALING_PALETTE.matureLeaf).getHex());
+    leaves.geometry.dispose();
+    (leaves.material as THREE.Material).dispose();
   });
 
   it("renders a fine twig with a visibly narrower final ring", () => {

@@ -92,7 +92,8 @@ function visibleLeaf(index: number): SemanticLeaf {
     roll: 0,
     rotation: { x: 0, y: 0, z: 0 },
     scale: .6,
-    visible: true
+    visible: true,
+    recent: true
   };
 }
 

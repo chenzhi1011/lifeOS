@@ -37,7 +37,14 @@ describe("buildGrowthTreeViewModel", () => {
     expect(model.lifeAreaBranches.map((branch) => branch.entityId)).toEqual(LIFE_AREA_IDS);
     expect(model.longGoalTwigs.map((twig) => twig.entityId)).toEqual(["long-completed", "long-active"]);
     expect(model.shortGoalBranches.map((branch) => branch.entityId)).toEqual(["short-active"]);
-    expect(model.activityLeaves.map((leaf) => leaf.activityId)).toEqual(["activity-recent"]);
+    expect(model.activityLeaves.map((leaf) => leaf.activityId)).toEqual([
+      "activity-recent",
+      "activity-history"
+    ]);
+    expect(model.semanticLeaves.find((leaf) => leaf.activityId === "activity-recent")?.recent)
+      .toBe(true);
+    expect(model.semanticLeaves.find((leaf) => leaf.activityId === "activity-history")?.recent)
+      .toBe(false);
   });
 
   it("is deterministic and historical totals increase wood thickness", () => {

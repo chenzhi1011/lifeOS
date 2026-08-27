@@ -275,7 +275,12 @@ export function buildGrowthTreeViewModel(
   const goalWood = new Map(
     [...longGoalTwigs, ...shortGoalBranches].map((wood) => [wood.entityId, wood])
   );
-  const activityLeaves = recentActivities.flatMap((activity): ActivityLeaf[] => {
+  const visibleSemanticLeafIds = new Set(
+    skeleton.leaves.filter((leaf) => leaf.visible).map((leaf) => leaf.activityId)
+  );
+  const activityLeaves = allActivities
+    .filter((activity) => visibleSemanticLeafIds.has(activity.id))
+    .flatMap((activity): ActivityLeaf[] => {
     const wood = goalWood.get(activity.goalId);
     if (!wood) {
       return [];
@@ -299,7 +304,7 @@ export function buildGrowthTreeViewModel(
         activities: [activity]
       }
     ];
-  });
+    });
 
   return {
     recipe,

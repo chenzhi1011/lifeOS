@@ -140,7 +140,8 @@ function updateLayerMaterials(
     material.emissiveIntensity = selected ? 0.18 : 0;
   }
 
-  const leafBase = new THREE.Color(HEALING_PALETTE.youngLeaf);
+  const youngLeafBase = new THREE.Color(HEALING_PALETTE.youngLeaf);
+  const matureLeafBase = new THREE.Color(HEALING_PALETTE.matureLeaf);
   const leafHighlight = new THREE.Color(HEALING_PALETTE.matureLeaf);
   layer.activityTargets.forEach((target, instanceId) => {
     const selected = targetIsSelected(target, selection);
@@ -153,7 +154,9 @@ function updateLayerMaterials(
       target.goalId === selection.entityId;
     layer.activityLeafInstances.setColorAt(
       instanceId,
-      selected || hovered || related ? leafHighlight : leafBase
+      selected || hovered || related
+        ? leafHighlight
+        : target.recent ? youngLeafBase : matureLeafBase
     );
   });
   if (layer.activityLeafInstances.instanceColor) {

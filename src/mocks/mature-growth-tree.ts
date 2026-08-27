@@ -6,6 +6,7 @@ import type {
   LifeOSState,
   Task
 } from "../domain/types";
+import { seedFromId } from "../domain/stable-seed";
 
 export const MATURE_GROWTH_TREE_MOCK_USER_ID = "mature-growth-tree-mock";
 
@@ -97,7 +98,10 @@ export function createMatureGrowthTreeMockState(asOf: Date): LifeOSState {
         createdAt: isoAtDayOffset(asOf, 180 + areaIndex * 4 + goalIndex)
       };
       goals.push(goal);
-      addGoalHistory(goal, 14);
+      const activityCount = 100 + Math.floor(
+        seedFromId(`${goalIndex}:${area.id}`, "mature-activity-count") * 81
+      );
+      addGoalHistory(goal, activityCount);
     }
 
     const shortGoalCount = areaIndex < 3 ? 2 : 1;

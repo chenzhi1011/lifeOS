@@ -60,7 +60,7 @@ describe("semantic tree skeleton", () => {
     expect(skeleton(state).branches).toContainEqual(expect.objectContaining({ entityId: "new-goal", parentEntityId: "work" }));
   });
 
-  it("uses deterministic leaf visibility from canopy retention", () => {
+  it("uses deterministic accumulated leaf visibility and recent-state metadata", () => {
     const result = skeleton();
     const twigById = new Map(result.leafTwigs.map((twig) => [twig.id, twig]));
     expect(result.leaves.every((leaf) => typeof leaf.visible === "boolean")).toBe(true);
@@ -81,6 +81,29 @@ describe("semantic tree skeleton", () => {
     ).toBe(true);
     expect(result.leaves.every((leaf) => leaf.scale <= 0.72)).toBe(true);
     expect(skeleton().leaves).toEqual(result.leaves);
+  });
+
+  it("keeps all accumulated leaves through 500 and replaces old leaves gradually above the cap", () => {
+    const atCap = skeleton(stateWithAwsActivities(500));
+    const aboveCap = skeleton(stateWithAwsActivities(600));
+    const afterOneMore = skeleton(stateWithAwsActivities(601));
+    const visibleIds = (result: ReturnType<typeof skeleton>) => new Set(
+      result.leaves
+        .filter((leaf) => leaf.goalId === "aws" && leaf.visible)
+        .map((leaf) => leaf.activityId)
+    );
+    const atCapIds = visibleIds(atCap);
+    const aboveCapIds = visibleIds(aboveCap);
+    const afterOneMoreIds = visibleIds(afterOneMore);
+    const retainedAfterOneMore = [...aboveCapIds]
+      .filter((id) => afterOneMoreIds.has(id)).length;
+
+    expect(atCapIds.size).toBe(500);
+    expect(aboveCapIds.size).toBe(500);
+    expect(afterOneMoreIds.size).toBe(500);
+    expect(retainedAfterOneMore).toBeGreaterThanOrEqual(498);
+    expect(stateWithAwsActivities(601).activities
+      .filter((activity) => activity.goalId === "aws")).toHaveLength(601);
   });
 
   it("uses stable varied capacities from 5 to 20 without a tiny remainder twig", () => {

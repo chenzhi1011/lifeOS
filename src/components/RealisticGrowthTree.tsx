@@ -15,6 +15,7 @@ export type TreeSelectionTarget = {
   entityId: string;
   leafId: string | null;
   goalId: string | null;
+  recent?: boolean;
 };
 
 export type RealisticGrowthTreeLayer = {
@@ -100,7 +101,8 @@ export function createRealisticGrowthTreeLayer(
     entityType: "activity",
     entityId: leaf.activityId,
     leafId: leaf.activityId,
-    goalId: leaf.goalId
+    goalId: leaf.goalId,
+    recent: leaf.recent
   }));
   group.add(activityLeafTwigs, activityLeafInstances);
   rememberOwnedMesh(activityLeafTwigs, ownedGeometries, ownedMaterials);

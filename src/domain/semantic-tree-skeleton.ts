@@ -18,7 +18,9 @@ export function activityLeafProgresses(lateralLeafCount: number): number[] {
     Number((.2 + spacing * (index + 1)).toFixed(4))
   );
 }
-export type SemanticLeaf = { activityId: string; goalId: string; twigId: string; side: -1 | 0 | 1; terminal: boolean; twigProgress: number; petiole: LeafTwig; midrib: LeafTwig; anchor: SceneVector; direction: SceneVector; twigTangent: SceneVector; normal: SceneVector; roll: number; rotation: SceneVector; scale: number; visible: boolean };
+export const MAX_VISIBLE_ACTIVITY_LEAVES_PER_GOAL = 500;
+export const PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL = 100;
+export type SemanticLeaf = { activityId: string; goalId: string; twigId: string; side: -1 | 0 | 1; terminal: boolean; twigProgress: number; petiole: LeafTwig; midrib: LeafTwig; anchor: SceneVector; direction: SceneVector; twigTangent: SceneVector; normal: SceneVector; roll: number; rotation: SceneVector; scale: number; visible: boolean; recent: boolean };
 export type SemanticTreeSkeleton = { branches: SemanticBranch[]; leafTwigs: LeafTwig[]; leaves: SemanticLeaf[] };
 const v = (x: number, y: number, z: number): SceneVector => ({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)), z: Number(z.toFixed(4)) });
 function bezier(points: SemanticBranch["controlPoints"], t: number): SceneVector {
@@ -169,6 +171,32 @@ function groupActivitiesForTwigs<T>(goalId: string, activities: T[]): T[][] {
   return groups;
 }
 
+function visibleActivitiesForTree<T extends { id: string }>(activities: T[]): T[] {
+  if (activities.length <= MAX_VISIBLE_ACTIVITY_LEAVES_PER_GOAL) {
+    return activities;
+  }
+  const protectedRecent = activities.slice(
+    -PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL
+  );
+  const historicalLimit = MAX_VISIBLE_ACTIVITY_LEAVES_PER_GOAL
+    - PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL;
+  const selectedHistoricalIds = new Set(
+    activities
+      .slice(0, -PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL)
+      .sort((left, right) =>
+        seedFromId(right.id, "historical-leaf")
+        - seedFromId(left.id, "historical-leaf")
+        || left.id.localeCompare(right.id)
+      )
+      .slice(0, historicalLimit)
+      .map((activity) => activity.id)
+  );
+  const protectedIds = new Set(protectedRecent.map((activity) => activity.id));
+  return activities.filter((activity) =>
+    selectedHistoricalIds.has(activity.id) || protectedIds.has(activity.id)
+  );
+}
+
 function activityLeafOnTwig(
   activityId: string,
   goalId: string,
@@ -176,7 +204,8 @@ function activityLeafOnTwig(
   progress: number,
   side: -1 | 0 | 1,
   terminal: boolean,
-  visible: boolean
+  visible: boolean,
+  recent: boolean
 ): SemanticLeaf {
   const attachment = bezier(twig.controlPoints, progress);
   const before = bezier(twig.controlPoints, Math.max(0, progress - .025));
@@ -280,7 +309,8 @@ function activityLeafOnTwig(
       (seedFromId(activityId, "rz") - .5) * .8
     ),
     scale,
-    visible
+    visible,
+    recent
   };
 }
 
@@ -460,7 +490,8 @@ export function buildSemanticTreeSkeleton(data: DashboardData, recipe: TreeRecip
   for (const [goalId, activities] of activitiesByGoal) {
     const parent = branchById.get(goalId);
     if (!parent) continue;
-    const groups = groupActivitiesForTwigs(goalId, activities);
+    const visibleActivities = visibleActivitiesForTree(activities);
+    const groups = groupActivitiesForTwigs(goalId, visibleActivities);
     let previousProgress: number | null = null;
     groups.forEach((group, twigIndex) => {
       const twig = goalLeafTwig(
@@ -472,15 +503,8 @@ export function buildSemanticTreeSkeleton(data: DashboardData, recipe: TreeRecip
       );
       previousProgress = twig.attachmentProgress!;
       leafTwigs.push(twig);
-      const visibleActivityIds = new Set(group
-        .filter((activity) => recentIds.has(activity.id)
-          && seedFromId(activity.id, "visibility") <= recipe.canopy.retention)
-        .map((activity) => activity.id));
-      const visibleActivities = group.filter((activity) =>
-        visibleActivityIds.has(activity.id)
-      );
-      const terminalActivityId = visibleActivities.at(-1)?.id ?? group.at(-1)!.id;
-      const visibleLateralIds = visibleActivities
+      const terminalActivityId = group.at(-1)!.id;
+      const visibleLateralIds = group
         .filter((activity) => activity.id !== terminalActivityId)
         .map((activity) => activity.id);
       const lateralProgresses = activityLeafProgresses(visibleLateralIds.length);
@@ -488,7 +512,7 @@ export function buildSemanticTreeSkeleton(data: DashboardData, recipe: TreeRecip
         visibleLateralIds.map((id, index) => [id, index])
       );
       group.forEach((activity) => {
-        const visible = visibleActivityIds.has(activity.id);
+        const visible = true;
         const terminal = activity.id === terminalActivityId;
         const lateralIndex = lateralIndexById.get(activity.id);
         const progress = terminal
@@ -508,7 +532,8 @@ export function buildSemanticTreeSkeleton(data: DashboardData, recipe: TreeRecip
           progress,
           side,
           terminal,
-          visible
+          visible,
+          recentIds.has(activity.id)
         ));
       });
     });

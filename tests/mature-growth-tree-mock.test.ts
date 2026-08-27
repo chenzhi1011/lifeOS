@@ -21,6 +21,10 @@ describe("mature growth tree mock", () => {
     expect(state.tasks.filter((task) => task.status === "completed").length)
       .toBeGreaterThan(300);
     expect(state.activities.length).toBeGreaterThan(300);
+    for (const goal of state.goals.filter((item) => item.goalType === "long_term")) {
+      expect(state.activities.filter((activity) => activity.goalId === goal.id).length)
+        .toBeGreaterThanOrEqual(100);
+    }
     expect(state.tasks.every(
       (task) => task.status !== "completed" || task.completedAt !== null
     )).toBe(true);
@@ -50,7 +54,7 @@ describe("mature growth tree mock", () => {
       .every((goal) => goal.stage === 5)).toBe(true);
     expect(model.lifeAreaBranches).toHaveLength(7);
     expect(model.longGoalTwigs.length).toBeGreaterThanOrEqual(18);
-    expect(model.activityLeaves.length).toBeGreaterThan(200);
+    expect(model.activityLeaves.length).toBeGreaterThan(1_800);
     expect(model.recipe.canopy.vitality).toBeGreaterThan(0.95);
     expect(model.recipe.canopy.retention).toBeGreaterThan(0.95);
     expect(model.shortGoalBranches).toHaveLength(0);
@@ -62,7 +66,7 @@ describe("mature growth tree mock", () => {
     );
     const layer = createRealisticGrowthTreeLayer(model);
     expect(layer.stats.activityLeaves).toBe(visibleActivityLeaves.length);
-    expect(layer.stats.activityLeaves).toBeGreaterThan(200);
+    expect(layer.stats.activityLeaves).toBeGreaterThan(1_800);
     expect(layer.stats.decorativeLeaves).toBe(0);
     expect(layer.stats.totalLeaves).toBe(layer.stats.activityLeaves);
     expect(layer.activityLeafInstances.count).toBe(visibleActivityLeaves.length);

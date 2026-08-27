@@ -35,7 +35,7 @@ export function createSemanticBranchMesh(branch: SemanticBranch) {
   const mesh=new THREE.Mesh(geometry,material); mesh.userData={entityType:branch.entityType,entityId:branch.entityId,goalId:branch.entityType.includes("goal")?branch.entityId:null,leafId:null}; mesh.castShadow=true; return mesh;
 }
 export function createSemanticLeafMesh(leaf: SemanticLeaf){ const shape=new THREE.Shape(); shape.moveTo(0,-.16); shape.quadraticCurveTo(.22,.05,0,.28); shape.quadraticCurveTo(-.22,.05,0,-.16);
-  const material=new THREE.MeshLambertMaterial({color:HEALING_PALETTE.youngLeaf,side:THREE.DoubleSide}); material.userData={baseColor:new THREE.Color(HEALING_PALETTE.youngLeaf).getHex(),hoverColor:new THREE.Color(HEALING_PALETTE.matureLeaf).getHex(),selectedColor:new THREE.Color(HEALING_PALETTE.youngLeaf).getHex(),relatedColor:new THREE.Color(HEALING_PALETTE.matureLeaf).getHex()};
+  const leafColor=leaf.recent?HEALING_PALETTE.youngLeaf:HEALING_PALETTE.matureLeaf; const material=new THREE.MeshLambertMaterial({color:leafColor,side:THREE.DoubleSide}); material.userData={baseColor:new THREE.Color(leafColor).getHex(),hoverColor:new THREE.Color(HEALING_PALETTE.matureLeaf).getHex(),selectedColor:new THREE.Color(HEALING_PALETTE.youngLeaf).getHex(),relatedColor:new THREE.Color(HEALING_PALETTE.matureLeaf).getHex()};
   const mesh=new THREE.Mesh(new THREE.ShapeGeometry(shape,6),material); mesh.position.copy(point(leaf.anchor)); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),point(leaf.direction).normalize()); mesh.rotateY(leaf.roll); mesh.scale.setScalar(leaf.scale); mesh.userData={entityType:"activity",entityId:leaf.activityId,goalId:leaf.goalId,leafId:leaf.activityId}; return mesh; }
 
 export function createActivityLeafGeometry(): THREE.BufferGeometry {
@@ -75,10 +75,11 @@ export function createActivityLeafInstances(
   };
   const mesh = new THREE.InstancedMesh(geometry, material, leaves.length);
   mesh.name = "activity-leaf-instances";
-  const baseColor = new THREE.Color(HEALING_PALETTE.youngLeaf);
+  const youngColor = new THREE.Color(HEALING_PALETTE.youngLeaf);
+  const matureColor = new THREE.Color(HEALING_PALETTE.matureLeaf);
   leaves.forEach((leaf, index) => {
     mesh.setMatrixAt(index, activityLeafMatrix(leaf));
-    mesh.setColorAt(index, baseColor);
+    mesh.setColorAt(index, leaf.recent ? youngColor : matureColor);
   });
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;

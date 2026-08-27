@@ -51,7 +51,8 @@ const leaf: SemanticLeaf = {
   roll: .35,
   rotation: { x: 0, y: 0, z: 0 },
   scale: .6,
-  visible: true
+  visible: true,
+  recent: true
 };
 
 function leafAt(activityId: string, x: number): SemanticLeaf {
