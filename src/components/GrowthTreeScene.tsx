@@ -506,9 +506,15 @@ export function GrowthTreeScene({
     runtime.layer = layer;
     runtime.hoveredTarget = null;
     runtime.scene.add(layer.group);
-    const vitality = createVitalityElements(viewModel.vitalityElements);
+    const vitality = createVitalityElements(
+      viewModel.vitalityElements,
+      viewModel.semanticLeaves
+    );
     runtime.vitality = vitality;
-    runtime.scene.add(vitality.group);
+    // Vitality attachments share the tree's local coordinate system, so leaf
+    // motion and the whole-tree scene offset also move the droplets.
+    // 生命力附件与树共用局部坐标系，叶片变化及整棵树偏移都会同步带动水滴。
+    layer.group.add(vitality.group);
     updateLayerMaterials(layer, selectionRef.current, null);
     return () => {
       if (runtime.layer === layer) {
@@ -517,7 +523,7 @@ export function GrowthTreeScene({
         runtime.layer = null;
       }
       if (runtime.vitality === vitality) {
-        runtime.scene.remove(vitality.group);
+        vitality.group.removeFromParent();
         vitality.dispose();
         runtime.vitality = null;
       }

@@ -4,6 +4,8 @@ import type {
   VitalityElement,
   VitalityElementType
 } from "@/src/domain/vitality";
+import type { SemanticLeaf } from "@/src/domain/semantic-tree-skeleton";
+import { activityLeafSurfaceFrame } from "./activity-leaf-transform";
 
 export type VitalityElementsLayer = {
   group: THREE.Group;
@@ -13,6 +15,9 @@ export type VitalityElementsLayer = {
 
 type InstanceRecord = {
   position: THREE.Vector3;
+  leaf: SemanticLeaf | null;
+  leafDistance: number;
+  normal: THREE.Vector3 | null;
   phase: number;
   amplitude: number;
 };
@@ -31,10 +36,10 @@ const caps: Record<VitalityElementType, number> = {
 
 function geometryFor(type: VitalityElementType): THREE.BufferGeometry {
   if (type === "water") {
-    // Water droplets are small and soft so they read as moisture, not decoration noise.
-    // 水滴要小而柔和，读起来像湿润感，而不是干扰性的装饰点。
-    const geometry = new THREE.SphereGeometry(0.15, 8, 6);
-    geometry.scale(0.78, 1.25, 0.78);
+    // A tiny flattened bead that rests on a leaf instead of floating beside the tree.
+    // 小而扁的半透明水珠，贴在叶面上，而不是悬浮在树旁。
+    const geometry = new THREE.SphereGeometry(0.035, 12, 8);
+    geometry.scale(0.9, 0.55, 0.9);
     return geometry;
   }
   if (type === "creature") {
@@ -43,16 +48,18 @@ function geometryFor(type: VitalityElementType): THREE.BufferGeometry {
   return new THREE.ConeGeometry(0.09, 0.36, 5, 1);
 }
 
-function materialFor(type: VitalityElementType): THREE.MeshLambertMaterial {
+function materialFor(type: VitalityElementType): THREE.Material {
   if (type === "water") {
-    // Cool translucent blue for hydration hints / 偏冷的半透明蓝色，提示“水分”
-    return new THREE.MeshLambertMaterial({
-      color: 0xa8dfe2,
-      emissive: 0x477f85,
-      emissiveIntensity: 0.12,
+    // Transparent highlight, not emissive blue plastic / 依靠透明高光表现水感，不再自发光。
+    return new THREE.MeshPhysicalMaterial({
+      color: 0x9bdde3,
       transparent: true,
-      opacity: 0.9,
-      flatShading: true
+      opacity: 0.55,
+      roughness: 0.16,
+      metalness: 0,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
+      depthWrite: false
     });
   }
   if (type === "creature") {
@@ -69,39 +76,66 @@ function materialFor(type: VitalityElementType): THREE.MeshLambertMaterial {
   });
 }
 
-function recordsFor(elements: VitalityElement[]): InstanceRecord[] {
-  return elements.map((element) => ({
-    position: new THREE.Vector3(
-      element.position.x,
-      element.position.y,
-      element.position.z
-    ),
-    phase: seedFromId(element.id, "vitality-motion") * Math.PI * 2,
-    amplitude: 0.025 + seedFromId(element.id, "vitality-amplitude") * 0.045
-  }));
+function recordsFor(
+  type: VitalityElementType,
+  elements: VitalityElement[],
+  visibleLeaves: SemanticLeaf[]
+): InstanceRecord[] {
+  const availableLeaves = [...visibleLeaves];
+  return elements.slice(0, type === "water" ? availableLeaves.length : undefined).map((element) => {
+    if (type === "water") {
+      const leafIndex = Math.min(
+        availableLeaves.length - 1,
+        Math.floor(seedFromId(element.id, "water-leaf") * availableLeaves.length)
+      );
+      const leaf = availableLeaves.splice(leafIndex, 1)[0]!;
+      return {
+        position: new THREE.Vector3(),
+        leaf,
+        leafDistance: .16,
+        normal: new THREE.Vector3(),
+        phase: 0,
+        amplitude: 0
+      };
+    }
+    return {
+      position: new THREE.Vector3(
+        element.position.x,
+        element.position.y,
+        element.position.z
+      ),
+      leaf: null,
+      leafDistance: 0,
+      normal: null,
+      phase: seedFromId(element.id, "vitality-motion") * Math.PI * 2,
+      amplitude: 0.025 + seedFromId(element.id, "vitality-amplitude") * 0.045
+    };
+  });
 }
 
 function createInstanceLayer(
   type: VitalityElementType,
-  elements: VitalityElement[]
+  elements: VitalityElement[],
+  visibleLeaves: SemanticLeaf[]
 ): InstanceLayer | null {
   const selected = elements
     .filter((element) => element.type === type)
     .slice(0, caps[type]);
-  if (selected.length === 0) {
+  if (selected.length === 0 || (type === "water" && visibleLeaves.length === 0)) {
     return null;
   }
+  const records = recordsFor(type, selected, visibleLeaves);
   const mesh = new THREE.InstancedMesh(
     geometryFor(type),
     materialFor(type),
-    selected.length
+    records.length
   );
   mesh.name = `vitality-${type}`;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = type !== "water";
   mesh.receiveShadow = type !== "water";
   mesh.frustumCulled = false;
-  return { type, mesh, records: recordsFor(selected) };
+  return { type, mesh, records };
 }
 
 function setInstanceTransform(
@@ -116,8 +150,16 @@ function setInstanceTransform(
   transform.scale.setScalar(1);
 
   if (layer.type === "water") {
-    // Water remains still; only its shared material highlight changes over time.
-    // 水滴本体不动，只让共享材质亮度随时间轻微变化。
+    const surface = activityLeafSurfaceFrame(record.leaf!, record.leafDistance);
+    const beadHalfHeight = .035 * .55;
+    transform.position.copy(surface.position).addScaledVector(
+      surface.normal,
+      beadHalfHeight
+    );
+    transform.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      surface.normal
+    );
   } else if (layer.type === "creature") {
     const pace = elapsedSeconds * 0.22 + record.phase;
     transform.position.x += Math.cos(pace) * record.amplitude;
@@ -136,12 +178,16 @@ function setInstanceTransform(
 }
 
 export function createVitalityElements(
-  elements: VitalityElement[]
+  elements: VitalityElement[],
+  leaves: SemanticLeaf[] = []
 ): VitalityElementsLayer {
   const group = new THREE.Group();
   group.name = "growth-vitality-elements";
+  const visibleLeaves = leaves
+    .filter((leaf) => leaf.visible)
+    .sort((left, right) => left.activityId.localeCompare(right.activityId));
   const layers = (["water", "creature", "flora"] as const)
-    .map((type) => createInstanceLayer(type, elements))
+    .map((type) => createInstanceLayer(type, elements, visibleLeaves))
     .filter((layer): layer is InstanceLayer => layer !== null);
   for (const layer of layers) {
     group.add(layer.mesh);
@@ -154,13 +200,6 @@ export function createVitalityElements(
         setInstanceTransform(layer, index, elapsedSeconds, transform);
       }
       layer.mesh.instanceMatrix.needsUpdate = true;
-      if (
-        layer.type === "water" &&
-        layer.mesh.material instanceof THREE.MeshLambertMaterial
-      ) {
-        layer.mesh.material.emissiveIntensity =
-          0.11 + Math.sin(elapsedSeconds * 0.38) * 0.025;
-      }
     }
   };
   updateVitalityElements(0);

@@ -21,6 +21,7 @@ import type {
   VitalityElement,
   VitalityElementType
 } from "@/src/domain/vitality";
+import type { SemanticLeaf } from "@/src/domain/semantic-tree-skeleton";
 import { vi } from "vitest";
 
 function source(relativePath: string): string {
@@ -69,6 +70,29 @@ function vitalityElement(
       y: type === "water" ? 1.4 + index * 0.03 : 0.08,
       z: index * -0.11
     }
+  };
+}
+
+function visibleLeaf(index: number): SemanticLeaf {
+  const anchor = { x: index * .2, y: 2, z: 0 };
+  const shortCurve = [anchor, anchor, anchor, anchor] as const;
+  return {
+    activityId: `leaf-${index}`,
+    goalId: "goal",
+    twigId: "twig",
+    side: -1,
+    terminal: false,
+    twigProgress: .5,
+    petiole: { id: `petiole-${index}`, parentEntityId: "twig", controlPoints: shortCurve, baseRadius: .004, tipRadius: .004 },
+    midrib: { id: `midrib-${index}`, parentEntityId: `petiole-${index}`, controlPoints: shortCurve, baseRadius: .003, tipRadius: .002 },
+    anchor,
+    direction: { x: 1, y: 0, z: 0 },
+    twigTangent: { x: 1, y: 0, z: 0 },
+    normal: { x: 0, y: 1, z: 0 },
+    roll: 0,
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: .6,
+    visible: true
   };
 }
 
@@ -332,6 +356,8 @@ describe("growth tree environment contract", () => {
     expect(vitality).toContain("updateVitalityElements");
     expect(vitality).not.toContain("Math.random");
     expect(scene).toContain("updateVitalityElements(elapsedSeconds)");
+    expect(scene).toContain("layer.group.add(vitality.group)");
+    expect(scene).not.toContain("runtime.scene.add(vitality.group)");
     expect(scene).toContain("GROWTH_SCENE_CONFIG.performance.maxPixelRatio");
     expect(scene).toContain("GROWTH_SCENE_CONFIG.treeOffsetX");
     expect(scene).not.toContain("externalTreeVisible");
@@ -352,8 +378,9 @@ describe("growth tree environment contract", () => {
         vitalityElement("flora", index)
       )
     ];
-    const first = createVitalityElements(elements);
-    const second = createVitalityElements(elements);
+    const leaves = Array.from({ length: 7 }, (_, index) => visibleLeaf(index));
+    const first = createVitalityElements(elements, leaves);
+    const second = createVitalityElements(elements, leaves);
     const firstWater = instanceMesh(first, "water");
     const firstCreature = instanceMesh(first, "creature");
     const firstFlora = instanceMesh(first, "flora");
@@ -377,12 +404,10 @@ describe("growth tree environment contract", () => {
     const waterBefore = matrixSnapshot(firstWater);
     const creatureBefore = matrixSnapshot(firstCreature);
     const floraBefore = matrixSnapshot(firstFlora);
-    const waterMaterial = firstWater.material as THREE.MeshStandardMaterial;
-    const waterHighlightBefore = waterMaterial.emissiveIntensity;
     first.updateVitalityElements(7);
 
     expect(matrixSnapshot(firstWater)).toEqual(waterBefore);
-    expect(waterMaterial.emissiveIntensity).not.toBe(waterHighlightBefore);
+    expect(firstWater.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
     expect(matrixSnapshot(firstCreature)).not.toEqual(creatureBefore);
     expect(matrixSnapshot(firstFlora)).not.toEqual(floraBefore);
 
@@ -391,11 +416,14 @@ describe("growth tree environment contract", () => {
   });
 
   it("disposes every vitality instance and owned resource once", () => {
-    const layer = createVitalityElements([
-      vitalityElement("water", 0),
-      vitalityElement("creature", 0),
-      vitalityElement("flora", 0)
-    ]);
+    const layer = createVitalityElements(
+      [
+        vitalityElement("water", 0),
+        vitalityElement("creature", 0),
+        vitalityElement("flora", 0)
+      ],
+      [visibleLeaf(0)]
+    );
     const spies = layer.group.children.map((child) => {
       const mesh = child as THREE.InstancedMesh;
       return {

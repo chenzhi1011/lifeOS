@@ -3,6 +3,10 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { type SemanticBranch, type SemanticLeaf, type LeafTwig } from "@/src/domain/semantic-tree-skeleton";
 import { HEALING_PALETTE } from "@/src/theme/healing-palette";
 import { createNaturalBranchGeometry, createUniformCurvedBranchGeometry } from "./growth-tree-branch-geometry";
+import {
+  ACTIVITY_LEAF_SURFACE_SECTIONS,
+  activityLeafMatrix
+} from "./growth-tree/activity-leaf-transform";
 
 const point = (v: {x:number;y:number;z:number}) => new THREE.Vector3(v.x,v.y,v.z);
 
@@ -35,19 +39,12 @@ export function createSemanticLeafMesh(leaf: SemanticLeaf){ const shape=new THRE
   const mesh=new THREE.Mesh(new THREE.ShapeGeometry(shape,6),material); mesh.position.copy(point(leaf.anchor)); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),point(leaf.direction).normalize()); mesh.rotateY(leaf.roll); mesh.scale.setScalar(leaf.scale); mesh.userData={entityType:"activity",entityId:leaf.activityId,goalId:leaf.goalId,leafId:leaf.activityId}; return mesh; }
 
 export function createActivityLeafGeometry(): THREE.BufferGeometry {
-  const sections = [
-    { distance: 0, halfWidth: 0, height: 0 },
-    { distance: .08, halfWidth: .09, height: .006 },
-    { distance: .18, halfWidth: .145, height: .014 },
-    { distance: .28, halfWidth: .1, height: .004 },
-    { distance: .36, halfWidth: 0, height: -.045 }
-  ];
-  const positions = sections.flatMap((section) => [
+  const positions = ACTIVITY_LEAF_SURFACE_SECTIONS.flatMap((section) => [
     -section.halfWidth, section.distance, section.height,
     section.halfWidth, section.distance, section.height
   ]);
   const indices: number[] = [];
-  for (let index = 0; index < sections.length - 1; index += 1) {
+  for (let index = 0; index < ACTIVITY_LEAF_SURFACE_SECTIONS.length - 1; index += 1) {
     const left = index * 2;
     const right = left + 1;
     const nextLeft = left + 2;
@@ -78,26 +75,9 @@ export function createActivityLeafInstances(
   };
   const mesh = new THREE.InstancedMesh(geometry, material, leaves.length);
   mesh.name = "activity-leaf-instances";
-  const transform = new THREE.Object3D();
   const baseColor = new THREE.Color(HEALING_PALETTE.youngLeaf);
   leaves.forEach((leaf, index) => {
-    transform.position.copy(point(leaf.anchor));
-    const longAxis = point(leaf.direction).normalize();
-    const normalAxis = point(leaf.normal).normalize();
-    const widthAxis = new THREE.Vector3()
-      .crossVectors(longAxis, normalAxis)
-      .normalize();
-    normalAxis.crossVectors(widthAxis, longAxis).normalize();
-    const basis = new THREE.Matrix4().makeBasis(
-      widthAxis,
-      longAxis,
-      normalAxis
-    );
-    transform.quaternion.setFromRotationMatrix(basis);
-    transform.rotateY(leaf.roll);
-    transform.scale.setScalar(leaf.scale);
-    transform.updateMatrix();
-    mesh.setMatrixAt(index, transform.matrix);
+    mesh.setMatrixAt(index, activityLeafMatrix(leaf));
     mesh.setColorAt(index, baseColor);
   });
   mesh.instanceMatrix.needsUpdate = true;
