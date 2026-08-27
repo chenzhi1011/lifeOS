@@ -22,6 +22,9 @@ describe("RealisticGrowthTree renderer contract", () => {
     expect(sceneSource).toContain("endPointerGesture");
     expect(sceneSource).toContain("cancelPointerGesture");
     expect(sceneSource).toContain("resolveTreeMaterialColor");
+    expect(sceneSource).toContain("targetForIntersection");
+    expect(sceneSource).toContain("activityLeafInstances.setColorAt");
+    expect(sceneSource).toContain("instanceColor.needsUpdate");
     expect(sceneSource).toContain("controls.enablePan = false");
     expect(sceneSource).toContain("GROWTH_TREE_CAMERA_LIMITS.minimumPolarAngle");
     expect(sceneSource).toContain("resolveMaximumPolarAngle");
@@ -38,7 +41,11 @@ describe("RealisticGrowthTree renderer contract", () => {
     expect(sceneSource).not.toContain("preserveDrawingBuffer");
     expect(treeSource).toContain("createRealisticGrowthTreeLayer");
     expect(treeSource).toContain("createSemanticBranchMesh");
-    expect(treeSource).toContain("createSemanticLeafMesh");
+    expect(treeSource).toContain("createActivityLeafInstances");
+    expect(treeSource).toContain("createActivityLeafTwigBatch");
+    expect(treeSource).not.toContain("createDecorativeCanopy(");
+    expect(treeSource).not.toContain("createDecorativeCanopyTwigs(");
+    expect(treeSource).not.toContain("buildCanopyStructure(");
     expect(treeSource).not.toContain("WebGLRenderer");
     expect(treeSource).not.toContain("THREE.Scene");
     expect(treeSource).not.toContain("PerspectiveCamera");

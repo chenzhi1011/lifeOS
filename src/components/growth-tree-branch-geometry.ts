@@ -49,6 +49,8 @@ export type NaturalBranchProfile = {
 export type UniformCurvedBranchGeometryOptions = {
   controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector];
   radius: number;
+  tipRadius?: number;
+  taperStart?: number;
   longitudinalSegments: number;
   radialSegments: number;
 };
@@ -150,6 +152,9 @@ export function createUniformCurvedBranchGeometry(
 ): THREE.BufferGeometry {
   validateControlPoints(options.controlPoints);
   requireFinitePositive("radius", options.radius);
+  if (options.tipRadius !== undefined) {
+    requireFinitePositive("tipRadius", options.tipRadius);
+  }
   const longitudinalSegments = Math.max(1, Math.round(options.longitudinalSegments));
   const radialSegments = Math.max(3, Math.round(options.radialSegments));
   const ringCount = longitudinalSegments + 1;
@@ -165,11 +170,20 @@ export function createUniformCurvedBranchGeometry(
     const tangent = curve.getTangent(along).normalize();
     normal = normal ? transportNormal(normal, tangent) : initialNormal(tangent);
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+    const taperStart = options.taperStart ?? .7;
+    const taperProgress = Math.max(
+      0,
+      Math.min(1, (along - taperStart) / (1 - taperStart))
+    );
+    const smoothTaper = taperProgress * taperProgress * (3 - 2 * taperProgress);
+    const radius = options.tipRadius === undefined
+      ? options.radius
+      : options.radius + (options.tipRadius - options.radius) * smoothTaper;
     for (let side = 0; side < radialSegments; side += 1) {
       const angle = side / radialSegments * Math.PI * 2;
       const position = center.clone()
-        .addScaledVector(normal, Math.cos(angle) * options.radius)
-        .addScaledVector(binormal, Math.sin(angle) * options.radius);
+        .addScaledVector(normal, Math.cos(angle) * radius)
+        .addScaledVector(binormal, Math.sin(angle) * radius);
       positions.push(position.x, position.y, position.z);
     }
   }

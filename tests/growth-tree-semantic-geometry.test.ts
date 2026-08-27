@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
-  buildCanopyStructure,
-  createDecorativeCanopy,
-  createDecorativeCanopyTwigs,
+  createActivityLeafGeometry,
+  createActivityLeafTwigBatch,
   createSemanticBranchMesh
 } from "@/src/components/growth-tree-semantic-geometry";
-import type { SemanticBranch } from "@/src/domain/semantic-tree-skeleton";
+import type { LeafTwig, SemanticBranch, SemanticLeaf } from "@/src/domain/semantic-tree-skeleton";
 
 const controlPoints = [
   { x: 0, y: 1, z: 0 },
@@ -31,9 +30,123 @@ function branch(
 }
 
 describe("semantic geometry", () => {
+  it("builds an upward-facing leaf from its root with a drooping tip", () => {
+    const geometry = createActivityLeafGeometry();
+    const position = geometry.getAttribute("position");
+    const vertices = Array.from({ length: position.count }, (_, index) => ({
+      x: position.getX(index),
+      y: position.getY(index),
+      z: position.getZ(index)
+    }));
+    const rootVertices = vertices.filter((vertex) => Math.abs(vertex.y) < .0001);
+    const middleHeight = Math.max(
+      ...vertices.filter((vertex) => vertex.y > .15 && vertex.y < .25)
+        .map((vertex) => vertex.z)
+    );
+    const tipHeight = Math.min(
+      ...vertices.filter((vertex) => vertex.y > .34).map((vertex) => vertex.z)
+    );
+
+    expect(rootVertices.length).toBeGreaterThan(0);
+    expect(vertices.every((vertex) => vertex.y >= 0)).toBe(true);
+    expect(tipHeight).toBeLessThan(middleHeight);
+    expect(geometry.getAttribute("normal")).toBeDefined();
+    const normal = geometry.getAttribute("normal");
+    const averageNormalZ = Array.from(
+      { length: normal.count },
+      (_, index) => normal.getZ(index)
+    ).reduce((sum, value) => sum + value, 0) / normal.count;
+    expect(averageNormalZ).toBeGreaterThan(.5);
+  });
+
+  it("merges a shared activity twig once and each leaf petiole once", () => {
+    const sharedTwig: LeafTwig = {
+      id: "goal-leaf-twig-goal-0",
+      parentEntityId: "goal",
+      controlPoints,
+      baseRadius: .014,
+      tipRadius: .014,
+      attachmentProgress: .4,
+      directionSector: 0
+    };
+    const leaf = (id: string, side: -1 | 1): SemanticLeaf => ({
+      activityId: id,
+      goalId: "goal",
+      twigId: sharedTwig.id,
+      side,
+      terminal: false,
+      twigProgress: .4,
+      petiole: {
+        id: `${id}-petiole`,
+        parentEntityId: sharedTwig.id,
+        controlPoints: [
+          controlPoints[1],
+          { x: .21, y: 1.41, z: 0 },
+          { x: .22, y: 1.42, z: 0 },
+          { x: .23, y: 1.43, z: 0 }
+        ],
+        baseRadius: .004,
+        tipRadius: .004
+      },
+      midrib: {
+        id: `${id}-midrib`,
+        parentEntityId: `${id}-petiole`,
+        controlPoints: [
+          { x: .23, y: 1.43, z: 0 },
+          { x: .27, y: 1.438, z: 0 },
+          { x: .31, y: 1.435, z: 0 },
+          { x: .35, y: 1.41, z: 0 }
+        ],
+        baseRadius: .003,
+        tipRadius: .002
+      },
+      anchor: { x: .23, y: 1.43, z: 0 },
+      direction: { x: side, y: -.2, z: 0 },
+      twigTangent: { x: 1, y: 0, z: 0 },
+      normal: { x: 0, y: 1, z: 0 },
+      roll: side * .1,
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: .6,
+      visible: true
+    });
+
+    const mesh = createActivityLeafTwigBatch(
+      [sharedTwig],
+      [leaf("left", -1), leaf("right", 1)]
+    );
+
+    expect(mesh.userData.sharedTwigCount).toBe(1);
+    expect(mesh.userData.petioleCount).toBe(2);
+    expect(mesh.userData.midribCount).toBe(2);
+  });
+
+  it("renders a fine twig with a visibly narrower final ring", () => {
+    const twig: LeafTwig = {
+      id: "tapered-twig",
+      parentEntityId: "goal",
+      controlPoints,
+      baseRadius: .02,
+      tipRadius: .008,
+      attachmentProgress: .4,
+      directionSector: 0
+    };
+    const mesh = createActivityLeafTwigBatch([twig], []);
+    const position = mesh.geometry.getAttribute("position");
+    const distanceFrom = (index: number, center: typeof controlPoints[number]) =>
+      Math.hypot(
+        position.getX(index) - center.x,
+        position.getY(index) - center.y,
+        position.getZ(index) - center.z
+      );
+    const baseRadius = distanceFrom(0, controlPoints[0]);
+    const finalRingRadius = distanceFrom(100, controlPoints[3]);
+
+    expect(finalRingRadius).toBeLessThan(baseRadius * .6);
+  });
+
   it("uses the same uniform wood color on trunks and fine twigs", () => {
     const trunk = createSemanticBranchMesh(branch("root", "root"));
-    const twig = createDecorativeCanopyTwigs([]);
+    const twig = createActivityLeafTwigBatch([], []);
     expect(trunk.geometry.getAttribute("color")).toBeUndefined();
     expect((trunk.material as THREE.MeshLambertMaterial).vertexColors).toBe(false);
     expect((twig.material as THREE.MeshLambertMaterial).color.getHex())
@@ -42,99 +155,6 @@ describe("semantic geometry", () => {
       .toBe(new THREE.Color("#A98276").getHex());
     expect(trunk.material.userData.hoverColor)
       .toBe(new THREE.Color("#916F65").getHex());
-  });
-
-  it("organizes every decorative leaf on a deterministic fine twig", () => {
-    const lifeArea = branch("life_area", "health");
-    const recipe = {
-      seed: 1,
-      trunk: { height: 3, radius: 0.3, sections: 8 },
-      lifeAreas: [],
-      longGoals: [],
-      shortGoals: [],
-      canopy: { retention: 0.7, vitality: 0.6, youngLeafRatio: 0.4 }
-    };
-    const structure = buildCanopyStructure([lifeArea], recipe);
-    const twigById = new Map(structure.twigs.map((twig) => [twig.id, twig]));
-
-    expect(structure).toEqual(buildCanopyStructure([lifeArea], recipe));
-    expect(structure.twigs.length).toBeGreaterThan(0);
-    expect(structure.leaves.length).toBeGreaterThan(structure.twigs.length);
-    expect(structure.twigs.length).toBeGreaterThanOrEqual(6);
-    expect(structure.leaves.length).toBeGreaterThanOrEqual(
-      structure.twigs.length * 4
-    );
-    expect(structure.leaves.every((leaf) => twigById.has(leaf.twigId))).toBe(true);
-    expect(structure.leaves.every((leaf) => leaf.scale <= 0.72)).toBe(true);
-    const pairedNodes = new Map<string, typeof structure.leaves>();
-    for (const leaf of structure.leaves.filter((item) => item.side !== 0)) {
-      pairedNodes.set(leaf.nodeId, [
-        ...(pairedNodes.get(leaf.nodeId) ?? []),
-        leaf
-      ]);
-    }
-    expect([...pairedNodes.values()].every((pair) => pair.length === 2)).toBe(true);
-    expect(
-      [...pairedNodes.values()].every((pair) => {
-        const left = pair.find((leaf) => leaf.side === -1)!;
-        const right = pair.find((leaf) => leaf.side === 1)!;
-        const leftOffset = new THREE.Vector3(
-          left.anchor.x - left.attachment.x,
-          left.anchor.y - left.attachment.y,
-          left.anchor.z - left.attachment.z
-        );
-        const rightOffset = new THREE.Vector3(
-          right.anchor.x - right.attachment.x,
-          right.anchor.y - right.attachment.y,
-          right.anchor.z - right.attachment.z
-        );
-        return (
-          leftOffset.length() > 0.03 &&
-          rightOffset.length() > 0.03 &&
-          leftOffset.dot(rightOffset) < 0
-        );
-      })
-    ).toBe(true);
-    expect(structure.leaves.every((leaf) => leaf.direction.y <= 0.02)).toBe(true);
-    expect(structure.leaves.every((leaf) => leaf.side !== 0)).toBe(true);
-    expect(
-      structure.leaves.every((leaf) =>
-        Math.hypot(
-          leaf.anchor.x - leaf.attachment.x,
-          leaf.anchor.y - leaf.attachment.y,
-          leaf.anchor.z - leaf.attachment.z
-        ) <= 0.05
-      )
-    ).toBe(true);
-    expect(new Set(structure.leaves.map((leaf) =>
-      `${leaf.anchor.x}:${leaf.anchor.y}:${leaf.anchor.z}:${leaf.direction.x}:${leaf.direction.y}:${leaf.direction.z}`
-    )).size).toBe(structure.leaves.length);
-    expect(structure.petioles).toHaveLength(structure.leaves.length);
-    expect(new Set(structure.twigs.map((twig) => twig.baseRadius)).size).toBe(1);
-    expect(structure.twigs.every((twig) => twig.baseRadius === twig.tipRadius)).toBe(true);
-    expect(new Set(structure.petioles.map((petiole) => petiole.baseRadius)).size).toBe(1);
-    expect(structure.petioles.every((petiole) => petiole.baseRadius === petiole.tipRadius)).toBe(true);
-    expect(
-      structure.leaves.every((leaf) => {
-        const twig = twigById.get(leaf.twigId)!;
-        return twig.controlPoints.some((point) =>
-          Math.hypot(
-            point.x - leaf.attachment.x,
-            point.y - leaf.attachment.y,
-            point.z - leaf.attachment.z
-          ) < 0.0001
-        );
-      })
-    ).toBe(true);
-
-    const twigMesh = createDecorativeCanopyTwigs([
-      ...structure.twigs,
-      ...structure.petioles
-    ]);
-    expect(twigMesh.name).toBe("decorative-canopy-twigs");
-    expect(twigMesh.geometry.attributes.position.count).toBeGreaterThan(0);
-    twigMesh.geometry.dispose();
-    twigMesh.material.dispose();
   });
 
   it("creates tapered identity-bearing geometry for every wood level", () => {
@@ -158,23 +178,4 @@ describe("semantic geometry", () => {
       .toBeGreaterThan(goal.geometry.attributes.position.count);
   });
 
-  it("bounds decorative canopy and increases it with vitality", () => {
-    const lifeArea = branch("life_area", "health");
-    const base = {
-      seed: 1,
-      trunk: { height: 3, radius: 0.3, sections: 8 },
-      lifeAreas: [],
-      longGoals: [],
-      shortGoals: [],
-      canopy: { retention: 0.45, vitality: 0, youngLeafRatio: 0.2 }
-    };
-    const low = createDecorativeCanopy([lifeArea], base);
-    const high = createDecorativeCanopy([lifeArea], {
-      ...base,
-      canopy: { retention: 1, vitality: 1, youngLeafRatio: 0.6 }
-    });
-
-    expect(high.count).toBeGreaterThan(low.count);
-    expect(high.count).toBeLessThanOrEqual(1500);
-  });
 });

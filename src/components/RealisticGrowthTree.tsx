@@ -5,11 +5,8 @@ import type {
 } from "@/src/domain/tree-visualization";
 import {
   createSemanticBranchMesh,
-  createSemanticLeafMesh,
-  createDecorativeCanopy,
-  buildCanopyStructure,
-  createDecorativeCanopyTwigs,
-  createActivityLeafTwigMesh
+  createActivityLeafInstances,
+  createActivityLeafTwigBatch
 } from "./growth-tree-semantic-geometry";
 
 export type TreeSelectionTarget = {
@@ -24,6 +21,11 @@ export type RealisticGrowthTreeLayer = {
   group: THREE.Group;
   selectable: THREE.Object3D[];
   entityByUuid: Map<string, TreeSelectionTarget>;
+  activityLeafInstances: THREE.InstancedMesh;
+  activityTargets: TreeSelectionTarget[];
+  targetForIntersection: (
+    intersection: Pick<THREE.Intersection, "object" | "instanceId">
+  ) => TreeSelectionTarget | null;
   stats: { totalLeaves: number; decorativeLeaves: number; activityLeaves: number; maxRadialSegments: number };
   dispose: () => void;
 };
@@ -77,24 +79,32 @@ export function createRealisticGrowthTreeLayer(
   const entityByUuid = new Map<string, TreeSelectionTarget>();
   const ownedGeometries = new Set<THREE.BufferGeometry>();
   const ownedMaterials = new Set<THREE.Material>();
-  // Decorative canopy is the soft background foliage used to make the tree fuller.
-  // 装饰性树冠是让树看起来更丰满的背景叶层。
-  const canopyStructure = buildCanopyStructure(
-    viewModel.branches,
-    viewModel.recipe
-  );
-  const canopyTwigs = createDecorativeCanopyTwigs([
-    ...canopyStructure.twigs,
-    ...canopyStructure.petioles
-  ]);
-  const canopy = createDecorativeCanopy(viewModel.branches, viewModel.recipe);
   const visibleActivityLeaves = viewModel.semanticLeaves
     .filter((item) => item.visible)
-    .sort((left, right) => left.activityId.localeCompare(right.activityId))
-    .slice(0, 100);
-  group.add(canopyTwigs, canopy);
-  rememberOwnedMesh(canopyTwigs, ownedGeometries, ownedMaterials);
-  rememberOwnedMesh(canopy, ownedGeometries, ownedMaterials);
+    .sort((left, right) => left.activityId.localeCompare(right.activityId));
+  const visibleTwigIds = new Set(
+    visibleActivityLeaves.map((leaf) => leaf.twigId)
+  );
+  const visibleActivityTwigs = viewModel.semanticLeafTwigs.filter((twig) =>
+    visibleTwigIds.has(twig.id)
+  );
+  const activityLeafTwigs = createActivityLeafTwigBatch(
+    visibleActivityTwigs,
+    visibleActivityLeaves
+  );
+  const activityLeafInstances = createActivityLeafInstances(
+    visibleActivityLeaves
+  );
+  const activityTargets = visibleActivityLeaves.map((leaf): TreeSelectionTarget => ({
+    kind: "leaf",
+    entityType: "activity",
+    entityId: leaf.activityId,
+    leafId: leaf.activityId,
+    goalId: leaf.goalId
+  }));
+  group.add(activityLeafTwigs, activityLeafInstances);
+  rememberOwnedMesh(activityLeafTwigs, ownedGeometries, ownedMaterials);
+  rememberOwnedMesh(activityLeafInstances, ownedGeometries, ownedMaterials);
   for (const segment of viewModel.branches) {
     // Semantic branches are the structural wood pieces derived from the tree recipe.
     // 语义树枝是根据 tree recipe 生成的结构层木枝。
@@ -116,23 +126,8 @@ export function createRealisticGrowthTreeLayer(
     rememberOwnedMesh(mesh, ownedGeometries, ownedMaterials);
   }
 
-  for (const leaf of visibleActivityLeaves) {
-    // Activity leaves are the user-facing growth markers attached to goals.
-    // 活动叶片代表用户行为留下的成长痕迹，挂在对应目标上。
-    const twigMesh = createActivityLeafTwigMesh(leaf);
-    const mesh = createSemanticLeafMesh(leaf);
-    const target: TreeSelectionTarget = {
-      kind: "leaf",
-      entityType: "activity",
-      entityId: leaf.activityId,
-      leafId: leaf.activityId,
-      goalId: leaf.goalId
-    };
-    group.add(twigMesh, mesh);
-    rememberOwnedMesh(twigMesh, ownedGeometries, ownedMaterials);
-    selectable.push(mesh);
-    entityByUuid.set(mesh.uuid, target);
-    rememberOwnedMesh(mesh, ownedGeometries, ownedMaterials);
+  if (visibleActivityLeaves.length > 0) {
+    selectable.push(activityLeafInstances);
   }
 
   let disposed = false;
@@ -140,9 +135,22 @@ export function createRealisticGrowthTreeLayer(
     group,
     selectable,
     entityByUuid,
+    activityLeafInstances,
+    activityTargets,
+    targetForIntersection(intersection) {
+      const directTarget = entityByUuid.get(intersection.object.uuid);
+      if (directTarget) return directTarget;
+      if (
+        intersection.object === activityLeafInstances &&
+        intersection.instanceId !== undefined
+      ) {
+        return activityTargets[intersection.instanceId] ?? null;
+      }
+      return null;
+    },
     stats: {
-      totalLeaves: canopy.count + visibleActivityLeaves.length,
-      decorativeLeaves: canopy.count,
+      totalLeaves: visibleActivityLeaves.length,
+      decorativeLeaves: 0,
       activityLeaves: visibleActivityLeaves.length,
       maxRadialSegments: Math.max(0, ...viewModel.branches.map((item) => Math.min(10, item.radialSegments)))
     },
@@ -152,12 +160,12 @@ export function createRealisticGrowthTreeLayer(
       }
       disposed = true;
       group.clear();
+      activityLeafInstances.dispose();
       entityByUuid.clear();
       selectable.length = 0;
       for (const geometry of ownedGeometries) {
         geometry.dispose();
       }
-      canopy.dispose();
       for (const material of ownedMaterials) {
         material.dispose();
       }

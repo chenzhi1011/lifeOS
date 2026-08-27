@@ -52,7 +52,7 @@ type SceneRuntime = {
   environment: GrowthEnvironmentLayer | null;
   layer: RealisticGrowthTreeLayer | null;
   vitality: VitalityElementsLayer | null;
-  hoveredUuid: string | null;
+  hoveredTarget: TreeSelectionTarget | null;
 };
 
 function pointerFromEvent(
@@ -90,7 +90,7 @@ function targetIsSelected(
 function updateLayerMaterials(
   layer: RealisticGrowthTreeLayer,
   selection: GrowthTreeSelection,
-  hoveredUuid: string | null
+  hoveredTarget: TreeSelectionTarget | null
 ): void {
   // Repaint the tree by interaction state / 根据交互状态重新上色
   for (const object of layer.selectable) {
@@ -99,7 +99,9 @@ function updateLayerMaterials(
     if (!target || !material) {
       continue;
     }
-    const hovered = object.uuid === hoveredUuid;
+    const hovered =
+      hoveredTarget?.kind === "wood" &&
+      hoveredTarget.entityId === target.entityId;
     const selected = targetIsSelected(target, selection);
     const related =
       target.kind === "leaf" &&
@@ -137,6 +139,26 @@ function updateLayerMaterials(
     );
     material.emissiveIntensity = selected ? 0.18 : 0;
   }
+
+  const leafBase = new THREE.Color(HEALING_PALETTE.youngLeaf);
+  const leafHighlight = new THREE.Color(HEALING_PALETTE.matureLeaf);
+  layer.activityTargets.forEach((target, instanceId) => {
+    const selected = targetIsSelected(target, selection);
+    const hovered =
+      hoveredTarget?.kind === "leaf" &&
+      hoveredTarget.leafId === target.leafId;
+    const related =
+      (selection.entityType === "long_goal" ||
+        selection.entityType === "short_goal") &&
+      target.goalId === selection.entityId;
+    layer.activityLeafInstances.setColorAt(
+      instanceId,
+      selected || hovered || related ? leafHighlight : leafBase
+    );
+  });
+  if (layer.activityLeafInstances.instanceColor) {
+    layer.activityLeafInstances.instanceColor.needsUpdate = true;
+  }
 }
 
 function selectedTarget(
@@ -144,7 +166,14 @@ function selectedTarget(
   raycaster: THREE.Raycaster
 ): TreeSelectionTarget | null {
   const hit = raycaster.intersectObjects(layer.selectable, false)[0];
-  return hit ? (layer.entityByUuid.get(hit.object.uuid) ?? null) : null;
+  return hit ? layer.targetForIntersection(hit) : null;
+}
+
+function targetKey(target: TreeSelectionTarget | null): string | null {
+  if (!target) return null;
+  return target.kind === "leaf"
+    ? `leaf:${target.leafId}`
+    : `wood:${target.entityType}:${target.entityId}`;
 }
 
 export function GrowthTreeScene({
@@ -240,7 +269,7 @@ export function GrowthTreeScene({
       environment: null,
       layer: null,
       vitality: null,
-      hoveredUuid: null
+      hoveredTarget: null
     };
     runtimeRef.current = runtime;
     // Environment layer handles mountains, lake, slope, and model fallbacks.
@@ -319,10 +348,12 @@ export function GrowthTreeScene({
       pointerFromEvent(pointer, event, renderer.domElement);
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.intersectObjects(layer.selectable, false)[0];
-      const nextHoveredUuid = hit?.object.uuid ?? null;
-      if (runtime.hoveredUuid !== nextHoveredUuid) {
-        runtime.hoveredUuid = nextHoveredUuid;
-        updateLayerMaterials(layer, selectionRef.current, nextHoveredUuid);
+      const nextHoveredTarget = hit
+        ? layer.targetForIntersection(hit)
+        : null;
+      if (targetKey(runtime.hoveredTarget) !== targetKey(nextHoveredTarget)) {
+        runtime.hoveredTarget = nextHoveredTarget;
+        updateLayerMaterials(layer, selectionRef.current, nextHoveredTarget);
       }
     };
     const onPointerUp = (event: PointerEvent) => {
@@ -358,7 +389,7 @@ export function GrowthTreeScene({
       }
     };
     const onPointerLeave = () => {
-      runtime.hoveredUuid = null;
+      runtime.hoveredTarget = null;
       if (runtime.layer) {
         updateLayerMaterials(runtime.layer, selectionRef.current, null);
       }
@@ -473,7 +504,7 @@ export function GrowthTreeScene({
     const layer = createRealisticGrowthTreeLayer(viewModel);
     layer.group.position.x = GROWTH_SCENE_CONFIG.treeOffsetX;
     runtime.layer = layer;
-    runtime.hoveredUuid = null;
+    runtime.hoveredTarget = null;
     runtime.scene.add(layer.group);
     const vitality = createVitalityElements(viewModel.vitalityElements);
     runtime.vitality = vitality;
@@ -499,7 +530,7 @@ export function GrowthTreeScene({
       updateLayerMaterials(
         runtime.layer,
         selection,
-        runtime.hoveredUuid
+        runtime.hoveredTarget
       );
     }
   }, [selection, viewModel]);

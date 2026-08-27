@@ -5,7 +5,7 @@ import { buildVitalityElements, type VitalityElement } from "./vitality";
 import { LIFE_AREAS } from "./life-areas";
 import { buildGrowthMetrics } from "./growth-metrics";
 import { buildTreeRecipe, type TreeRecipe } from "./tree-recipe";
-import { buildSemanticTreeSkeleton, type SemanticBranch, type SemanticLeaf } from "./semantic-tree-skeleton";
+import { buildSemanticTreeSkeleton, type LeafTwig, type SemanticBranch, type SemanticLeaf } from "./semantic-tree-skeleton";
 
 export type SceneVector = {
   x: number;
@@ -51,6 +51,7 @@ export type TreeDiagnostic = {
 export type GrowthTreeViewModel = {
   recipe: TreeRecipe;
   branches: SemanticBranch[];
+  semanticLeafTwigs: LeafTwig[];
   semanticLeaves: SemanticLeaf[];
   root: TreeWood;
   lifeAreaBranches: TreeWood[];
@@ -303,6 +304,7 @@ export function buildGrowthTreeViewModel(
   return {
     recipe,
     branches: skeleton.branches,
+    semanticLeafTwigs: skeleton.leafTwigs,
     semanticLeaves: skeleton.leaves,
     root,
     lifeAreaBranches,
