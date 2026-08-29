@@ -37,6 +37,7 @@ import {
   GROWTH_TREE_CAMERA_LIMITS,
   resolveMaximumPolarAngle
 } from "./growth-tree-camera-constraints";
+import { RAINY_SCENE_FILTER } from "./growth-tree-rain";
 
 type GrowthTreeSceneProps = {
   viewModel: GrowthTreeViewModel;
@@ -51,7 +52,7 @@ type SceneRuntime = {
   environment: GrowthEnvironmentLayer | null;
   layer: RealisticGrowthTreeLayer | null;
   vitality: VitalityElementsLayer | null;
-  hoveredUuid: string | null;
+  hoveredTarget: TreeSelectionTarget | null;
 };
 
 function pointerFromEvent(
@@ -89,7 +90,7 @@ function targetIsSelected(
 function updateLayerMaterials(
   layer: RealisticGrowthTreeLayer,
   selection: GrowthTreeSelection,
-  hoveredUuid: string | null
+  hoveredTarget: TreeSelectionTarget | null
 ): void {
   // Repaint the tree by interaction state / 根据交互状态重新上色
   for (const object of layer.selectable) {
@@ -98,7 +99,9 @@ function updateLayerMaterials(
     if (!target || !material) {
       continue;
     }
-    const hovered = object.uuid === hoveredUuid;
+    const hovered =
+      hoveredTarget?.kind === "wood" &&
+      hoveredTarget.entityId === target.entityId;
     const selected = targetIsSelected(target, selection);
     const related =
       target.kind === "leaf" &&
@@ -136,6 +139,29 @@ function updateLayerMaterials(
     );
     material.emissiveIntensity = selected ? 0.18 : 0;
   }
+
+  const youngLeafBase = new THREE.Color(HEALING_PALETTE.youngLeaf);
+  const matureLeafBase = new THREE.Color(HEALING_PALETTE.matureLeaf);
+  const leafHighlight = new THREE.Color(HEALING_PALETTE.matureLeaf);
+  layer.activityTargets.forEach((target, instanceId) => {
+    const selected = targetIsSelected(target, selection);
+    const hovered =
+      hoveredTarget?.kind === "leaf" &&
+      hoveredTarget.leafId === target.leafId;
+    const related =
+      (selection.entityType === "long_goal" ||
+        selection.entityType === "short_goal") &&
+      target.goalId === selection.entityId;
+    layer.activityLeafInstances.setColorAt(
+      instanceId,
+      selected || hovered || related
+        ? leafHighlight
+        : target.recent ? youngLeafBase : matureLeafBase
+    );
+  });
+  if (layer.activityLeafInstances.instanceColor) {
+    layer.activityLeafInstances.instanceColor.needsUpdate = true;
+  }
 }
 
 function selectedTarget(
@@ -143,7 +169,14 @@ function selectedTarget(
   raycaster: THREE.Raycaster
 ): TreeSelectionTarget | null {
   const hit = raycaster.intersectObjects(layer.selectable, false)[0];
-  return hit ? (layer.entityByUuid.get(hit.object.uuid) ?? null) : null;
+  return hit ? layer.targetForIntersection(hit) : null;
+}
+
+function targetKey(target: TreeSelectionTarget | null): string | null {
+  if (!target) return null;
+  return target.kind === "leaf"
+    ? `leaf:${target.leafId}`
+    : `wood:${target.entityType}:${target.entityId}`;
 }
 
 export function GrowthTreeScene({
@@ -158,6 +191,10 @@ export function GrowthTreeScene({
   const [assetDiagnostics, setAssetDiagnostics] = useState<
     AssetLoadDiagnostic[]
   >([]);
+  // TODO: Replace this temporary manual switch with the future weather,
+  // user-state, or Life OS condition.
+  // TODO：未来根据天气、用户状态或 Life OS 业务条件自动控制天气。
+  const [rainEnabled, setRainEnabled] = useState(true);
   const selectionRef = useRef(selection);
   const onSelectWoodRef = useRef(onSelectWood);
   const onSelectLeafRef = useRef(onSelectLeaf);
@@ -177,6 +214,8 @@ export function GrowthTreeScene({
     // 渲染器 / 相机 / 光照共同决定整个画面的气质。
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
+    renderer.domElement.style.transition = "filter 320ms ease";
+    renderer.domElement.style.filter = rainEnabled ? RAINY_SCENE_FILTER : "none";
     renderer.shadowMap.enabled = GROWTH_SCENE_CONFIG.performance.shadows;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     mount.appendChild(renderer.domElement);
@@ -233,7 +272,7 @@ export function GrowthTreeScene({
       environment: null,
       layer: null,
       vitality: null,
-      hoveredUuid: null
+      hoveredTarget: null
     };
     runtimeRef.current = runtime;
     // Environment layer handles mountains, lake, slope, and model fallbacks.
@@ -251,6 +290,7 @@ export function GrowthTreeScene({
       }
     });
     runtime.environment = environment;
+    environment.setRainEnabled(rainEnabled);
     scene.add(environment.group);
     let pointerGesture: PointerGestureState | null = null;
 
@@ -311,10 +351,12 @@ export function GrowthTreeScene({
       pointerFromEvent(pointer, event, renderer.domElement);
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.intersectObjects(layer.selectable, false)[0];
-      const nextHoveredUuid = hit?.object.uuid ?? null;
-      if (runtime.hoveredUuid !== nextHoveredUuid) {
-        runtime.hoveredUuid = nextHoveredUuid;
-        updateLayerMaterials(layer, selectionRef.current, nextHoveredUuid);
+      const nextHoveredTarget = hit
+        ? layer.targetForIntersection(hit)
+        : null;
+      if (targetKey(runtime.hoveredTarget) !== targetKey(nextHoveredTarget)) {
+        runtime.hoveredTarget = nextHoveredTarget;
+        updateLayerMaterials(layer, selectionRef.current, nextHoveredTarget);
       }
     };
     const onPointerUp = (event: PointerEvent) => {
@@ -350,7 +392,7 @@ export function GrowthTreeScene({
       }
     };
     const onPointerLeave = () => {
-      runtime.hoveredUuid = null;
+      runtime.hoveredTarget = null;
       if (runtime.layer) {
         updateLayerMaterials(runtime.layer, selectionRef.current, null);
       }
@@ -446,6 +488,14 @@ export function GrowthTreeScene({
   }, []);
 
   useEffect(() => {
+    runtimeRef.current?.environment?.setRainEnabled(rainEnabled);
+    const canvas = mountRef.current?.querySelector("canvas");
+    if (canvas) {
+      canvas.style.filter = rainEnabled ? RAINY_SCENE_FILTER : "none";
+    }
+  }, [rainEnabled]);
+
+  useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) {
       return;
@@ -457,11 +507,17 @@ export function GrowthTreeScene({
     const layer = createRealisticGrowthTreeLayer(viewModel);
     layer.group.position.x = GROWTH_SCENE_CONFIG.treeOffsetX;
     runtime.layer = layer;
-    runtime.hoveredUuid = null;
+    runtime.hoveredTarget = null;
     runtime.scene.add(layer.group);
-    const vitality = createVitalityElements(viewModel.vitalityElements);
+    const vitality = createVitalityElements(
+      viewModel.vitalityElements,
+      viewModel.semanticLeaves
+    );
     runtime.vitality = vitality;
-    runtime.scene.add(vitality.group);
+    // Vitality attachments share the tree's local coordinate system, so leaf
+    // motion and the whole-tree scene offset also move the droplets.
+    // 生命力附件与树共用局部坐标系，叶片变化及整棵树偏移都会同步带动水滴。
+    layer.group.add(vitality.group);
     updateLayerMaterials(layer, selectionRef.current, null);
     return () => {
       if (runtime.layer === layer) {
@@ -470,7 +526,7 @@ export function GrowthTreeScene({
         runtime.layer = null;
       }
       if (runtime.vitality === vitality) {
-        runtime.scene.remove(vitality.group);
+        vitality.group.removeFromParent();
         vitality.dispose();
         runtime.vitality = null;
       }
@@ -483,7 +539,7 @@ export function GrowthTreeScene({
       updateLayerMaterials(
         runtime.layer,
         selection,
-        runtime.hoveredUuid
+        runtime.hoveredTarget
       );
     }
   }, [selection, viewModel]);
@@ -502,6 +558,28 @@ export function GrowthTreeScene({
       >
         近期生命力 · 水滴 {viewModel.vitalityElements.filter((item) => item.type === "water").length} · 小生物 {viewModel.vitalityElements.filter((item) => item.type === "creature").length} · 花草 {viewModel.vitalityElements.filter((item) => item.type === "flora").length}
       </div>
+      <button
+        aria-checked={rainEnabled}
+        aria-label="细雨"
+        className="absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-[#315d3a]/20 bg-[#fff8ea]/88 px-3 py-2 text-xs font-semibold text-[#59483a] shadow-md backdrop-blur transition hover:bg-[#fff8ea] focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
+        onClick={() => setRainEnabled((enabled) => !enabled)}
+        role="switch"
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          className={`relative h-5 w-9 rounded-full transition ${
+            rainEnabled ? "bg-[#6f9fba]" : "bg-[#b9b5a9]"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-[#fff8ea] shadow-sm transition-transform ${
+              rainEnabled ? "translate-x-[18px]" : "translate-x-0.5"
+            }`}
+          />
+        </span>
+        细雨
+      </button>
       {assetDiagnostics.length > 0 ? (
         <aside
           aria-label="资源加载提示"

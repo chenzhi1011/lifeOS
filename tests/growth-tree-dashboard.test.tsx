@@ -30,7 +30,11 @@ vi.mock("@/src/components/GrowthTreeScene", () => ({
     onSelectLeaf,
     onClearSelection
   }: SceneAdapterProps) => (
-    <div data-selection={selection.entityId ?? "none"} data-testid="realistic-growth-tree-canvas">
+    <div
+      data-root-label={viewModel.root.label}
+      data-selection={selection.entityId ?? "none"}
+      data-testid="realistic-growth-tree-canvas"
+    >
       <button onClick={() => onSelectWood(viewModel.lifeAreaBranches[0]!)}>选择领域</button>
       <button onClick={() => onSelectWood(viewModel.longGoalTwigs[0]!)}>选择长期目标</button>
       <button onClick={() => onSelectWood(viewModel.shortGoalBranches[0]!)}>选择短期目标</button>
@@ -85,6 +89,7 @@ function viewModel(): GrowthTreeViewModel {
   return {
     recipe: {} as GrowthTreeViewModel["recipe"],
     branches: [],
+    semanticLeafTwigs: [],
     semanticLeaves: [],
     root: wood("root", "root", "人生"),
     lifeAreaBranches: [wood("life_area", "growth", "成长")],
@@ -133,6 +138,36 @@ function achievement(
 }
 
 describe("GrowthTreeDashboard", () => {
+  it("switches between user data and the mature mock without keeping stale selection", () => {
+    const userModel = viewModel();
+    const matureModel = viewModel();
+    matureModel.root = { ...matureModel.root, label: "繁茂人生" };
+    matureModel.lifeAreaBranches = [
+      wood("life_area", "mature-growth", "繁茂成长")
+    ];
+    render(
+      <GrowthTreeDashboard
+        achievements={[]}
+        maturePreview={{ achievements: [], viewModel: matureModel }}
+        viewModel={userModel}
+      />
+    );
+
+    const canvas = screen.getByTestId("realistic-growth-tree-canvas");
+    expect(canvas.getAttribute("data-root-label")).toBe("人生");
+    fireEvent.click(screen.getByRole("button", { name: "选择领域" }));
+    expect(canvas.getAttribute("data-selection")).toBe("growth");
+
+    fireEvent.click(screen.getByRole("switch", { name: "繁茂 Mock" }));
+    expect(canvas.getAttribute("data-root-label")).toBe("繁茂人生");
+    expect(canvas.getAttribute("data-selection")).toBe("none");
+    expect(screen.getByText("Mock 预览")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("switch", { name: "繁茂 Mock" }));
+    expect(canvas.getAttribute("data-root-label")).toBe("人生");
+    expect(screen.queryByText("Mock 预览")).toBeNull();
+  });
+
   it("opens one accessible achievement drawer with newest harvests first", () => {
     const achievements = [
       achievement("old", "通过笔试", "2026-07-01T00:00:00.000Z"),

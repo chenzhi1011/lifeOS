@@ -3,6 +3,7 @@ import path from "node:path";
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
+  createArchipelago,
   createGrowthEnvironment,
   createLake,
   createMountainLayers,
@@ -20,6 +21,7 @@ import type {
   VitalityElement,
   VitalityElementType
 } from "@/src/domain/vitality";
+import type { SemanticLeaf } from "@/src/domain/semantic-tree-skeleton";
 import { vi } from "vitest";
 
 function source(relativePath: string): string {
@@ -71,6 +73,30 @@ function vitalityElement(
   };
 }
 
+function visibleLeaf(index: number): SemanticLeaf {
+  const anchor = { x: index * .2, y: 2, z: 0 };
+  const shortCurve = [anchor, anchor, anchor, anchor] as const;
+  return {
+    activityId: `leaf-${index}`,
+    goalId: "goal",
+    twigId: "twig",
+    side: -1,
+    terminal: false,
+    twigProgress: .5,
+    petiole: { id: `petiole-${index}`, parentEntityId: "twig", controlPoints: shortCurve, baseRadius: .004, tipRadius: .004 },
+    midrib: { id: `midrib-${index}`, parentEntityId: `petiole-${index}`, controlPoints: shortCurve, baseRadius: .003, tipRadius: .002 },
+    anchor,
+    direction: { x: 1, y: 0, z: 0 },
+    twigTangent: { x: 1, y: 0, z: 0 },
+    normal: { x: 0, y: 1, z: 0 },
+    roll: 0,
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: .6,
+    visible: true,
+    recent: true
+  };
+}
+
 function instanceMesh(
   layer: VitalityElementsLayer,
   type: VitalityElementType
@@ -112,7 +138,7 @@ describe("growth tree environment contract", () => {
     expect(environment).not.toContain("background-image");
   });
 
-  it("creates a dynamic Lambert lake and flat-shaded mountain layers", () => {
+  it("creates a shader-animated lake with static geometry and mountain layers", () => {
     const lake = createLake();
     const mountains = createMountainLayers();
     const mountainMeshes: THREE.Mesh[] = [];
@@ -123,16 +149,17 @@ describe("growth tree environment contract", () => {
     });
 
     expect(attributeUsage(lake.geometry.attributes.position)).toBe(
-      THREE.DynamicDrawUsage
+      THREE.StaticDrawUsage
     );
     expect(lake.geometry).not.toBeInstanceOf(THREE.SphereGeometry);
     expect(lake.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect(lake.material.map).toBeInstanceOf(THREE.DataTexture);
+    expect(lake.material.userData.waterRippleUniform).toEqual({ value: 0 });
     lake.geometry.computeBoundingBox();
     const lakeBounds = lake.geometry.boundingBox!;
     expect(lakeBounds.max.y).toBeGreaterThan(lakeBounds.min.y + 1);
-    expect(lake.userData.waveDirections).toHaveLength(
-      lake.geometry.attributes.position.count * 3
-    );
+    expect(lake.userData.waveDirections).toBeUndefined();
+    expect(lake.userData.waveBasePositions).toBeUndefined();
     const islandHalfWidth = ISLAND_TERRAIN_CONFIG.baseRadius
       * ISLAND_TERRAIN_CONFIG.xScale * 1.2;
     const islandHalfDepth = ISLAND_TERRAIN_CONFIG.baseRadius * 1.2;
@@ -165,6 +192,33 @@ describe("growth tree environment contract", () => {
         }
       }
     });
+  });
+
+  it("adds the surrounding archipelago as one green terrain mesh", () => {
+    const archipelago = createArchipelago();
+    expect(archipelago.name).toBe("growth-archipelago-terrain");
+    expect(archipelago.geometry.index).not.toBeNull();
+    expect(archipelago.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect(archipelago.geometry.attributes.color).toBeDefined();
+    expect(archipelago.material.vertexColors).toBe(true);
+    expect(archipelago.material.fog).toBe(false);
+    expect(archipelago.material.flatShading).toBe(true);
+
+    const environment = createGrowthEnvironment({
+      modelUrls: { tree: null, mountains: null, rocks: null }
+    });
+    expect(environment.group.getObjectByName("growth-archipelago-terrain"))
+      .toBeInstanceOf(THREE.Mesh);
+    expect(environment.group.getObjectByName("growth-atmospheric-haze"))
+      .toBeInstanceOf(THREE.Mesh);
+    expect(environment.group.getObjectByName("growth-tree-rain"))
+      .toBeInstanceOf(THREE.LineSegments);
+    environment.setRainEnabled(false);
+    expect(environment.group.getObjectByName("growth-tree-rain")?.visible)
+      .toBe(false);
+    environment.dispose();
+    archipelago.geometry.dispose();
+    archipelago.material.dispose();
   });
 
   it("loads an external tree as decoration without hiding the interactive tree", () => {
@@ -303,6 +357,8 @@ describe("growth tree environment contract", () => {
     expect(vitality).toContain("updateVitalityElements");
     expect(vitality).not.toContain("Math.random");
     expect(scene).toContain("updateVitalityElements(elapsedSeconds)");
+    expect(scene).toContain("layer.group.add(vitality.group)");
+    expect(scene).not.toContain("runtime.scene.add(vitality.group)");
     expect(scene).toContain("GROWTH_SCENE_CONFIG.performance.maxPixelRatio");
     expect(scene).toContain("GROWTH_SCENE_CONFIG.treeOffsetX");
     expect(scene).not.toContain("externalTreeVisible");
@@ -323,8 +379,9 @@ describe("growth tree environment contract", () => {
         vitalityElement("flora", index)
       )
     ];
-    const first = createVitalityElements(elements);
-    const second = createVitalityElements(elements);
+    const leaves = Array.from({ length: 7 }, (_, index) => visibleLeaf(index));
+    const first = createVitalityElements(elements, leaves);
+    const second = createVitalityElements(elements, leaves);
     const firstWater = instanceMesh(first, "water");
     const firstCreature = instanceMesh(first, "creature");
     const firstFlora = instanceMesh(first, "flora");
@@ -348,12 +405,10 @@ describe("growth tree environment contract", () => {
     const waterBefore = matrixSnapshot(firstWater);
     const creatureBefore = matrixSnapshot(firstCreature);
     const floraBefore = matrixSnapshot(firstFlora);
-    const waterMaterial = firstWater.material as THREE.MeshStandardMaterial;
-    const waterHighlightBefore = waterMaterial.emissiveIntensity;
     first.updateVitalityElements(7);
 
     expect(matrixSnapshot(firstWater)).toEqual(waterBefore);
-    expect(waterMaterial.emissiveIntensity).not.toBe(waterHighlightBefore);
+    expect(firstWater.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
     expect(matrixSnapshot(firstCreature)).not.toEqual(creatureBefore);
     expect(matrixSnapshot(firstFlora)).not.toEqual(floraBefore);
 
@@ -362,11 +417,14 @@ describe("growth tree environment contract", () => {
   });
 
   it("disposes every vitality instance and owned resource once", () => {
-    const layer = createVitalityElements([
-      vitalityElement("water", 0),
-      vitalityElement("creature", 0),
-      vitalityElement("flora", 0)
-    ]);
+    const layer = createVitalityElements(
+      [
+        vitalityElement("water", 0),
+        vitalityElement("creature", 0),
+        vitalityElement("flora", 0)
+      ],
+      [visibleLeaf(0)]
+    );
     const spies = layer.group.children.map((child) => {
       const mesh = child as THREE.InstancedMesh;
       return {

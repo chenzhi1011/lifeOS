@@ -46,7 +46,12 @@ paths:
       operationId: completeLifeTask
       summary: Complete an open Task and record its Goal activity when applicable
       security: [{ bearerAuth: [] }]
-      parameters: [{ $ref: "#/components/parameters/EntityId" }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Task UUID returned by context or life-events
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -67,7 +72,12 @@ paths:
       operationId: completeLifeGoal
       summary: Complete a Goal and create fruit for a short-term Goal
       security: [{ bearerAuth: [] }]
-      parameters: [{ $ref: "#/components/parameters/EntityId" }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Goal UUID returned by context or life-events
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -89,13 +99,6 @@ components:
       type: http
       scheme: bearer
       bearerFormat: los_personal_action_token
-  parameters:
-    EntityId:
-      name: id
-      in: path
-      required: true
-      description: UUID returned by context or life-events
-      schema: { type: string, format: uuid }
   responses:
     BadRequest:
       description: Invalid request body

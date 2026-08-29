@@ -6,11 +6,22 @@ import { treeBranchRadiusAt } from "./tree-branch-shape";
 import { branchesCollide } from "./tree-branch-collision";
 
 export type SemanticBranch = { entityType: "root" | "life_area" | "long_goal" | "short_goal"; entityId: string; parentEntityId: string | null; controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector]; baseRadius: number; tipRadius: number; radialSegments: number };
-export type LeafTwig = { id: string; parentEntityId: string; controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector]; baseRadius: number; tipRadius: number };
+export type LeafTwig = { id: string; parentEntityId: string; controlPoints: readonly [SceneVector, SceneVector, SceneVector, SceneVector]; baseRadius: number; tipRadius: number; attachmentProgress?: number; directionSector?: 0 | 1 | 2 | 3 };
 export const CANOPY_TWIG_RADIUS = .014;
 export const LEAF_PETIOLE_RADIUS = .004;
-export type SemanticLeaf = { activityId: string; goalId: string; twig: LeafTwig; petiole: LeafTwig; anchor: SceneVector; direction: SceneVector; roll: number; rotation: SceneVector; scale: number; visible: boolean };
-export type SemanticTreeSkeleton = { branches: SemanticBranch[]; leaves: SemanticLeaf[] };
+export const MIN_ACTIVITY_LEAVES_PER_TWIG = 5;
+export const MAX_ACTIVITY_LEAVES_PER_TWIG = 20;
+export function activityLeafProgresses(lateralLeafCount: number): number[] {
+  if (lateralLeafCount <= 0) return [];
+  const spacing = (.95 - .2) / lateralLeafCount;
+  return Array.from({ length: lateralLeafCount }, (_, index) =>
+    Number((.2 + spacing * (index + 1)).toFixed(4))
+  );
+}
+export const MAX_VISIBLE_ACTIVITY_LEAVES_PER_GOAL = 500;
+export const PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL = 100;
+export type SemanticLeaf = { activityId: string; goalId: string; twigId: string; side: -1 | 0 | 1; terminal: boolean; twigProgress: number; petiole: LeafTwig; midrib: LeafTwig; anchor: SceneVector; direction: SceneVector; twigTangent: SceneVector; normal: SceneVector; roll: number; rotation: SceneVector; scale: number; visible: boolean; recent: boolean };
+export type SemanticTreeSkeleton = { branches: SemanticBranch[]; leafTwigs: LeafTwig[]; leaves: SemanticLeaf[] };
 const v = (x: number, y: number, z: number): SceneVector => ({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)), z: Number(z.toFixed(4)) });
 function bezier(points: SemanticBranch["controlPoints"], t: number): SceneVector {
   const u = 1 - t; const [a, b, c, d] = points;
@@ -24,11 +35,54 @@ function normalized(vector: SceneVector): SceneVector {
   return v(vector.x / length, vector.y / length, vector.z / length);
 }
 
-function leafTwig(
-  activityId: string,
+function cross(left: SceneVector, right: SceneVector): SceneVector {
+  return v(
+    left.y * right.z - left.z * right.y,
+    left.z * right.x - left.x * right.z,
+    left.x * right.y - left.y * right.x
+  );
+}
+
+function limitTwigVerticalDirection(direction: SceneVector): SceneVector {
+  const unit = normalized(direction);
+  const minimumY = -Math.sin(Math.PI / 9);
+  const maximumY = Math.sin(Math.PI / 3);
+  const limitedY = Math.min(maximumY, Math.max(minimumY, unit.y));
+  if (limitedY === unit.y) return unit;
+  const horizontalLength = Math.hypot(unit.x, unit.z);
+  const targetHorizontalLength = Math.sqrt(1 - limitedY ** 2);
+  if (horizontalLength < .0001) {
+    return v(targetHorizontalLength, limitedY, 0);
+  }
+  return v(
+    unit.x / horizontalLength * targetHorizontalLength,
+    limitedY,
+    unit.z / horizontalLength * targetHorizontalLength
+  );
+}
+
+function goalLeafTwig(
   parent: SemanticBranch,
-  progress: number
-): { twig: LeafTwig; petiole: LeafTwig; direction: SceneVector } {
+  twigIndex: number,
+  twigCount: number,
+  leafCount: number,
+  previousProgress: number | null
+): LeafTwig {
+  const minimumProgress = .25;
+  const maximumProgress = .9;
+  const stratumSize = (maximumProgress - minimumProgress) / twigCount;
+  const stratumStart = minimumProgress + twigIndex * stratumSize;
+  const stratumEnd = stratumStart + stratumSize;
+  const twigId = `goal-leaf-twig-${parent.entityId}-${twigIndex}`;
+  const randomOffset = .2 + seedFromId(twigId, "progress") * .6;
+  const candidate = stratumStart + stratumSize * randomOffset;
+  const minimumGap = Math.min(.12, stratumSize * .9);
+  const progress = Number(Math.min(
+    stratumEnd - .0001,
+    previousProgress === null
+      ? candidate
+      : Math.max(candidate, previousProgress + minimumGap)
+  ).toFixed(4));
   const start = bezier(parent.controlPoints, progress);
   const before = bezier(parent.controlPoints, Math.max(0, progress - .035));
   const tangent = normalized(v(
@@ -36,20 +90,30 @@ function leafTwig(
     start.y - before.y,
     start.z - before.z
   ));
-  const azimuth = seedFromId(activityId, "twig-azimuth") * Math.PI * 2;
-  const outward = normalized(v(
-    tangent.x * .34 + Math.cos(azimuth) * .72,
-    Math.max(.24, tangent.y * .35 + .48),
-    tangent.z * .34 + Math.sin(azimuth) * .72
+  let sideAxis = cross(tangent, v(0, 1, 0));
+  if (Math.hypot(sideAxis.x, sideAxis.y, sideAxis.z) < .0001) {
+    sideAxis = v(1, 0, 0);
+  }
+  sideAxis = normalized(sideAxis);
+  const verticalAxis = normalized(cross(sideAxis, tangent));
+  const directionSector = (twigIndex % 4) as 0 | 1 | 2 | 3;
+  const angle = directionSector * Math.PI / 2
+    + (seedFromId(twigId, "direction-jitter") - .5) * Math.PI * 24 / 180;
+  const outward = limitTwigVerticalDirection(v(
+    sideAxis.x * Math.cos(angle) + verticalAxis.x * Math.sin(angle) + tangent.x * .18,
+    Math.max(.08, sideAxis.y * Math.cos(angle) + verticalAxis.y * Math.sin(angle) + tangent.y * .18),
+    sideAxis.z * Math.cos(angle) + verticalAxis.z * Math.sin(angle) + tangent.z * .18
   ));
-  const length = .34 + seedFromId(activityId, "twig-length") * .22;
+  const fullLength = .56 + seedFromId(twigId, "length") * .16;
+  const occupancy = Math.min(1, leafCount / MAX_ACTIVITY_LEAVES_PER_TWIG);
+  const length = fullLength * (.35 + occupancy * .65);
   const end = v(
     start.x + outward.x * length,
     start.y + outward.y * length,
     start.z + outward.z * length
   );
   const twig: LeafTwig = {
-    id: `activity-twig-${activityId}`,
+    id: twigId,
     parentEntityId: parent.entityId,
     controlPoints: [
       start,
@@ -66,39 +130,188 @@ function leafTwig(
       end
     ],
     baseRadius: CANOPY_TWIG_RADIUS,
-    tipRadius: CANOPY_TWIG_RADIUS
+    tipRadius: CANOPY_TWIG_RADIUS * .4,
+    attachmentProgress: progress,
+    directionSector
   };
-  const leafDirection = normalized(v(
-    Math.cos(azimuth) * .82 + outward.x * .18,
-    -.24,
-    Math.sin(azimuth) * .82 + outward.z * .18
+  return twig;
+}
+
+function groupActivitiesForTwigs<T>(goalId: string, activities: T[]): T[][] {
+  const groups: T[][] = [];
+  let offset = 0;
+  let twigIndex = 0;
+  while (offset < activities.length) {
+    const capacity = MIN_ACTIVITY_LEAVES_PER_TWIG + Math.floor(
+      seedFromId(`${twigIndex}:${goalId}`, "twig-capacity")
+        * (MAX_ACTIVITY_LEAVES_PER_TWIG - MIN_ACTIVITY_LEAVES_PER_TWIG + 1)
+    );
+    groups.push(activities.slice(offset, offset + capacity));
+    offset += capacity;
+    twigIndex += 1;
+  }
+  const remainder = groups.at(-1);
+  if (
+    groups.length > 1
+    && remainder
+    && remainder.length < MIN_ACTIVITY_LEAVES_PER_TWIG
+  ) {
+    const previous = groups.at(-2)!;
+    const combined = [...previous, ...remainder];
+    groups.splice(-2, 2);
+    if (combined.length <= MAX_ACTIVITY_LEAVES_PER_TWIG) {
+      groups.push(combined);
+    } else {
+      groups.push(
+        combined.slice(0, combined.length - MIN_ACTIVITY_LEAVES_PER_TWIG),
+        combined.slice(-MIN_ACTIVITY_LEAVES_PER_TWIG)
+      );
+    }
+  }
+  return groups;
+}
+
+function visibleActivitiesForTree<T extends { id: string }>(activities: T[]): T[] {
+  if (activities.length <= MAX_VISIBLE_ACTIVITY_LEAVES_PER_GOAL) {
+    return activities;
+  }
+  const protectedRecent = activities.slice(
+    -PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL
+  );
+  const historicalLimit = MAX_VISIBLE_ACTIVITY_LEAVES_PER_GOAL
+    - PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL;
+  const selectedHistoricalIds = new Set(
+    activities
+      .slice(0, -PROTECTED_RECENT_ACTIVITY_LEAVES_PER_GOAL)
+      .sort((left, right) =>
+        seedFromId(right.id, "historical-leaf")
+        - seedFromId(left.id, "historical-leaf")
+        || left.id.localeCompare(right.id)
+      )
+      .slice(0, historicalLimit)
+      .map((activity) => activity.id)
+  );
+  const protectedIds = new Set(protectedRecent.map((activity) => activity.id));
+  return activities.filter((activity) =>
+    selectedHistoricalIds.has(activity.id) || protectedIds.has(activity.id)
+  );
+}
+
+function activityLeafOnTwig(
+  activityId: string,
+  goalId: string,
+  twig: LeafTwig,
+  progress: number,
+  side: -1 | 0 | 1,
+  terminal: boolean,
+  visible: boolean,
+  recent: boolean
+): SemanticLeaf {
+  const attachment = bezier(twig.controlPoints, progress);
+  const before = bezier(twig.controlPoints, Math.max(0, progress - .025));
+  const after = bezier(twig.controlPoints, Math.min(1, progress + .025));
+  const tangent = normalized(v(
+    after.x - before.x,
+    after.y - before.y,
+    after.z - before.z
   ));
+  let sideAxis = cross(tangent, v(0, 1, 0));
+  if (Math.hypot(sideAxis.x, sideAxis.y, sideAxis.z) < .0001) {
+    sideAxis = v(1, 0, 0);
+  }
+  sideAxis = normalized(sideAxis);
+  const leafAngle = (terminal
+    ? seedFromId(activityId, "terminal-leaf-angle") * 8
+    : 30 + seedFromId(activityId, "leaf-angle") * 10) * Math.PI / 180;
+  const directionSide = terminal
+    ? (seedFromId(activityId, "terminal-leaf-side") < .5 ? -1 : 1)
+    : side;
+  const leafDirection = normalized(v(
+    tangent.x * Math.cos(leafAngle) + sideAxis.x * directionSide * Math.sin(leafAngle),
+    tangent.y * Math.cos(leafAngle) + sideAxis.y * directionSide * Math.sin(leafAngle),
+    tangent.z * Math.cos(leafAngle) + sideAxis.z * directionSide * Math.sin(leafAngle)
+  ));
+  const leafNormal = normalized(v(
+    -leafDirection.x * leafDirection.y,
+    1 - leafDirection.y * leafDirection.y,
+    -leafDirection.z * leafDirection.y
+  ));
+  const petioleLength = .022 + seedFromId(activityId, "petiole-length") * .013;
   const petioleEnd = v(
-    end.x + leafDirection.x * .045,
-    end.y + leafDirection.y * .045,
-    end.z + leafDirection.z * .045
+    attachment.x + leafDirection.x * petioleLength,
+    attachment.y + leafDirection.y * petioleLength,
+    attachment.z + leafDirection.z * petioleLength
   );
   const petiole: LeafTwig = {
     id: `activity-petiole-${activityId}`,
     parentEntityId: twig.id,
     controlPoints: [
-      end,
+      attachment,
       v(
-        end.x + leafDirection.x * .015,
-        end.y + leafDirection.y * .015,
-        end.z + leafDirection.z * .015
+        attachment.x + leafDirection.x * petioleLength * .33,
+        attachment.y + leafDirection.y * petioleLength * .33,
+        attachment.z + leafDirection.z * petioleLength * .33
       ),
       v(
-        end.x + leafDirection.x * .03,
-        end.y + leafDirection.y * .03,
-        end.z + leafDirection.z * .03
+        attachment.x + leafDirection.x * petioleLength * .67,
+        attachment.y + leafDirection.y * petioleLength * .67,
+        attachment.z + leafDirection.z * petioleLength * .67
       ),
       petioleEnd
     ],
     baseRadius: LEAF_PETIOLE_RADIUS,
     tipRadius: LEAF_PETIOLE_RADIUS
   };
-  return { twig, petiole, direction: leafDirection };
+  const scale = Number((.52 + seedFromId(activityId, "scale") * .2).toFixed(4));
+  const midribLength = .36 * scale * .72;
+  const tipDroop = .025 + seedFromId(activityId, "tip-droop") * .018;
+  const midrib: LeafTwig = {
+    id: `activity-midrib-${activityId}`,
+    parentEntityId: petiole.id,
+    controlPoints: [
+      petioleEnd,
+      v(
+        petioleEnd.x + leafDirection.x * midribLength * .34 + leafNormal.x * .008,
+        petioleEnd.y + leafDirection.y * midribLength * .34 + leafNormal.y * .008,
+        petioleEnd.z + leafDirection.z * midribLength * .34 + leafNormal.z * .008
+      ),
+      v(
+        petioleEnd.x + leafDirection.x * midribLength * .7 + leafNormal.x * .005,
+        petioleEnd.y + leafDirection.y * midribLength * .7 + leafNormal.y * .005,
+        petioleEnd.z + leafDirection.z * midribLength * .7 + leafNormal.z * .005
+      ),
+      v(
+        petioleEnd.x + leafDirection.x * midribLength - leafNormal.x * tipDroop,
+        petioleEnd.y + leafDirection.y * midribLength - leafNormal.y * tipDroop,
+        petioleEnd.z + leafDirection.z * midribLength - leafNormal.z * tipDroop
+      )
+    ],
+    baseRadius: LEAF_PETIOLE_RADIUS * .72,
+    tipRadius: LEAF_PETIOLE_RADIUS * .42
+  };
+  return {
+    activityId,
+    goalId,
+    twigId: twig.id,
+    side,
+    terminal,
+    twigProgress: Number(progress.toFixed(4)),
+    petiole,
+    midrib,
+    anchor: petioleEnd,
+    direction: leafDirection,
+    twigTangent: tangent,
+    normal: leafNormal,
+    roll: Number(((seedFromId(activityId, "roll") - .5) * .42).toFixed(4)),
+    rotation: v(
+      seedFromId(activityId, "rx") * .5,
+      seedFromId(activityId, "ry") * Math.PI * 2,
+      (seedFromId(activityId, "rz") - .5) * .8
+    ),
+    scale,
+    visible,
+    recent
+  };
 }
 
 type CurveAdjustment = {
@@ -106,6 +319,40 @@ type CurveAdjustment = {
   elevationDelta: number;
   lengthScale: number;
 };
+
+function goalBranchDirection(
+  recipe: BranchRecipe,
+  parent: SemanticBranch,
+  adjustment: CurveAdjustment
+): SceneVector {
+  const before = bezier(parent.controlPoints, Math.max(0, recipe.start - .035));
+  const after = bezier(parent.controlPoints, Math.min(1, recipe.start + .035));
+  const tangent = normalized(v(
+    after.x - before.x,
+    after.y - before.y,
+    after.z - before.z
+  ));
+  let radialAxis = cross(tangent, v(0, 1, 0));
+  if (Math.hypot(radialAxis.x, radialAxis.y, radialAxis.z) < .0001) {
+    radialAxis = v(1, 0, 0);
+  }
+  radialAxis = normalized(radialAxis);
+  const aroundAxis = normalized(cross(radialAxis, tangent));
+  const azimuth = (recipe.azimuth + adjustment.azimuthDelta) * Math.PI / 180;
+  const departure = (recipe.elevation + adjustment.elevationDelta) * Math.PI / 180;
+  const radial = v(
+    radialAxis.x * Math.cos(azimuth) + aroundAxis.x * Math.sin(azimuth),
+    radialAxis.y * Math.cos(azimuth) + aroundAxis.y * Math.sin(azimuth),
+    radialAxis.z * Math.cos(azimuth) + aroundAxis.z * Math.sin(azimuth)
+  );
+  const direction = v(
+    tangent.x * Math.cos(departure) + radial.x * Math.sin(departure),
+    tangent.y * Math.cos(departure) + radial.y * Math.sin(departure) + .1,
+    tangent.z * Math.cos(departure) + radial.z * Math.sin(departure)
+  );
+  if (direction.y < .08) direction.y = .08;
+  return normalized(direction);
+}
 
 function curve(
   recipe: BranchRecipe,
@@ -116,7 +363,25 @@ function curve(
   const azimuth = (recipe.azimuth + adjustment.azimuthDelta) * Math.PI / 180;
   const elevation = (recipe.elevation + adjustment.elevationDelta) * Math.PI / 180;
   const length = recipe.length * adjustment.lengthScale;
-  const horizontal = Math.cos(elevation) * length; const end = v(start.x + Math.cos(azimuth) * horizontal, start.y + Math.sin(elevation) * length + .25, start.z + Math.sin(azimuth) * horizontal);
+  const isGoalBranch = recipe.entityType !== "life_area";
+  const direction = isGoalBranch
+    ? goalBranchDirection(recipe, parent, adjustment)
+    : normalized(v(
+        Math.cos(azimuth) * Math.cos(elevation),
+        Math.sin(elevation),
+        Math.sin(azimuth) * Math.cos(elevation)
+      ));
+  const end = isGoalBranch
+    ? v(
+        start.x + direction.x * length,
+        start.y + direction.y * length,
+        start.z + direction.z * length
+      )
+    : v(
+        start.x + direction.x * length,
+        start.y + direction.y * length + .25,
+        start.z + direction.z * length
+      );
   const bend = (seedFromId(recipe.entityId, "curve") - .5) * recipe.gnarliness;
   // A child must be visibly narrower than its parent at the exact fork.
   // 子枝根部必须小于父枝分叉点的局部半径，避免粗管插入细枝。
@@ -127,9 +392,31 @@ function curve(
   );
   const childRatio = recipe.entityType === "life_area" ? .68 : .62;
   const baseRadius = Math.min(recipe.radius, parentRadiusAtFork * childRatio);
+  const bendAxis = isGoalBranch
+    ? normalized(cross(direction, v(0, 1, 0)))
+    : v(1, 0, 0);
   return { entityType: recipe.entityType, entityId: recipe.entityId, parentEntityId: recipe.parentEntityId,
-    controlPoints: [start, v(start.x + Math.cos(azimuth) * horizontal * .25 + bend, start.y + length * .28, start.z + Math.sin(azimuth) * horizontal * .25),
-      v(end.x - Math.cos(azimuth) * horizontal * .28 - bend, end.y - length * .2, end.z - Math.sin(azimuth) * horizontal * .28), end],
+    controlPoints: isGoalBranch
+      ? [
+          start,
+          v(
+            start.x + direction.x * length * .25 + bendAxis.x * bend,
+            start.y + direction.y * length * .25 + bendAxis.y * bend,
+            start.z + direction.z * length * .25 + bendAxis.z * bend
+          ),
+          v(
+            end.x - direction.x * length * .28 - bendAxis.x * bend,
+            end.y - direction.y * length * .28 - bendAxis.y * bend,
+            end.z - direction.z * length * .28 - bendAxis.z * bend
+          ),
+          end
+        ]
+      : [
+          start,
+          v(start.x + direction.x * length * .25 + bend, start.y + length * .28, start.z + direction.z * length * .25),
+          v(end.x - direction.x * length * .28 - bend, end.y - length * .2, end.z - direction.z * length * .28),
+          end
+        ],
     baseRadius, tipRadius: Math.max(.01, baseRadius * .35), radialSegments: 7 + recipe.stage };
 }
 
@@ -188,14 +475,68 @@ export function buildSemanticTreeSkeleton(data: DashboardData, recipe: TreeRecip
     const branch = collisionFreeCurve(item, parent, branches); branchById.set(item.entityId, branch); branches.push(branch);
   }
   const recentIds = new Set(data.recentActivities.map((item) => item.id));
-  const leaves = [...data.allActivities].sort((a, b) => a.id.localeCompare(b.id)).flatMap((activity): SemanticLeaf[] => {
-    const parent = branchById.get(activity.goalId); if (!parent) return [];
-    const rank = seedFromId(activity.id, "visibility"); const t = .62 + seedFromId(activity.id, "anchor") * .34;
-    const { twig, petiole, direction } = leafTwig(activity.id, parent, t);
-    return [{ activityId: activity.id, goalId: activity.goalId, twig, petiole, anchor: petiole.controlPoints[3], direction,
-      roll: Number(((seedFromId(activity.id, "roll") - .5) * .5).toFixed(4)),
-      rotation: v(seedFromId(activity.id, "rx") * .5, seedFromId(activity.id, "ry") * Math.PI * 2, (seedFromId(activity.id, "rz") - .5) * .8),
-      scale: Number((.52 + seedFromId(activity.id, "scale") * .2).toFixed(4)), visible: recentIds.has(activity.id) && rank <= recipe.canopy.retention }];
-  });
-  return { branches, leaves };
+  const leafTwigs: LeafTwig[] = [];
+  const leaves: SemanticLeaf[] = [];
+  const activitiesByGoal = new Map<string, typeof data.allActivities>();
+  for (const activity of [...data.allActivities].sort((left, right) =>
+    left.occurredOn.localeCompare(right.occurredOn)
+    || left.createdAt.localeCompare(right.createdAt)
+    || left.id.localeCompare(right.id)
+  )) {
+    const grouped = activitiesByGoal.get(activity.goalId) ?? [];
+    grouped.push(activity);
+    activitiesByGoal.set(activity.goalId, grouped);
+  }
+  for (const [goalId, activities] of activitiesByGoal) {
+    const parent = branchById.get(goalId);
+    if (!parent) continue;
+    const visibleActivities = visibleActivitiesForTree(activities);
+    const groups = groupActivitiesForTwigs(goalId, visibleActivities);
+    let previousProgress: number | null = null;
+    groups.forEach((group, twigIndex) => {
+      const twig = goalLeafTwig(
+        parent,
+        twigIndex,
+        groups.length,
+        group.length,
+        previousProgress
+      );
+      previousProgress = twig.attachmentProgress!;
+      leafTwigs.push(twig);
+      const terminalActivityId = group.at(-1)!.id;
+      const visibleLateralIds = group
+        .filter((activity) => activity.id !== terminalActivityId)
+        .map((activity) => activity.id);
+      const lateralProgresses = activityLeafProgresses(visibleLateralIds.length);
+      const lateralIndexById = new Map(
+        visibleLateralIds.map((id, index) => [id, index])
+      );
+      group.forEach((activity) => {
+        const visible = true;
+        const terminal = activity.id === terminalActivityId;
+        const lateralIndex = lateralIndexById.get(activity.id);
+        const progress = terminal
+          ? 1
+          : lateralIndex === undefined
+            ? .2
+            : lateralProgresses[lateralIndex]!;
+        const side: -1 | 0 | 1 = terminal
+          ? 0
+          : lateralIndex === undefined
+            ? -1
+            : lateralIndex % 2 === 0 ? -1 : 1;
+        leaves.push(activityLeafOnTwig(
+          activity.id,
+          activity.goalId,
+          twig,
+          progress,
+          side,
+          terminal,
+          visible,
+          recentIds.has(activity.id)
+        ));
+      });
+    });
+  }
+  return { branches, leafTwigs, leaves };
 }

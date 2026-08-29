@@ -21,16 +21,22 @@ import { HEALING_CSS_VARS } from "@/src/theme/healing-palette";
 type GrowthTreeDashboardProps = {
   viewModel: GrowthTreeViewModel;
   achievements: Achievement[];
+  maturePreview?: {
+    viewModel: GrowthTreeViewModel;
+    achievements: Achievement[];
+  };
 };
 
 export function GrowthTreeDashboard({
   viewModel,
-  achievements
+  achievements,
+  maturePreview
 }: GrowthTreeDashboardProps) {
   const [selection, setSelection] = useState<GrowthTreeSelection>(() =>
     clearTreeSelection()
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [previewingMatureTree, setPreviewingMatureTree] = useState(false);
   const drawerTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const onSelectWood = useCallback(
@@ -49,16 +55,27 @@ export function GrowthTreeDashboard({
     setSelection(clearTreeSelection());
   }, []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const activeViewModel = previewingMatureTree && maturePreview
+    ? maturePreview.viewModel
+    : viewModel;
+  const activeAchievements = previewingMatureTree && maturePreview
+    ? maturePreview.achievements
+    : achievements;
+  const toggleMaturePreview = useCallback(() => {
+    setPreviewingMatureTree((current) => !current);
+    setSelection(clearTreeSelection());
+    setDrawerOpen(false);
+  }, []);
 
   const hasTreeData =
-    viewModel.lifeAreaBranches.length > 0 ||
-    viewModel.longGoalTwigs.length > 0 ||
-    viewModel.shortGoalBranches.length > 0;
+    activeViewModel.lifeAreaBranches.length > 0 ||
+    activeViewModel.longGoalTwigs.length > 0 ||
+    activeViewModel.shortGoalBranches.length > 0;
   const trulyEmpty =
     !hasTreeData &&
-    achievements.length === 0 &&
-    viewModel.vitalityElements.length === 0 &&
-    viewModel.diagnostics.length === 0;
+    activeAchievements.length === 0 &&
+    activeViewModel.vitalityElements.length === 0 &&
+    activeViewModel.diagnostics.length === 0;
 
   return (
     <main className="relative min-h-screen overflow-hidden text-[var(--healing-ui-text)]" style={HEALING_CSS_VARS as React.CSSProperties}>
@@ -67,21 +84,33 @@ export function GrowthTreeDashboard({
         onSelectLeaf={onSelectLeaf}
         onSelectWood={onSelectWood}
         selection={selection}
-        viewModel={viewModel}
+        viewModel={activeViewModel}
       />
 
-      <div className="absolute right-3 top-3 z-20 sm:right-5 sm:top-5">
+      <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2 sm:right-5 sm:top-5">
         <button
           className="rounded-full border border-[#315d3a]/25 bg-[var(--healing-ui-background)]/90 px-4 py-2.5 text-sm font-semibold text-[var(--healing-ui-text)] shadow-lg backdrop-blur hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
           onClick={() => setDrawerOpen(true)}
           ref={drawerTriggerRef}
           type="button"
         >
-          果实面板 · {achievements.length}
+          果实面板 · {activeAchievements.length}
         </button>
+        {maturePreview ? (
+          <button
+            aria-checked={previewingMatureTree}
+            aria-label="繁茂 Mock"
+            className="rounded-full border border-[#315d3a]/25 bg-[var(--healing-ui-background)]/90 px-3 py-2 text-xs font-semibold text-[var(--healing-ui-text)] shadow-md backdrop-blur hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#315d3a]"
+            onClick={toggleMaturePreview}
+            role="switch"
+            type="button"
+          >
+            {previewingMatureTree ? "Mock 预览" : "查看繁茂 Mock"}
+          </button>
+        ) : null}
       </div>
 
-      {viewModel.diagnostics.length > 0 ? (
+      {activeViewModel.diagnostics.length > 0 ? (
         <aside
           aria-label="数据待确认"
           className="absolute left-3 top-3 z-20 max-w-[calc(100%-10rem)] rounded-xl border border-[#8a632a]/25 bg-[#fff8df]/92 px-4 py-3 text-[#543c1d] shadow-lg backdrop-blur sm:left-5 sm:max-w-sm"
@@ -89,7 +118,7 @@ export function GrowthTreeDashboard({
         >
           <p className="text-sm font-semibold">数据待确认</p>
           <ul className="mt-1 space-y-1 text-xs leading-5 text-[#6c522c]">
-            {viewModel.diagnostics.map((diagnostic) => (
+            {activeViewModel.diagnostics.map((diagnostic) => (
               <li key={`${diagnostic.code}-${diagnostic.entityId}`}>
                 {diagnostic.entityId}：{diagnostic.message}
               </li>
@@ -110,12 +139,12 @@ export function GrowthTreeDashboard({
       <TreeDetailPanel
         onClose={onClearSelection}
         selection={selection}
-        viewModel={viewModel}
+        viewModel={activeViewModel}
       />
 
       {drawerOpen ? (
         <AchievementDrawer
-          achievements={achievements}
+          achievements={activeAchievements}
           onClose={closeDrawer}
           returnFocusRef={drawerTriggerRef}
         />

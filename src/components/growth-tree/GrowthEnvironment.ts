@@ -14,6 +14,21 @@ import {
   createWaterSurfaceGeometry,
   WATER_SURFACE_CONFIG
 } from "../growth-tree-water-geometry";
+import {
+  createWaterRippleMaterial,
+  setWaterRainEnabled,
+  updateWaterRippleTime
+} from "../growth-tree-water-material";
+import { createArchipelagoGeometry } from "../growth-tree-archipelago-geometry";
+import {
+  createAtmosphericHaze,
+  updateAtmosphericHaze
+} from "../growth-tree-atmospheric-haze";
+import {
+  createGrowthTreeRain,
+  setGrowthTreeRainEnabled,
+  updateGrowthTreeRain
+} from "../growth-tree-rain";
 
 export type AssetLoadDiagnostic = {
   code: "asset_load_failed";
@@ -25,6 +40,7 @@ export type AssetLoadDiagnostic = {
 export type GrowthEnvironmentLayer = {
   group: THREE.Group;
   fog: THREE.Fog;
+  setRainEnabled: (enabled: boolean) => void;
   update: (elapsedSeconds: number) => void;
   dispose: () => void;
 };
@@ -107,56 +123,12 @@ export function createLake(): THREE.Mesh<
   // 这里只生成可见的水面上表层，不生成球体底部、背面或侧壁。中央保持
   // 水平，只有远端向下弯曲，既贴合岛岸，也保留圆形小世界的感觉。
   const geometry = createWaterSurfaceGeometry();
-  const positions = geometry.attributes.position;
-  const normals = geometry.attributes.normal;
-  const waveDirections = new Float32Array(positions.count * 3);
-  for (let index = 0; index < positions.count; index += 1) {
-    const x = positions.getX(index);
-    const y = positions.getY(index);
-    const z = positions.getZ(index);
-    const directionX = normals.getX(index);
-    const directionY = normals.getY(index);
-    const directionZ = normals.getZ(index);
-    const radius = Math.hypot(x, z);
-    const curvedProgress = Math.min(1, Math.max(0,
-      (radius - WATER_SURFACE_CONFIG.curveStartRadius) /
-        (WATER_SURFACE_CONFIG.outerRadius -
-          WATER_SURFACE_CONFIG.curveStartRadius)
-    ));
-    const waveAmplitude = 0.006 + curvedProgress * 0.019;
-    const wave = Math.sin(x * 0.72 + z * 0.38) * waveAmplitude;
-    waveDirections[index * 3] = directionX;
-    waveDirections[index * 3 + 1] = directionY;
-    waveDirections[index * 3 + 2] = directionZ;
-    positions.setXYZ(
-      index,
-      x + directionX * wave,
-      y + directionY * wave,
-      z + directionZ * wave
-    );
-  }
-  positions.needsUpdate = true;
-  if (positions instanceof THREE.InterleavedBufferAttribute) {
-    positions.data.setUsage(THREE.DynamicDrawUsage);
-  } else {
-    positions.setUsage(THREE.DynamicDrawUsage);
-  }
-  geometry.computeVertexNormals();
-
-  const material = new THREE.MeshLambertMaterial({
-    // Soft cool water tone / 柔和冷色水面
-    color: "#7FAEB5",
-    transparent: true,
-    opacity: 0.92,
-    flatShading: true
-  });
+  const material = createWaterRippleMaterial();
   const lake = new THREE.Mesh(geometry, material);
   lake.name = "growth-lake";
-  lake.userData.waveDirections = waveDirections;
-  lake.userData.waveBasePositions = new Float32Array(positions.array);
   lake.position.set(
     ISLAND_TERRAIN_CONFIG.worldX,
-    -0.08,
+    WATER_SURFACE_CONFIG.worldY,
     ISLAND_TERRAIN_CONFIG.worldZ
   );
   lake.receiveShadow = true;
@@ -219,6 +191,31 @@ export function createMountainLayers(): THREE.Group {
   return layers;
 }
 
+export function createArchipelago(): THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.MeshLambertMaterial
+> {
+  const mesh = new THREE.Mesh(
+    createArchipelagoGeometry(),
+    new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      flatShading: true,
+      // Distance is already expressed by muted green vertex colors. Disabling
+      // scene fog keeps horizon islands green instead of washing them to white.
+      // 远近层次由低饱和绿色顶点色表达；关闭雾混合，避免远岛被洗成白色。
+      fog: false
+    })
+  );
+  mesh.name = "growth-archipelago-terrain";
+  mesh.position.set(
+    ISLAND_TERRAIN_CONFIG.worldX,
+    0,
+    ISLAND_TERRAIN_CONFIG.worldZ
+  );
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
   const group = new THREE.Group();
   group.name = "growth-foreground";
@@ -238,7 +235,7 @@ function createForeground(): { group: THREE.Group; rocks: THREE.Group } {
     ISLAND_TERRAIN_CONFIG.worldZ
   );
   slope.receiveShadow = true;
-  group.add(slope);
+  group.add(slope, createArchipelago());
 
   const rocks = new THREE.Group();
   rocks.name = "growth-rocks-fallback";
@@ -337,10 +334,12 @@ export function createGrowthEnvironment(
 ): GrowthEnvironmentLayer {
   const group = new THREE.Group();
   group.name = "growth-environment";
+  const atmosphericHaze = createAtmosphericHaze();
+  const rain = createGrowthTreeRain();
   const lake = createLake();
   const mountains = createMountainLayers();
   const foreground = createForeground();
-  group.add(mountains, lake, foreground.group);
+  group.add(atmosphericHaze, mountains, lake, foreground.group, rain.lines);
 
   let disposed = false;
   loadConfiguredModels(
@@ -350,36 +349,24 @@ export function createGrowthEnvironment(
     () => disposed
   );
 
-  const lakePositions = lake.geometry.attributes.position;
-  const lakeBasePositions = lake.userData.waveBasePositions as Float32Array;
-  const lakeWaveDirections = lake.userData.waveDirections as Float32Array;
-
   return {
     group,
     fog: new THREE.Fog(HEALING_PALETTE.fog, 14, 38),
+    setRainEnabled(enabled) {
+      setGrowthTreeRainEnabled(rain, enabled);
+      setWaterRainEnabled(lake.material, enabled);
+    },
     update(elapsedSeconds) {
-      for (let index = 0; index < lakePositions.count; index += 1) {
-        const x = lakePositions.getX(index);
-        const z = lakePositions.getZ(index);
-        const wave =
-          Math.sin(elapsedSeconds * 0.32 + x * 0.5 + z * 0.3) * 0.012;
-        lakePositions.setXYZ(
-          index,
-          lakeBasePositions[index * 3]! +
-            lakeWaveDirections[index * 3]! * wave,
-          lakeBasePositions[index * 3 + 1]! +
-            lakeWaveDirections[index * 3 + 1]! * wave,
-          lakeBasePositions[index * 3 + 2]! +
-            lakeWaveDirections[index * 3 + 2]! * wave
-        );
-      }
-      lakePositions.needsUpdate = true;
+      updateAtmosphericHaze(atmosphericHaze.material, elapsedSeconds);
+      updateWaterRippleTime(lake.material, elapsedSeconds);
+      updateGrowthTreeRain(rain, elapsedSeconds);
     },
     dispose() {
       if (disposed) {
         return;
       }
       disposed = true;
+      rain.dispose();
       disposeObjectResources(group);
       group.clear();
     }

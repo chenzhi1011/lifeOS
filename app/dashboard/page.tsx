@@ -3,6 +3,11 @@ import { normalizeDashboardUserId } from "@/src/dashboard/user-id";
 import { queryDashboard } from "@/src/application/dashboard-queries";
 import { resolveSessionPrincipal, type ApiPrincipal } from "@/src/auth/api-principal";
 import { buildGrowthTreeViewModel } from "@/src/domain/tree-visualization";
+import { buildDashboardData } from "@/src/domain/aggregation";
+import {
+  createMatureGrowthTreeMockState,
+  MATURE_GROWTH_TREE_MOCK_USER_ID
+} from "@/src/mocks/mature-growth-tree";
 import { headers } from "next/headers";
 
 type DashboardPageProps = {
@@ -59,9 +64,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const asOf = new Date();
   const data = await queryDashboard(principal, asOf);
   const viewModel = buildGrowthTreeViewModel(data, asOf);
+  const matureMockData = buildDashboardData(
+    createMatureGrowthTreeMockState(asOf),
+    MATURE_GROWTH_TREE_MOCK_USER_ID,
+    asOf
+  );
   return (
     <GrowthTreeDashboard
       achievements={data.achievements}
+      maturePreview={{
+        achievements: matureMockData.achievements,
+        viewModel: buildGrowthTreeViewModel(matureMockData, asOf)
+      }}
       viewModel={viewModel}
     />
   );

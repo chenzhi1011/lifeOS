@@ -26,4 +26,9 @@ describe("Custom GPT action documentation contract", () => {
     expect(openapi).toContain("ReminderChoice:");
     expect(openapi).toMatch(/const: default[\s\S]*const: none[\s\S]*const: custom/);
   });
+
+  it("inlines path parameters for the Custom GPT Actions parser", () => {
+    expect(openapi).not.toMatch(/parameters:\s*\[\{ \$ref:/);
+    expect(openapi.match(/name: id\s+in: path\s+required: true/g)).toHaveLength(2);
+  });
 });

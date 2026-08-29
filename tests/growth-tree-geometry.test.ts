@@ -41,7 +41,8 @@ const viewModel: GrowthTreeViewModel = {
     { entityType: "life_area", entityId: "growth", parentEntityId: "root", controlPoints: [{x:0,y:1,z:0},{x:.2,y:1.4,z:0},{x:.5,y:2,z:0},{x:1,y:2.4,z:0}], baseRadius:.2, tipRadius:.06, radialSegments:8 },
     { entityType: "long_goal", entityId: "career", parentEntityId: "growth", controlPoints: [{x:.5,y:2,z:0},{x:.7,y:2.3,z:0},{x:1,y:2.6,z:0},{x:1.2,y:3,z:0}], baseRadius:.1, tipRadius:.03, radialSegments:7 }
   ],
-  semanticLeaves: [{ activityId: "activity-1", goalId: "career", anchor: {x:1.48,y:3.33,z:.12}, direction:{x:.97,y:-.24,z:0}, roll:0, rotation:{x:0,y:0,z:0}, scale:.65, visible:true, twig:{id:"activity-twig-1",parentEntityId:"career",controlPoints:[{x:1.05,y:2.75,z:0},{x:1.18,y:2.95,z:.04},{x:1.3,y:3.18,z:.08},{x:1.4,y:3.35,z:.12}],baseRadius:.014,tipRadius:.014}, petiole:{id:"activity-petiole-1",parentEntityId:"activity-twig-1",controlPoints:[{x:1.4,y:3.35,z:.12},{x:1.43,y:3.343,z:.12},{x:1.455,y:3.337,z:.12},{x:1.48,y:3.33,z:.12}],baseRadius:.004,tipRadius:.004} }],
+  semanticLeafTwigs: [{id:"activity-twig-1",parentEntityId:"career",controlPoints:[{x:1.05,y:2.75,z:0},{x:1.18,y:2.95,z:.04},{x:1.3,y:3.18,z:.08},{x:1.4,y:3.35,z:.12}],baseRadius:.014,tipRadius:.014,attachmentProgress:.5,directionSector:0}],
+  semanticLeaves: [{ activityId: "activity-1", goalId: "career", twigId:"activity-twig-1", side:-1, terminal:false, twigProgress:.4, anchor: {x:1.48,y:3.33,z:.12}, direction:{x:1,y:0,z:0}, twigTangent:{x:1,y:0,z:0}, normal:{x:0,y:1,z:0}, roll:0, rotation:{x:0,y:0,z:0}, scale:.65, visible:true, recent:true, petiole:{id:"activity-petiole-1",parentEntityId:"activity-twig-1",controlPoints:[{x:1.4,y:3.35,z:.12},{x:1.43,y:3.343,z:.12},{x:1.455,y:3.337,z:.12},{x:1.48,y:3.33,z:.12}],baseRadius:.004,tipRadius:.004},midrib:{id:"activity-midrib-1",parentEntityId:"activity-petiole-1",controlPoints:[{x:1.48,y:3.33,z:.12},{x:1.55,y:3.338,z:.12},{x:1.62,y:3.335,z:.12},{x:1.7,y:3.3,z:.12}],baseRadius:.003,tipRadius:.002} }],
   root: {
     ...segment,
     entityType: "root",
@@ -84,6 +85,15 @@ type LayerFactory = (
     activityLeaves: number;
     maxRadialSegments: number;
   };
+  targetForIntersection: (
+    intersection: Pick<THREE.Intersection, "object" | "instanceId">
+  ) => {
+    kind: "wood" | "leaf";
+    entityType: string;
+    entityId: string;
+    leafId: string | null;
+    goalId: string | null;
+  } | null;
   dispose: () => void;
 };
 
@@ -217,9 +227,12 @@ describe("growth tree geometry", () => {
     );
 
     expect(layer.selectable).toHaveLength(4);
-    expect(layer.group.getObjectByName("decorative-canopy-twigs")).toBeDefined();
-    expect(layer.group.getObjectByName("activity-leaf-twig-activity-1")).toBeDefined();
-    expect(layer.entityByUuid.size).toBe(layer.selectable.length);
+    expect(layer.group.getObjectByName("decorative-canopy-twigs")).toBeUndefined();
+    expect(layer.group.getObjectByName("decorative-canopy")).toBeUndefined();
+    expect(layer.group.getObjectByName("activity-leaf-twigs")).toBeDefined();
+    const activityLeaves = layer.group.getObjectByName("activity-leaf-instances");
+    expect(activityLeaves).toBeInstanceOf(THREE.InstancedMesh);
+    expect(layer.entityByUuid.size).toBe(3);
     expect(
       layer.selectable.map((object) => layer.entityByUuid.get(object.uuid))
     ).toEqual(
@@ -238,15 +251,18 @@ describe("growth tree geometry", () => {
           leafId: null,
           goalId: "career"
         }),
-        expect.objectContaining({
-          kind: "leaf",
-          entityType: "activity",
-          entityId: "activity-1",
-          leafId: "activity-1",
-          goalId: "career"
-        })
       ])
     );
+    expect(layer.targetForIntersection({
+      object: activityLeaves!,
+      instanceId: 0
+    })).toEqual(expect.objectContaining({
+      kind: "leaf",
+      entityType: "activity",
+      entityId: "activity-1",
+      leafId: "activity-1",
+      goalId: "career"
+    }));
 
     layer.dispose();
     layer.dispose();
@@ -260,7 +276,7 @@ describe("growth tree geometry", () => {
     expect(layer.group.children).toHaveLength(0);
   });
 
-  it("caps decorative and selectable activity leaves at 1500 in total", () => {
+  it("renders every visible activity as one batched selectable leaf", () => {
     const createLayer = layerFactory();
     expect(createLayer).toBeTypeOf("function");
     if (!createLayer) return;
@@ -271,9 +287,14 @@ describe("growth tree geometry", () => {
 
     const layer = createLayer({ ...viewModel, semanticLeaves: manyLeaves });
 
-    expect(layer.stats.activityLeaves).toBe(100);
-    expect(layer.stats.decorativeLeaves).toBeLessThanOrEqual(1400);
-    expect(layer.stats.totalLeaves).toBeLessThanOrEqual(1500);
+    expect(layer.stats.activityLeaves).toBe(250);
+    expect(layer.stats.decorativeLeaves).toBe(0);
+    expect(layer.stats.totalLeaves).toBe(250);
+    const instances = layer.group.getObjectByName("activity-leaf-instances");
+    expect(instances).toBeInstanceOf(THREE.InstancedMesh);
+    expect((instances as THREE.InstancedMesh).count).toBe(250);
+    expect(layer.group.getObjectByName("activity-leaf-twigs"))
+      .toBeInstanceOf(THREE.Mesh);
     layer.dispose();
   });
 });

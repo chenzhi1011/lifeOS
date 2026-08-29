@@ -63,7 +63,7 @@ export function TreeDetailPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold tracking-[0.18em] text-[#58705c]">
-            {leaf ? "近期叶片" : entityLabels[wood.entityType]}
+            {leaf ? "成长叶片" : entityLabels[wood.entityType]}
           </p>
           <h2 className="mt-2 text-xl font-semibold text-[#18321e]">{wood.label}</h2>
         </div>

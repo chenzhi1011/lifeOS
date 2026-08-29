@@ -1,6 +1,9 @@
 import * as THREE from "three";
 
 export const WATER_SURFACE_CONFIG = {
+  // Shared world-space height used by both water and island shorelines.
+  // 水面与所有岛岸共用的世界坐标高度，避免远岛漂浮或下沉。
+  worldY: -0.08,
   // Covers the island's widest shoreline before any visible curvature starts.
   // 覆盖小岛最宽岸线；在这个范围内水面保持水平，不与岛岸分离。
   flatRadius: 7.2,
@@ -36,6 +39,7 @@ export function createWaterSurfaceGeometry(): THREE.BufferGeometry {
     radialRings
   } = WATER_SURFACE_CONFIG;
   const vertices: number[] = [0, 0, 0];
+  const uvs: number[] = [.5, .5];
   const indices: number[] = [];
 
   for (let ring = 1; ring <= radialRings; ring += 1) {
@@ -47,6 +51,10 @@ export function createWaterSurfaceGeometry(): THREE.BufferGeometry {
         Math.cos(angle) * radius,
         height,
         Math.sin(angle) * radius
+      );
+      uvs.push(
+        .5 + Math.cos(angle) * radius / outerRadius * .5,
+        .5 + Math.sin(angle) * radius / outerRadius * .5
       );
     }
   }
@@ -82,6 +90,7 @@ export function createWaterSurfaceGeometry(): THREE.BufferGeometry {
     "position",
     new THREE.Float32BufferAttribute(vertices, 3)
   );
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
